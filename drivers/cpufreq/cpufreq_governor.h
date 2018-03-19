@@ -214,7 +214,13 @@ struct sd_dbs_tuners {
 	unsigned int cpu_up_high_threshold;
 	unsigned int cpu_down_mid_threshold;
 	unsigned int cpu_down_high_threshold;
-	unsigned int window_size;
+	unsigned int up_window_size;
+	unsigned int down_window_size;
+	int boostpulse_duration;
+	u64 boostpulse_endtime;
+	int boost;
+	bool boosted;
+	int boost_cpu;
 };
 
 /* Common Governer data across policies */
@@ -275,6 +281,9 @@ static inline int delay_for_sampling_rate(unsigned int sampling_rate)
 	return delay;
 }
 
+bool is_governor_busy(struct cpufreq_policy *policy);
+void set_governor_busy(struct cpufreq_policy *policy, bool busy);
+
 #define declare_show_sampling_rate_min(_gov)				\
 static ssize_t show_sampling_rate_min_gov_sys				\
 (struct kobject *kobj, struct attribute *attr, char *buf)		\
@@ -289,6 +298,8 @@ static ssize_t show_sampling_rate_min_gov_pol				\
 	struct dbs_data *dbs_data = policy->governor_data;		\
 	return sprintf(buf, "%u\n", dbs_data->min_sampling_rate);	\
 }
+
+extern struct mutex cpufreq_governor_lock;
 
 void dbs_check_cpu(struct dbs_data *dbs_data, int cpu);
 bool need_load_eval(struct cpu_dbs_common_info *cdbs,

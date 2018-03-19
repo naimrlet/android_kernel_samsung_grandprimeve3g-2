@@ -18,9 +18,8 @@
 #include <linux/hrtimer.h>
 #include <linux/wakelock.h>
 #include <linux/power_supply.h>
-//#include <linux/sprd_battery_common.h>
+#include <linux/sprd_battery_common.h>
 
-#include <soc/sprd/adc.h>
 
 #if defined(CONFIG_SPRD_2713_POWER) || defined(CONFIG_SPRD_EXT_IC_POWER)
 #include "sprd_2713_charge.h"
@@ -37,6 +36,9 @@
 #define SPRDBAT_CHG_END_OTP_COLD_BIT    (1 << 2)
 #define SPRDBAT_CHG_END_TIMEOUT_BIT		(1 << 3)
 #define SPRDBAT_CHG_END_OVP_BIT		(1 << 4)
+#define SPRDBAT_CHG_END_BAT_OVP_BIT	(1 << 5)
+#define SPRDBAT_CHG_END_UNSPEC		(1 << 8)
+
 
 #define SPRDBAT_AVERAGE_COUNT   8
 #define SPRDBAT_PLUG_WAKELOCK_TIME_SEC 3
@@ -44,6 +46,8 @@
 #define SPRDBAT_AUXADC_CAL_TYPE_NO         0
 #define SPRDBAT_AUXADC_CAL_TYPE_NV         1
 #define SPRDBAT_AUXADC_CAL_TYPE_EFUSE      2
+
+//#define SPRDFGU_TEMP_COMP_SOC
 
 enum sprd_adapter_type {
 	ADP_TYPE_UNKNOW = 0,	//unknow adapter type
@@ -57,6 +61,7 @@ struct sprdbat_info {
 	uint32_t bat_health;
 	uint32_t chging_current;
 	int bat_current;
+	int bat_current_avg;
 	uint32_t chg_current_type;
 	uint32_t adp_type;
 	uint32_t usb_online;
@@ -71,6 +76,7 @@ struct sprdbat_info {
 	uint32_t capacity;
 	uint32_t soc;
 	uint32_t chg_this_timeout;
+	uint32_t avg_chg_vol;
 };
 
 struct sprdbat_drivier_data {
@@ -84,15 +90,18 @@ struct sprdbat_drivier_data {
 	uint32_t gpio_charger_detect;
 	uint32_t gpio_chg_cv_state;
 	uint32_t gpio_vchg_ovi;
+	uint32_t gpio_vbat_detect;
 	uint32_t irq_charger_detect;
 	uint32_t irq_chg_cv_state;
 	uint32_t irq_vchg_ovi;
-	struct wake_lock charger_plug_out_lock;
+	uint32_t irq_vbat_detect;
+	struct wake_lock charger_wake_lock;
 	struct workqueue_struct *monitor_wqueue;
 	struct delayed_work cv_irq_work;
 	struct delayed_work battery_work;
 	struct delayed_work battery_sleep_work;
 	struct work_struct ovi_irq_work;
+	struct work_struct vbat_detect_irq_work;
 	struct delayed_work *charge_work;
 	int (*start_charge) (void);
 	int (*stop_charge) (void);
@@ -110,6 +119,17 @@ struct sprdbat_auxadc_cal {
 	uint16_t cal_type;
 };
 
+struct sprd_ext_ic_operations {
+	void (*ic_init) (struct sprd_battery_platform_data *);
+	void (*charge_start_ext) (int);
+	void (*charge_stop_ext) (void);
+	int (*get_charging_status) (void);
+	int(*get_charging_fault) (void);
+	void (*timer_callback_ext) (void);
+	void (*otg_charge_ext) (int);
+	void (*ext_register_notifier)(struct notifier_block *);
+	void(*ext_unregster_notifier)(struct notifier_block *);
+};
 #define sprdbat_read_vbat_vol sprdfgu_read_vbat_vol
 #define sprdbat_read_temp sprdchg_read_temp
 #define sprdbat_adp_plug_nodify sprdfgu_adp_status_set
@@ -129,5 +149,7 @@ void sprdchg_open_ovi_fun_ext(void);
 void sprdchg_close_ovi_fun_ext(void);
 void sprdbat_charge_event_ext(uint32_t event);
 #endif
-
+void sprdbat_register_ext_ops(const struct sprd_ext_ic_operations * ops);
+void sprdbat_unregister_ext_ops(void);
+extern const struct sprd_ext_ic_operations *sprd_get_ext_ic_ops(void);
 #endif /* _CHG_DRVAPI_H_ */

@@ -45,8 +45,6 @@
 static int current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
 static u8 attached_cable;
 static bool is_jig_on;
-/* static unsigned int lpcharge; */
-/* EXPORT_SYMBOL(lpcharge); */
 unsigned int lpcharge;
 EXPORT_SYMBOL(lpcharge);
 static unsigned chg_irq;
@@ -57,9 +55,7 @@ void (*tsp_charger_status_cb)(int);
 EXPORT_SYMBOL(tsp_charger_status_cb);
 #endif
 
-#if defined(CONFIG_CHARGER_SMB328) || \
-	defined(CONFIG_CHARGER_SMB358) || \
-	defined(CONFIG_CHARGER_SM5701)
+#if defined(CONFIG_CHARGER_SMB328) || defined(CONFIG_CHARGER_SMB358) || defined(CONFIG_BATTERY_JXX_LTE)
 extern int otg_enable_flag;
 #endif
 
@@ -423,9 +419,7 @@ void sec_charger_cb(u8 cable_type)
 
 	pr_info("[BATT] CB enabled(%d), prev_cable(%d)\n", cable_type, previous_cable_type);
 
-#if defined(CONFIG_CHARGER_SMB328) || \
-	defined(CONFIG_CHARGER_SMB358) || \
-	defined(CONFIG_CHARGER_SM5701)
+#if defined(CONFIG_CHARGER_SMB328) || defined(CONFIG_CHARGER_SMB358)
 	pr_info("%s: otg_enable_flag (%d)\n", __func__, otg_enable_flag);
 	if (otg_enable_flag &&
 		((cable_type == CABLE_JIG_UART_OFF_VB) ||
@@ -512,12 +506,11 @@ void sec_charger_cb(u8 cable_type)
 	struct power_supply *psy = power_supply_get_by_name("battery");
 
 	pr_info("%s: cable type (0x%02x)\n", __func__, cable_type);
+	is_jig_on = false;
 
 	attached_cable = cable_type;
 
-#if defined(CONFIG_CHARGER_SMB328) || \
-	defined(CONFIG_CHARGER_SMB358) || \
-	defined(CONFIG_CHARGER_SM5701)
+#if defined(CONFIG_CHARGER_SMB328) || defined(CONFIG_CHARGER_SMB358) || defined(CONFIG_BATTERY_JXX_LTE)
 	pr_info("%s: otg_enable_flag (%d)\n", __func__, otg_enable_flag);
 	if (otg_enable_flag &&
 		((cable_type == MUIC_SM5504_CABLE_TYPE_JIG_UART_OFF_WITH_VBUS) ||
@@ -529,48 +522,54 @@ void sec_charger_cb(u8 cable_type)
 
 	switch (cable_type) {
 	case MUIC_SM5504_CABLE_TYPE_NONE:
+		current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
+		break;
+#ifdef CONFIG_USB_HOST_NOTIFY
+	case MUIC_SM5504_CABLE_TYPE_OTG:
+	case MUIC_SM5504_CABLE_TYPE_OTG_WITH_VBUS:
+		current_cable_type = POWER_SUPPLY_TYPE_OTG;
+		break;
+#else
+	case MUIC_SM5504_CABLE_TYPE_OTG:
+		current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
+		break;
+	case MUIC_SM5504_CABLE_TYPE_OTG_WITH_VBUS:
+		current_cable_type = POWER_SUPPLY_TYPE_UNKNOWN;
+		break;
+#endif /* CONFIG_USB_HOST_NOTIFY */
 	case MUIC_SM5504_CABLE_TYPE_JIG_UART_ON:
 	case MUIC_SM5504_CABLE_TYPE_JIG_UART_OFF:
-#if !defined(CONFIG_MACH_GOYAVE3G) && !defined(CONFIG_MACH_GOYAVEWIFI)
-	case MUIC_SM5504_CABLE_TYPE_OTG:
-#endif
+	case MUIC_SM5504_CABLE_TYPE_JIG_UART_ON_WITH_VBUS:
+		is_jig_on = true;
 		current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
 		break;
 	case MUIC_SM5504_CABLE_TYPE_USB:
 	case MUIC_SM5504_CABLE_TYPE_CDP:
 	case MUIC_SM5504_CABLE_TYPE_L_USB:
+	case MUIC_SM5504_CABLE_TYPE_TYPE1_CHARGER:
+	case MUIC_SM5504_CABLE_TYPE_ATT_TA:
+		current_cable_type = POWER_SUPPLY_TYPE_USB;
+		break;
 	case MUIC_SM5504_CABLE_TYPE_JIG_USB_ON:
 	case MUIC_SM5504_CABLE_TYPE_JIG_USB_OFF:
+		is_jig_on = true;
 		current_cable_type = POWER_SUPPLY_TYPE_USB;
 		break;
 	case MUIC_SM5504_CABLE_TYPE_REGULAR_TA:
-	case MUIC_SM5504_CABLE_TYPE_ATT_TA:
-	case MUIC_SM5504_CABLE_TYPE_JIG_UART_OFF_WITH_VBUS:
-	case MUIC_SM5504_CABLE_TYPE_JIG_UART_ON_WITH_VBUS:
-	case MUIC_SM5504_CABLE_TYPE_TYPE1_CHARGER:
+	case MUIC_SM5504_CABLE_TYPE_UNKNOWN_WITH_VBUS:
+	case MUIC_SM5504_CABLE_TYPE_0x1A_WITH_VBUS:
 		current_cable_type = POWER_SUPPLY_TYPE_MAINS;
 		break;
+	case MUIC_SM5504_CABLE_TYPE_JIG_UART_OFF_WITH_VBUS:
+		is_jig_on = true;
+		current_cable_type = POWER_SUPPLY_TYPE_MAINS;
+		break;
+	case MUIC_SM5504_CABLE_TYPE_0x15:
 	case MUIC_SM5504_CABLE_TYPE_UART:
 		current_cable_type = POWER_SUPPLY_TYPE_UNKNOWN;
 		break;
-	case MUIC_SM5504_CABLE_TYPE_OTG_WITH_VBUS:
-#if defined(CONFIG_MACH_CORE3_W) || \
-	defined(CONFIG_MACH_GRANDNEOVE3G) || defined(CONFIG_MACH_J13G) || \
-	defined(CONFIG_MACH_VIVALTO3MVE3G_LTN) || \
-	defined(CONFIG_MACH_YOUNG2VE3G) || defined(CONFIG_MACH_YOUNG23GDTV)
-		current_cable_type = POWER_SUPPLY_TYPE_UNKNOWN;
-		break;
-#elif defined(CONFIG_MACH_GOYAVE3G) || defined(CONFIG_MACH_GOYAVEWIFI)
-	case MUIC_SM5504_CABLE_TYPE_OTG:
-		current_cable_type = POWER_SUPPLY_TYPE_OTG;
-		break;
-#else
-		goto skip;
-#endif
-	case MUIC_SM5504_CABLE_TYPE_0x15:
 	case MUIC_SM5504_CABLE_TYPE_0x1A:
-//	case MUIC_SM5504_CABLE_TYPE_0x1A_VBUS:
-		current_cable_type = POWER_SUPPLY_TYPE_MISC;
+		current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
 		break;
 	default:
 		pr_err("%s: invalid type for charger:%d\n",
@@ -632,9 +631,6 @@ int sec_vf_adc_current_check(void)
 /* vf adc check, only for MUIC & young2dtv */
 int sec_vf_adc_check(void)
 {
-#if defined(CONFIG_MACH_GRANDPRIMEVE3G)
-	return sec_vf_adc_current_check();
-#else
 	int adc = 0;
 
 	adc = sci_adc_get_value(0, false);
@@ -644,7 +640,6 @@ int sec_vf_adc_check(void)
 		return 0;
 	else
 		return 1;
-#endif
 }
 
 int sec_bat_dt_init(struct device_node *np,
@@ -846,33 +841,6 @@ int sec_bat_dt_init(struct device_node *np,
 	if (ret)
 		pr_info("%s : Temp high recovery event is Empty\n", __func__);
 
-#if defined(CONFIG_MACH_DEGAS_USA)
-	pdata->temp_high_threshold_event = 550;
-	pdata->temp_high_recovery_event = 480;
-	pdata->temp_low_threshold_event = 20;
-	pdata->temp_low_recovery_event = 50;
-	pdata->temp_high_threshold_normal = 550;
-	pdata->temp_high_recovery_normal = 480;
-	pdata->temp_low_threshold_normal = 20;
-	pdata->temp_low_recovery_normal = 50;
-	pdata->temp_high_threshold_lpm = 550;
-	pdata->temp_high_recovery_lpm = 480;
-	pdata->temp_low_threshold_lpm = 20;
-	pdata->temp_low_recovery_lpm = 50;
-#elif defined(CONFIG_MACH_DEGAS_BMW)
-	pdata->temp_high_threshold_event = 450;
-	pdata->temp_high_recovery_event = 400;
-	pdata->temp_low_threshold_event = 0;
-	pdata->temp_low_recovery_event = 50;
-	pdata->temp_high_threshold_normal = 450;
-	pdata->temp_high_recovery_normal = 400;
-	pdata->temp_low_threshold_normal = 0;
-	pdata->temp_low_recovery_normal = 50;
-	pdata->temp_high_threshold_lpm = 450;
-	pdata->temp_high_recovery_lpm = 400;
-	pdata->temp_low_threshold_lpm = 0;
-	pdata->temp_low_recovery_lpm = 50;
-#else
 	ret = of_property_read_u32(np, "battery,temp_highlimit_threshold_event",
 		&pdata->temp_highlimit_threshold_event);
 	if (ret)
@@ -958,7 +926,6 @@ int sec_bat_dt_init(struct device_node *np,
 			&pdata->temp_low_recovery_lpm);
 	if (ret)
 		pr_info("%s : Temp low recovery lpm is Empty\n", __func__);
-#endif
 
 	ret = of_property_read_u32(np, "battery,full_check_type",
 			&pdata->full_check_type);
@@ -1102,15 +1069,10 @@ int sec_chg_dt_init(struct device_node *np,
 	chg_irq_gpio = of_get_named_gpio(np, "chgirq-gpio", 0);
 	if (chg_irq_gpio < 0)
 		pr_err("%s: chgirq gpio get failed: %d\n", __func__, chg_irq_gpio);
-	else {
-		ret = gpio_request(chg_irq_gpio, "chgirq-gpio");
-		if (ret)
-			pr_err("%s gpio_request failed: %d\n", __func__, chg_irq_gpio);
-	}
-	ret = of_property_read_u32(np, "chg-float-voltage",
-					&pdata->chg_float_voltage);
+
+	ret = gpio_request(chg_irq_gpio, "chgirq-gpio");
 	if (ret)
-		return ret;
+		pr_err("%s gpio_request failed: %d\n", __func__, chg_irq_gpio);
 
         np = of_find_node_by_name(NULL, "sec-battery");
         if (!np) {
@@ -1119,6 +1081,11 @@ int sec_chg_dt_init(struct device_node *np,
         else {
                 int i = 0;
                 const u32 *p;
+		ret = of_property_read_u32(np, "battery,swelling_full_check_current_2nd",
+					   &pdata->swelling_full_check_current_2nd);
+		if (ret) {
+			pr_info("%s: swelling_full_check_current_2nd is Empty\n", __func__);
+		}
                 p = of_get_property(np, "battery,input_current_limit", &len);
                 if (!p){
 
@@ -1164,6 +1131,11 @@ int sec_chg_dt_init(struct device_node *np,
                 }
         }
 
+	ret = of_property_read_u32(np, "battery,chg_float_voltage",
+			&pdata->chg_float_voltage);
+	if (ret)
+		pr_info("%s : chg_float_voltage is Empty\n", __func__);
+
 	ret = of_property_read_u32(np, "battery,ovp_uvlo_check_type",
 			&pdata->ovp_uvlo_check_type);
 	if (ret)
@@ -1179,6 +1151,8 @@ int sec_chg_dt_init(struct device_node *np,
 	if (ret)
 		pr_info("%s : Full check type 2nd is Empty\n", __func__);
 
+#if (defined(CONFIG_MACH_YOUNG23GDTV) || defined(CONFIG_MACH_GRANDNEOVE3G) || \
+	defined(CONFIG_MACH_J13G)) && !defined(CONFIG_MACH_YOUNG2VE3G)
 	gpio_vbat_detect = BATT_DET_CURRENT;
 
 	if (!gpio_is_valid(gpio_vbat_detect)) {
@@ -1188,6 +1162,7 @@ int sec_chg_dt_init(struct device_node *np,
         gpio_request(gpio_vbat_detect, "battery-detect");
         gpio_direction_input(gpio_vbat_detect);
         printk("%s: battery detect gpio %d\n", __func__, gpio_vbat_detect);
+#endif
 
 	if (chg_irq_gpio > 0) {
 		pdata->chg_irq_attr = chg_irq_attr;
@@ -1263,7 +1238,7 @@ int sec_fg_dt_init(struct device_node *np,
 		of_property_read_u32(np, "relax_current", &battery_data->relax_current);
 		of_property_read_u32(np, "cal_ajust", &battery_data->fgu_cal_ajust);
 
-#if defined(CONFIG_MACH_GRANDPRIMEVE3G)
+#if defined(CONFIG_MACH_J1POP3G) || defined(CONFIG_BATTERY_JXX_LTE)
 		of_get_property(np, "cnom_temp_tab", &len);
 		len /= sizeof(u32);
 		battery_data->cnom_temp_tab_size = len >> 1;

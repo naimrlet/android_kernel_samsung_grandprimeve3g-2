@@ -32,8 +32,12 @@
 #include "gadget_chips.h"
 
 #include "f_fs.c"
-#include "f_adb.c"
+
 #include "f_audio_source.c"
+#ifdef CONFIG_SND_USB_AUDIO
+#include "f_midi.c"
+#endif
+
 #include "f_mass_storage.c"
 #ifdef CONFIG_USB_ANDROID_SAMSUNG_MTP
 #include "f_mtp_samsung.c"
@@ -60,7 +64,6 @@ MODULE_VERSION("1.0");
 #define GSER_PORT_MAX_COUNT    MAX_U_SERIAL_PORTS
 
 static const char longname[] = "Gadget Android";
-
 /* Default device class, subclass, and protocol */
 #define USB_DEVICE_CLASS        0x00
 #define USB_DEVICE_SUBCLASS     0x00
@@ -75,8 +78,15 @@ static int composite_string_index;
 #define VENDOR_ID		0x18D1
 #define PRODUCT_ID		0x0001
 
-/* DM_PORT NUM : /dev/ttyGS* port number */
 #define DM_PORT_NUM            1
+
+#ifdef CONFIG_SND_USB_AUDIO
+/* f_midi configuration */
+#define MIDI_INPUT_PORTS    1
+#define MIDI_OUTPUT_PORTS   1
+#define MIDI_BUFFER_SIZE    256
+#define MIDI_QUEUE_LENGTH   32
+#endif
 
 struct android_usb_function {
 	char *name;
@@ -139,6 +149,7 @@ static void android_unbind_config(struct usb_configuration *c);
 static char manufacturer_string[256];
 static char product_string[256];
 static char serial_string[256];
+
 #ifdef CONFIG_USB_G_ANDROID_SAMSUNG_COMPOSITE
 int g_rndis;
 int is_rndis_use(void)
@@ -196,13 +207,16 @@ static void android_work(struct work_struct *data)
 	char *configured[2]   = { "USB_STATE=CONFIGURED", NULL };
 	char **uevent_envp = NULL;
 	unsigned long flags;
-
+	
 	printk(KERN_DEBUG "usb: %s config=%p,connected=%d,sw_connected=%d\n",
 			__func__, cdev->config, dev->connected,
 			dev->sw_connected);
 
 	if (!cdev)
 		return;
+
+
+
 	spin_lock_irqsave(&cdev->lock, flags);
 	if (cdev->config)
 		uevent_envp = configured;
@@ -251,100 +265,6 @@ static void android_disable(struct android_dev *dev)
 
 /*-------------------------------------------------------------------------*/
 /* Supported functions initialization */
-
-struct adb_data {
-	bool opened;
-	bool enabled;
-};
-
-static int
-adb_function_init(struct android_usb_function *f,
-		struct usb_composite_dev *cdev)
-{
-	f->config = kzalloc(sizeof(struct adb_data), GFP_KERNEL);
-	if (!f->config)
-		return -ENOMEM;
-
-	return adb_setup();
-}
-
-static void adb_function_cleanup(struct android_usb_function *f)
-{
-	adb_cleanup();
-	kfree(f->config);
-}
-
-static int
-adb_function_bind_config(struct android_usb_function *f,
-		struct usb_configuration *c)
-{
-	return adb_bind_config(c);
-}
-
-static void adb_android_function_enable(struct android_usb_function *f)
-{
-/*	struct android_dev *dev = _android_dev; */
-	struct adb_data *data = f->config;
-
-	data->enabled = true;
-
-	/* Disable the gadget until adbd is ready */
-	/* Removed: can not pass USB CV test ....  */
-	/* if (!data->opened)
-		android_disable(dev); */
-}
-
-static void adb_android_function_disable(struct android_usb_function *f)
-{
-/*	struct android_dev *dev = _android_dev; */
-	struct adb_data *data = f->config;
-
-	data->enabled = false;
-
-	/* Balance the disable that was called in closed_callback */
-	/* Removed: can not pass USB CV test ....  */
-	/*if (!data->opened)
-		android_enable(dev); */
-}
-
-static struct android_usb_function adb_function = {
-	.name		= "adb",
-	.enable		= adb_android_function_enable,
-	.disable	= adb_android_function_disable,
-	.init		= adb_function_init,
-	.cleanup	= adb_function_cleanup,
-	.bind_config	= adb_function_bind_config,
-};
-
-static void adb_ready_callback(void)
-{
-	struct android_dev *dev = _android_dev;
-	struct adb_data *data = adb_function.config;
-
-	mutex_lock(&dev->mutex);
-
-	data->opened = true;
-	/* Removed: can not pass USB CV test ....  */
-	/*if (data->enabled)
-		android_enable(dev); */
-
-	mutex_unlock(&dev->mutex);
-}
-
-static void adb_closed_callback(void)
-{
-	struct android_dev *dev = _android_dev;
-	struct adb_data *data = adb_function.config;
-
-	mutex_lock(&dev->mutex);
-
-	data->opened = false;
-	/* Removed: can not pass USB CV test ....  */
-	/*if (data->enabled)
-		android_disable(dev);*/
-
-	mutex_unlock(&dev->mutex);
-}
 
 struct functionfs_config {
 	bool opened;
@@ -629,6 +549,7 @@ static struct android_usb_function acm_function = {
 	.init		= acm_function_init,
 	.cleanup	= acm_function_cleanup,
 	.bind_config	= acm_function_bind_config,
+
 	.attributes	= acm_function_attributes,
 };
 
@@ -678,6 +599,12 @@ static int mtp_function_ctrlrequest(struct android_usb_function *f,
 {
 	return mtp_ctrlrequest(cdev, c);
 }
+static int ptp_function_ctrlrequest(struct android_usb_function *f,
+					struct usb_composite_dev *cdev,
+					const struct usb_ctrlrequest *c)
+{
+	return mtp_ctrlrequest(cdev, c);
+}
 
 static struct android_usb_function mtp_function = {
 	.name		= "mtp",
@@ -693,7 +620,7 @@ static struct android_usb_function ptp_function = {
 	.init		= ptp_function_init,
 	.cleanup	= ptp_function_cleanup,
 	.bind_config	= ptp_function_bind_config,
-	.ctrlrequest	= mtp_function_ctrlrequest,
+	.ctrlrequest	= ptp_function_ctrlrequest,
 };
 
 
@@ -1178,7 +1105,7 @@ err_usb_add_function:
 }
 /**
  *should notice that when adb disable/enable, it will call usb_remove_config/usb_add_config
- *and in usb_remove_config it will call unbind_config , it will also delete function list and unbind  
+ *and in usb_remove_config it will call unbind_config , it will also delete function list and unbind
  *the gser function;
  *in kernel 3.4 no acm_function_unbind_config, so now we don't use gser_function_unbind_config
  *to avoid kernel data abort. because in current s/w architecture it will delete function list two times.
@@ -1309,8 +1236,62 @@ static struct android_usb_function audio_source_function = {
 	.attributes	= audio_source_function_attributes,
 };
 
+#ifdef CONFIG_SND_USB_AUDIO
+static int midi_function_init(struct android_usb_function *f,
+					struct usb_composite_dev *cdev)
+{
+	struct midi_alsa_config *config;
+
+	config = kzalloc(sizeof(struct midi_alsa_config), GFP_KERNEL);
+	f->config = config;
+	if (!config)
+		return -ENOMEM;
+	config->card = -1;
+	config->device = -1;
+	return 0;
+}
+
+static void midi_function_cleanup(struct android_usb_function *f)
+{
+	kfree(f->config);
+}
+
+static int midi_function_bind_config(struct android_usb_function *f,
+						struct usb_configuration *c)
+{
+	struct midi_alsa_config *config = f->config;
+
+	return f_midi_bind_config(c, SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
+			MIDI_INPUT_PORTS, MIDI_OUTPUT_PORTS, MIDI_BUFFER_SIZE,
+			MIDI_QUEUE_LENGTH, config);
+}
+
+static ssize_t midi_alsa_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct android_usb_function *f = dev_get_drvdata(dev);
+	struct midi_alsa_config *config = f->config;
+
+	/* print ALSA card and device numbers */
+	return sprintf(buf, "%d %d\n", config->card, config->device);
+}
+
+static DEVICE_ATTR(alsa, S_IRUGO, midi_alsa_show, NULL);
+
+static struct device_attribute *midi_function_attributes[] = {
+	&dev_attr_alsa,
+	NULL
+};
+
+static struct android_usb_function midi_function = {
+	.name		= "midi",
+	.init		= midi_function_init,
+	.cleanup	= midi_function_cleanup,
+	.bind_config	= midi_function_bind_config,
+	.attributes	= midi_function_attributes,
+};
+#endif
 static struct android_usb_function *supported_functions[] = {
-	&adb_function,
 	&ffs_function,
 	&acm_function,
 	&mtp_function,
@@ -1322,11 +1303,14 @@ static struct android_usb_function *supported_functions[] = {
 	&dm_function,
 #endif
 	&audio_source_function,
+#ifdef CONFIG_SND_USB_AUDIO
+	&midi_function,
+#endif
 #if 0//def CONFIG_USB_SPRD_DWC
 	&vser_function,
 	&gser_function,
-#endif
 
+#endif
 	NULL
 };
 
@@ -1793,12 +1777,6 @@ static int android_bind(struct usb_composite_dev *cdev)
 	/* Default strings - should be updated by userspace */
 	strncpy(manufacturer_string, "Android", sizeof(manufacturer_string)-1);
 	strncpy(product_string, "Android", sizeof(product_string) - 1);
-	/* Get and set ADB ID */
-#ifdef CONFIG_USB_G_ANDROID_SAMSUNG_COMPOSITE
-	sprintf(serial_string, "%08X%08X", system_serial_high, system_serial_low);
-#else
-	strncpy(serial_string, "0123456789ABCDEF", sizeof(serial_string)-1);
-#endif
 
 	id = usb_string_id(cdev);
 	if (id < 0)

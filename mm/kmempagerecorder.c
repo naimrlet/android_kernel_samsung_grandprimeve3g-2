@@ -28,10 +28,12 @@
 #include <linux/kallsyms.h>
 #include <linux/module.h>
 #include <linux/stacktrace.h>
+#include <linux/hash.h>
 #define BACKTRACE_LEVEL 10
 #define DEBUG_DEFAULT_FLAGS 1
-/* 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1 */
-#define GOLDEN_RATIO_PRIME_32 0x9e370001UL
+
+#define RECORDER_LIMIT (1048576 * 2)
+#define RECORD_MAX 50412
 
 extern void *high_memory;
 PageHashTable gPageHashTable;
@@ -41,7 +43,7 @@ static struct kmem_cache *page_cachep = NULL;
 static unsigned int page_cache_created = false;
 
 static unsigned int Object_rank_max = 10;
-static unsigned int queried_address = 0;
+static unsigned long queried_address;
 static unsigned int debug_log = 0;
 static struct dentry *debug_root;
 static unsigned int page_record_total = 0;
@@ -59,11 +61,10 @@ spinlock_t bt_record_lock;
 spinlock_t symbol_record_lock;
 int page_recorder_debug = DEBUG_DEFAULT_FLAGS;
 unsigned int page_recorder_memory_usage = 0;
-unsigned int page_recorder_limit = 524288;
+unsigned int page_recorder_limit = RECORDER_LIMIT;
 static char page_recorder_debug_function;
 
 static int page_recorder_debug_show(struct seq_file *s, void *unused);
-static inline unsigned int hash_32(unsigned int val, unsigned int bits);
 static inline PageHashEntry *find_page_entry(void *page, int slot);
 static char page_recorder_debug_function;
 
@@ -90,7 +91,7 @@ static int query_page_backtrace(struct seq_file *s, unsigned int *page)
 	unsigned long flags;
 	unsigned int *backtrace;
 	unsigned int i;
-	unsigned int hash = hash_32((unsigned int)page, 16);
+	unsigned long hash = hash_ptr((const void *)page, 16);
 	unsigned int slot = hash % OBJECT_TABLE_SIZE;
 
 	PageObjectEntry *bt_entry = NULL;
@@ -140,7 +141,9 @@ static struct page *fixmap_virt_to_page(const void *fixmap_addr)
 	}
 	return page;
 }
-
+/*
+* Todo: arm64 upgrade
+*/
 static int query_page_bt_open(struct seq_file *s, void *data)
 {
 /*
@@ -198,19 +201,23 @@ static unsigned int get_kernel_backtrace(unsigned long *backtrace,
 		.nr_entries = 0,
 		.entries = &stack_entries[0],
 		.max_entries = BACKTRACE_LEVEL,
+#ifdef CONFIG_64BIT
+		.skip = 4
+#else
 		.skip = 1
+#endif
 	};
 	save_stack_trace(&trace);
 	if (trace.nr_entries > 0) {
 		if (debug) {
 			for (i = 0; i < trace.nr_entries; i++) {
 				sprint_symbol(tmp, trace.entries[i]);
-				pr_debug("[%d] 0x%x %s\n", i,
+				pr_debug("[%d] 0x%lx %s\n", i,
 					 (unsigned int)trace.entries[i], tmp);
 			}
 		} else {
 			memcpy(backtrace, (unsigned long *)trace.entries,
-			       sizeof(unsigned int) * trace.nr_entries);
+				sizeof(unsigned long) * trace.nr_entries);
 		}
 	} else {
 		pr_err
@@ -220,22 +227,13 @@ static unsigned int get_kernel_backtrace(unsigned long *backtrace,
 	return trace.nr_entries;
 }
 
-static inline unsigned int hash_32(unsigned int val, unsigned int bits)
+static uint64_t get_hash(void *object, size_t numEntries)
 {
-	/* On some cpus multiply is faster, on others gcc will do shifts */
-	unsigned int hash = val * GOLDEN_RATIO_PRIME_32;
-
-	/* High bits are more random, so use them. */
-	return hash >> (32 - bits);
-}
-
-static uint32_t get_hash(void *object, size_t numEntries)
-{
-	unsigned int *backtrace = NULL;
-	unsigned int hash = 0;
+	unsigned long *backtrace = NULL;
+	unsigned long hash = 0;
 	size_t i;
 
-	backtrace = (unsigned int *)object;
+	backtrace = (unsigned long *)object;
 	if (backtrace == NULL) {
 		return 0;
 	}
@@ -253,7 +251,7 @@ PageObjectEntry *find_entry(PageObjectTable * table, unsigned int slot,
 	while (entry != NULL) {
 		if (entry->numEntries == numEntries &&
 		    !memcmp(object, entry->object,
-			    numEntries * sizeof(unsigned int))) {
+			    numEntries * sizeof(unsigned long))) {
 			return entry;
 		}
 		entry = entry->next;
@@ -299,7 +297,7 @@ static void *get_record(unsigned int type, page_record_t * param)
 {
 	page_record_t *tmp = param;
 	PageObjectEntry *entry = NULL;
-	unsigned int hash;
+	unsigned long hash;
 	unsigned int slot;
 	unsigned long flags;
 
@@ -320,6 +318,8 @@ static void *get_record(unsigned int type, page_record_t * param)
 					entry->reference++;
 					entry->size =
 					    entry->size + (1 << param->size);
+					pr_debug("[get_record] entry->size %d\n",
+						entry->size);
 					spin_unlock_irqrestore(&bt_record_lock,
 							       flags);
 				} else {
@@ -327,13 +327,13 @@ static void *get_record(unsigned int type, page_record_t * param)
 							       flags);
 
 					/* total bt reocrd size should less than 5MB */
-					if (bt_record_total < 50412) {
+					if (bt_record_total < RECORD_MAX) {
 						entry =
 						    kmalloc(sizeof
 							    (PageObjectEntry) +
 							    (20 *
 							     sizeof(unsigned
-								    int)),
+								    long)),
 							    GFP_KERNEL);
 						if (entry == NULL) {
 							pr_err
@@ -345,10 +345,10 @@ static void *get_record(unsigned int type, page_record_t * param)
 					}
 
 					/* kmalloc can't get right memory space when booting */
-					if ((unsigned int)entry < 0xC0000000) {
+					if ((unsigned long)entry < TASK_SIZE) {
 						pr_debug
-						    ("[BAKCTRACEINFO][allocate bt mem] entry (0x%x) drop address \n",
-						     (unsigned int)entry);
+							("[BAKCTRACEINFO][allocate bt mem] entry (0x%x) drop address \n",
+							(unsigned int)entry);
 						return NULL;
 					}
 					entry->reference = 1;
@@ -357,9 +357,11 @@ static void *get_record(unsigned int type, page_record_t * param)
 					entry->numEntries =
 					    param->backtrace_num;
 					entry->size = 1 << param->size;
+					pr_debug("[get_record] new entry->size %d\n",
+						entry->size);
 					memcpy(entry->object, param->backtrace,
 					       entry->numEntries *
-					       sizeof(unsigned int));
+					       sizeof(unsigned long));
 					spin_lock_irqsave(&bt_record_lock,
 							  flags);
 					entry->next =
@@ -401,7 +403,7 @@ static void *get_record(unsigned int type, page_record_t * param)
 					entry =
 					    kmalloc(sizeof(PageObjectEntry) +
 						    (param->backtrace_num *
-						     sizeof(unsigned int)),
+						     sizeof(unsigned long)),
 						    GFP_KERNEL);
 					if (entry == NULL) {
 						pr_err
@@ -416,7 +418,7 @@ static void *get_record(unsigned int type, page_record_t * param)
 					memcpy(entry->object,
 					       param->kernel_symbol,
 					       entry->numEntries *
-					       sizeof(unsigned int));
+					       sizeof(unsigned long));
 					spin_lock_irqsave(&symbol_record_lock,
 							  flags);
 					entry->next =
@@ -453,14 +455,14 @@ PageHashEntry *record_page_info(PageObjectEntry * bt_entry,
 				unsigned int order, unsigned int flag)
 {
 	/* calculate the hash value */
-	unsigned int hash = hash_32((unsigned int)page, 16);
+	unsigned long hash = hash_ptr((const void *)page, 16);
 	unsigned int slot = hash % OBJECT_TABLE_SIZE;
 	unsigned long flags;
 
 	PPageHashEntry entry =
 	    (PPageHashEntry) allocate_record(NODE_PAGE_RECORD);
 	if (!entry) {
-		pr_debug
+		pr_err
 		    ("[get_record][KERNEL_PAGE_ALLOC_BACKTRACE]can't get enough memory to create page entry\n");
 		return NULL;
 	}
@@ -491,7 +493,7 @@ PageHashEntry *record_page_info(PageObjectEntry * bt_entry,
 		page_recorder_memory_usage =
 		    page_record_total * sizeof(PageHashEntry) +
 		    bt_record_total * (sizeof(PageObjectEntry) +
-				       (20 * sizeof(unsigned int)));
+				       (20 * sizeof(unsigned long)));
 		pr_debug
 		    ("[TOTAL PAGE RECORD !!!] page record size is %d max page record size is %d\n",
 		     page_record_total * sizeof(PageHashEntry),
@@ -499,9 +501,9 @@ PageHashEntry *record_page_info(PageObjectEntry * bt_entry,
 		pr_debug
 		    ("[TOTAL BACKTRACE RECORD !!!] bt record size is %d max bt record size is %d\n",
 		     bt_record_total * (sizeof(PageObjectEntry) +
-					(20 * sizeof(unsigned int))),
+					(20 * sizeof(unsigned long))),
 		     bt_record_max * (sizeof(PageObjectEntry) +
-				      (20 * sizeof(unsigned int))));
+				      (20 * sizeof(unsigned long))));
 		page_record_count = 0;
 	}
 
@@ -511,7 +513,7 @@ PageHashEntry *record_page_info(PageObjectEntry * bt_entry,
 
 int remove_page_info(void *page, unsigned int order)
 {
-	unsigned int hash = hash_32((unsigned int)page, 16);
+	unsigned long hash = hash_ptr((const void *)page, 16);
 	unsigned int slot = hash % OBJECT_TABLE_SIZE;
 	PageObjectEntry *bt_entry = NULL;
 	PageHashEntry *entry = NULL;
@@ -528,10 +530,12 @@ int remove_page_info(void *page, unsigned int order)
 	}
 
 	spin_lock_irqsave(&page_record_lock, flags);
+	pr_debug("remove_page_info page*%p order%d\n",
+		page, order);
 	entry = find_page_entry(page, slot);
 	if (entry == NULL) {
 		spin_unlock_irqrestore(&page_record_lock, flags);
-		/* pr_debug("[remove_page_info]can't find page info 0x%x\n",page); */
+		pr_err("[remove_page_info]can't find page info 0x%x\n", page);
 		if (debug_log) {
 			get_kernel_backtrace(NULL, 1);
 		}
@@ -575,7 +579,7 @@ int remove_page_info(void *page, unsigned int order)
 				    ("[remove_page_info] bt_entry->size %d\n",
 				     bt_entry->size);
 			} else if (bt_entry->reference == 1) {
-				unsigned int hash_bt;
+				unsigned long hash_bt;
 				unsigned int slot_bt;
 				hash_bt =
 				    get_hash(bt_entry->object,
@@ -612,6 +616,13 @@ int record_page_record(void *page, unsigned int order)
 {
 	void *entry, *map_entry = NULL;
 	page_record_t record_param;
+
+	if (!page)
+		return 0;
+
+	pr_debug("record_page_record start page*%p, order:%d\n",
+		page, order);
+
 	if (!page_recorder_debug) {
 		return 0;
 	}
@@ -645,6 +656,8 @@ int record_page_record(void *page, unsigned int order)
 	record_page_info((PageObjectEntry *) entry,
 			 (PageObjectEntry *) map_entry, record_param.page,
 			 record_param.size, 0);
+	pr_debug("record_page_record done page*%p, order:%d\n",
+		page, order);
 	return 1;
 }
 
@@ -655,6 +668,9 @@ int remove_page_record(void *page, unsigned int order)
 	page_record_t record_param;
 	record_param.page = page;
 	record_param.size = order;
+
+	if (!page)
+		return 0;
 
 	if (!page_recorder_debug) {
 		return 0;
@@ -676,7 +692,7 @@ EXPORT_SYMBOL(remove_page_record);
 static int page_recorder_debug_show(struct seq_file *s, void *unused)
 {
 	unsigned int index = 0;
-	unsigned int *backtrace;
+	unsigned long *backtrace;
 	unsigned int rank_index = 0;
 	char symbol[KSYM_SYMBOL_LEN];
 	unsigned int i = 0;
@@ -720,9 +736,9 @@ static int page_recorder_debug_show(struct seq_file *s, void *unused)
 						return NULL;
 					}
 					entry =
-					    kmalloc(sizeof(PageObjectEntry) +
-						    (20 * sizeof(unsigned int)),
-						    GFP_ATOMIC);
+						kmalloc(sizeof(PageObjectEntry) +
+							(20 * sizeof(unsigned long)),
+							GFP_ATOMIC);
 					if (entry == NULL) {
 						spin_unlock_irqrestore
 						    (&bt_record_lock, flags);
@@ -732,7 +748,7 @@ static int page_recorder_debug_show(struct seq_file *s, void *unused)
 					}
 					memcpy(entry, tmp,
 					       sizeof(PageObjectEntry) +
-					       (20 * sizeof(unsigned int)));
+					       (20 * sizeof(unsigned long)));
 					new_rank_entry->entry = entry;
 					new_rank_entry->prev = rank_tmp->prev;
 					if (rank_tmp->prev != NULL) {
@@ -785,9 +801,9 @@ static int page_recorder_debug_show(struct seq_file *s, void *unused)
 						return NULL;
 					}
 					entry =
-					    kmalloc(sizeof(PageObjectEntry) +
-						    (20 * sizeof(unsigned int)),
-						    GFP_ATOMIC);
+						kmalloc(sizeof(PageObjectEntry) +
+							(20 * sizeof(unsigned long)),
+								GFP_ATOMIC);
 					if (entry == NULL) {
 						spin_unlock_irqrestore
 						    (&bt_record_lock, flags);
@@ -797,7 +813,7 @@ static int page_recorder_debug_show(struct seq_file *s, void *unused)
 					}
 					memcpy(entry, tmp,
 					       sizeof(PageObjectEntry) +
-					       (20 * sizeof(unsigned int)));
+					       (20 * sizeof(unsigned long)));
 					new_rank_entry->entry = entry;
 					new_rank_entry->next = NULL;
 					new_rank_entry->prev = rank_tmp_prev;
@@ -826,14 +842,14 @@ static int page_recorder_debug_show(struct seq_file *s, void *unused)
 		struct page_object_rank_entry *tmp_record = NULL;
 		rank_index = 0;
 		while (rank_tmp != NULL) {
-			backtrace = (unsigned int *)rank_tmp->entry->object;
+			backtrace = (unsigned long *)rank_tmp->entry->object;
 			seq_printf(s, "[%d]%s %d %s\n", rank_index,
 				   "Backtrace pages ",
 				   rank_tmp->entry->size * 4096, "bytes");
 			for (i = 0; i < rank_tmp->entry->numEntries; i++) {
 				sprint_symbol(symbol, *(backtrace + i));
 				seq_printf(s,
-					   "  KERNEL[%d] 0x%x :: symbol %s\n",
+					   "  KERNEL[%d] 0x%lx :: symbol %s\n",
 					   i, backtrace[i], symbol);
 			}
 			rank_index++;
@@ -878,6 +894,202 @@ out:
 
 __setup("page_recorder_debug", setup_page_recorder_debug);
 
+#ifdef CONFIG_E_SHOW_MEM
+
+static int rank_sort(
+		struct page_object_rank_entry **prank_tail,
+		struct page_object_rank_entry *rank_tmp,
+		struct page_object_rank_entry *rank_tmp_prev,
+		struct page_object_rank_entry **prank_head,
+		PageObjectEntry *tmp,
+		unsigned long flags,
+		unsigned int temp_object_rank_max,
+		unsigned int *pobject_rank_count)
+{
+	struct page_object_rank_entry *new_rank_entry = NULL;
+	PageObjectEntry *entry = NULL;
+
+	if ((rank_tmp != NULL) && (rank_tmp->entry->size <= tmp->size)) {
+		/* insert current record into list */
+		new_rank_entry = (struct page_object_rank_entry *)
+			kmalloc(sizeof(struct page_object_rank_entry), GFP_ATOMIC);
+		if (new_rank_entry == NULL) {
+			spin_unlock_irqrestore(&bt_record_lock, flags);
+			pr_err("[PAGE_RECORDER]Error!!!can't get memory from kmalloc\n");
+			return -1;
+		}
+		entry = kmalloc(sizeof(PageObjectEntry) +
+			    (20 * sizeof(unsigned long)), GFP_ATOMIC);
+		if (entry == NULL) {
+			spin_unlock_irqrestore(&bt_record_lock, flags);
+			pr_err("[PAGE_RECORDER]Error!!!can't get memory from kmalloc\n");
+			return -1;
+		}
+		memcpy(entry, tmp, sizeof(PageObjectEntry) +
+		       (20 * sizeof(unsigned long)));
+		new_rank_entry->entry = entry;
+		new_rank_entry->prev = rank_tmp->prev;
+		if (rank_tmp->prev != NULL)
+			rank_tmp->prev->next = new_rank_entry;
+		rank_tmp->prev = new_rank_entry;
+		new_rank_entry->next = rank_tmp;
+		if (new_rank_entry->prev == NULL)
+			*prank_head = new_rank_entry;
+		if (*pobject_rank_count < temp_object_rank_max)
+			(*pobject_rank_count)++;
+		else {
+			/* free last rank_entry */
+			if (*prank_tail != NULL) {
+				struct page_object_rank_entry *new_tail = NULL;
+				new_tail = (*prank_tail)->prev;
+				(*prank_tail)->prev->next = NULL;
+				kfree((*prank_tail)->entry);
+				kfree(*prank_tail);
+				*prank_tail = new_tail;
+			} else {
+				pr_err("ERROR!!! rank_tail is NULL\n");
+			}
+		}
+		return -2;
+	} else if ((rank_tmp == NULL)
+		   && (*pobject_rank_count < temp_object_rank_max)) {
+		/* if rank entry is less than
+		object_entry_max,create new rank
+		entry and insert it in rank list */
+		new_rank_entry = (struct page_object_rank_entry *)
+		    kmalloc(sizeof(struct page_object_rank_entry),
+			    GFP_ATOMIC);
+		if (new_rank_entry == NULL) {
+			spin_unlock_irqrestore(&bt_record_lock, flags);
+			pr_err("[PAGE_RECORDER]Error!!can't get memory from kmalloc\n");
+			return -1;
+		}
+		entry = kmalloc(sizeof(PageObjectEntry) +
+			    (20 * sizeof(unsigned long)), GFP_ATOMIC);
+		if (entry == NULL) {
+			spin_unlock_irqrestore(&bt_record_lock, flags);
+			pr_err("[PAGE_RECORDER]Error!!!can't get memory from kmalloc\n");
+			return -1;
+		}
+		memcpy(entry, tmp, sizeof(PageObjectEntry) +
+		       (20 * sizeof(unsigned long)));
+		new_rank_entry->entry = entry;
+		new_rank_entry->next = NULL;
+		new_rank_entry->prev = rank_tmp_prev;
+		if (rank_tmp_prev != NULL)
+			rank_tmp_prev->next = new_rank_entry;
+		if (new_rank_entry->prev == NULL)
+			*prank_head = new_rank_entry;
+		*prank_tail = new_rank_entry;
+		(*pobject_rank_count)++;
+		return -2;
+	}
+	return 0;
+}
+
+
+static int page_recorder_debug_show_printk(enum e_show_mem_type type)
+{
+	unsigned int index = 0;
+	unsigned long *backtrace;
+	unsigned int rank_index = 0;
+	char symbol[KSYM_SYMBOL_LEN];
+	unsigned int i = 0;
+	struct page_object_rank_entry *rank_head = NULL;
+	struct page_object_rank_entry *rank_tail = NULL;
+	unsigned int object_rank_count = 0;
+	PageObjectEntry *tmp = NULL;
+	unsigned long flags;
+	unsigned int temp_object_rank_max;
+	unsigned long long total_used = 0;
+	int ret = 0;
+
+	if (E_SHOW_MEM_BASIC == type)
+		temp_object_rank_max = 3;
+	else if (E_SHOW_MEM_CLASSIC == type)
+		temp_object_rank_max = 6;
+	else
+		temp_object_rank_max = 10;
+
+	printk("Detail:\n");
+	printk("        page_recorder_debug: [%d]\n", page_recorder_debug);
+	printk("        page_recorder_limit: [%d]\n", page_recorder_limit);
+	printk("TOP %d page allocation:\n", temp_object_rank_max);
+	for (index = 0; index < OBJECT_TABLE_SIZE; index++) {
+		tmp = NULL;
+		spin_lock_irqsave(&bt_record_lock, flags);
+		tmp = gKernelPageBtTable.slots[index];
+		while (tmp != NULL) {
+			struct page_object_rank_entry *rank_tmp = rank_head;
+			struct page_object_rank_entry *rank_tmp_prev
+				= rank_head;
+			for (rank_index = 0; rank_index < temp_object_rank_max;
+			     rank_index++) {
+				ret = rank_sort(
+					&rank_tail,
+					rank_tmp,
+					rank_tmp_prev,
+					&rank_head,
+					tmp,
+					flags,
+					temp_object_rank_max,
+					&object_rank_count);
+				if (-1 == ret)
+					return 0;
+				else if (-2 == ret)
+					break;
+				rank_tmp_prev = rank_tmp;
+				rank_tmp = rank_tmp->next;
+			}
+			tmp = tmp->next;
+		}
+		spin_unlock_irqrestore(&bt_record_lock, flags);
+	}
+
+	/* print top object_rank_max record */
+	{
+		struct page_object_rank_entry *rank_tmp = rank_head;
+		struct page_object_rank_entry *tmp_record = NULL;
+		rank_index = 0;
+		while (rank_tmp != NULL) {
+			backtrace = (unsigned long *)rank_tmp->entry->object;
+			printk("[%d]%s %d %s\n", rank_index,
+				"Backtrace pages ",
+				 rank_tmp->entry->size * 4096, "bytes");
+			total_used += rank_tmp->entry->size * 4096;
+			for (i = 0; i < rank_tmp->entry->numEntries; i++) {
+				sprint_symbol(symbol, *(backtrace + i));
+				printk("  KERNEL[%d] 0x%lx :: symbol %s\n",
+					i, backtrace[i], symbol);
+			}
+			rank_index++;
+			tmp_record = rank_tmp;
+			rank_tmp = rank_tmp->next;
+			kfree(tmp_record->entry);
+			kfree(tmp_record);
+		}
+	}
+
+	printk("Total used:%llu kB\n", total_used / 1024);
+	return 0;
+}
+
+
+
+static int page_recorder_e_show_mem_handler(struct notifier_block *nb,
+			unsigned long val, void *data)
+{
+	enum e_show_mem_type type = val;
+	printk("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n");
+	printk("Enhanced Mem-info :PAGE RECORDER\n");
+	return page_recorder_debug_show_printk(type);
+}
+
+static struct notifier_block page_recorder_e_show_mem_notifier = {
+	.notifier_call = page_recorder_e_show_mem_handler,
+};
+#endif
+
 static int __init page_recorder_init(void)
 {
 	/* Create page allocate */
@@ -887,7 +1099,7 @@ static int __init page_recorder_init(void)
 	debugfs_create_u32("Rank_number", 0644, debug_root, &Object_rank_max);
 	debugfs_create_file("query_page", 0644, debug_root, NULL,
 			    &query_page_ios_fops);
-	debugfs_create_u32("page_virtual_address", 0644, debug_root,
+	debugfs_create_u64("page_virtual_address", 0644, debug_root,
 			   &queried_address);
 	debugfs_create_u32("debug_log", 0644, debug_root, &debug_log);
 	debugfs_create_u32("page_recorder_debug", 0644, debug_root,
@@ -896,6 +1108,9 @@ static int __init page_recorder_init(void)
 			   &page_recorder_memory_usage);
 	debugfs_create_u32("page_recorder_limit", 0644, debug_root,
 			   &page_recorder_limit);
+#ifdef CONFIG_E_SHOW_MEM
+	register_e_show_mem_notifier(&page_recorder_e_show_mem_notifier);
+#endif
 	return 0;
 }
 

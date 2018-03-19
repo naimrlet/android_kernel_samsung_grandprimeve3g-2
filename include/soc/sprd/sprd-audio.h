@@ -33,7 +33,7 @@ typedef struct glb_reg_dump {
 	int (*func)(void *);
 } glb_reg_dump_t;
 
-#define REG_PAIR(t, r, c, f)  {t->reg_name = #r; t->reg = r; t->count = c; t->func = (void*)f; t++; }
+#define REG_PAIR(t, r, c, f)  {t->reg_name = #r; t->reg = r; t->count = c; t->func = f; t++; }
 
 #ifndef AUDIO_VBC_REG_DUMP_LIST
 #define AUDIO_VBC_REG_DUMP_LIST(t)

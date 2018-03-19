@@ -40,34 +40,45 @@
 #include <linux/uaccess.h>
 #include <linux/regulator/consumer.h>
 
-#include "zinitix_bt541_ts.h"
+#include <linux/input/zinitix_bt541_ts.h>
 #include <linux/input/mt.h>
 #include <linux/of_gpio.h>
 #include <soc/sprd/i2c-sprd.h>
 #include <linux/power_supply.h>
 
 /* added header file */
+/* #define SUPPORTED_USE_DUAL_FW */
+#ifdef SUPPORTED_USE_DUAL_FW
+#include "zinitix_bt541_firmware_00.h"
+#include "zinitix_bt541_firmware_01.h"
+u8 *m_firmware_data;
+#else
 #include "zinitix_bt541_firmware.h"
+#endif
 
 extern void (*tsp_charger_status_cb)(int);
-extern u32 boot_panel_id;
 
+#ifdef SUPPORTED_USE_DUAL_FW
+#define TSP_TYPE_COUNT	2
+u8 *m_pFirmware[TSP_TYPE_COUNT] = {(u8 *)m_firmware_data_00, (u8 *)m_firmware_data_01,};
 u8 m_FirmwareIdx = 0;
+#define CHECK_HWID				1
+static void bt541_firmware_check(void);
+#else
 #define CHECK_HWID				0
+#endif
 
 static bool ta_connected =0;
 #define ZINITIX_DEBUG				1
 #define ZINITIX_I2C_CHECKSUM		1
-#define TOUCH_BOOSTER			1
+#define TOUCH_BOOSTER			0
 #define NOT_SUPPORTED_TOUCH_DUMMY_KEY
 #if TOUCH_BOOSTER
 #include <linux/cpufreq.h>
 #include <linux/cpufreq_limit.h>
+extern int _store_cpu_num_min_limit(unsigned int input);
 struct cpufreq_limit_handle *min_handle = NULL;
 static const unsigned long touch_cpufreq_lock = 1200000;
-#ifdef CONFIG_SPRD_CPU_DYNAMIC_HOTPLUG
-struct cpu_num_min_limit_handle *cpu_num_limit_handle = NULL;
-#endif
 #endif
 
 #ifdef SUPPORTED_PALM_TOUCH
@@ -100,8 +111,8 @@ struct cpu_num_min_limit_handle *cpu_num_limit_handle = NULL;
 #define USE_CHECKSUM			1
 
 #define CHIP_OFF_DELAY				50 /*ms*/
-#define CHIP_ON_DELAY				20 /*ms*/
-#define FIRMWARE_ON_DELAY			60 /*ms*/
+#define CHIP_ON_DELAY				20 /*15*/ /*ms*/
+#define FIRMWARE_ON_DELAY			60 /*40*/ /*ms*/
 
 #define DELAY_FOR_SIGNAL_DELAY		30 /*us*/
 #define DELAY_FOR_TRANSCATION		50
@@ -204,7 +215,6 @@ struct reg_ioctl {
 #define BT541_BUTTON_SENSITIVITY			0x00B2
 #define BT541_DUMMY_BUTTON_SENSITIVITY		0X00C8
 #define BT541_BTN_WIDTH						0x016d
-#define BT541_REAL_WIDTH			0x01c0
 
 
 #define BT541_X_RESOLUTION					0x00C0
@@ -226,8 +236,6 @@ struct reg_ioctl {
 #define BT541_PERIODICAL_INTERRUPT_INTERVAL	0x00f1
 
 #define BT541_CHECKSUM_RESULT				0x012c
-#define BT541_TSP_CHECKSUM_DATA   			0x12e
-
 
 #define BT541_INIT_FLASH					0x01d0
 #define BT541_WRITE_FLASH					0x01d1
@@ -298,9 +306,9 @@ struct reg_ioctl {
 #define TSP_CMD_STR_LEN			   	32
 #define TSP_CMD_RESULT_STR_LEN		512
 #define TSP_CMD_PARAM_NUM			8
-#define TSP_CMD_X_NUM				19
-#define TSP_CMD_Y_NUM				10
-#define TSP_CMD_NODE_NUM			(TSP_CMD_X_NUM * TSP_CMD_Y_NUM)
+#define TSP_CMD_Y_NUM				18
+#define TSP_CMD_X_NUM				30
+#define TSP_CMD_NODE_NUM			(TSP_CMD_Y_NUM * TSP_CMD_X_NUM)
 
 struct tsp_factory_info {
 	struct list_head cmd_list_head;
@@ -314,12 +322,10 @@ struct tsp_factory_info {
 };
 
 struct tsp_raw_data {
-	s16 dnd_data[TSP_CMD_NODE_NUM];
-	s16 hfdnd_data[TSP_CMD_NODE_NUM];
-	s32 hfdnd_data_sum[TSP_CMD_NODE_NUM];
+	u16 ref_data[TSP_CMD_NODE_NUM];
+	u16 pref_data[TSP_CMD_NODE_NUM];
+	/*s16 scantime_data[TSP_CMD_NODE_NUM]; */
 	s16 delta_data[TSP_CMD_NODE_NUM];
-	s16 vgap_data[TSP_CMD_NODE_NUM];
-	s16 hgap_data[TSP_CMD_NODE_NUM];
 };
 
 enum {
@@ -346,33 +352,43 @@ static void module_on_slave(void *device_data);
 static void get_chip_vendor(void *device_data);
 static void get_chip_name(void *device_data);
 static void get_threshold(void *device_data);
-static void get_config_ver(void *device_data);
-/*static void get_checksum_data(void *device_data);*/
 static void get_x_num(void *device_data);
 static void get_y_num(void *device_data);
 static void not_support_cmd(void *device_data);
 
 /* Vendor dependant command */
-static void get_reference(void *device_data);
-static void get_dnd(void * device_data);
-static void get_hfdnd(void * device_data);
-static void get_dnd_v_gap(void * device_data);
-static void get_dnd_h_gap(void * device_data);
-static void get_hfdnd_v_gap(void * device_data);
-static void get_hfdnd_h_gap(void * device_data);
-static void get_delta(void *device_data);
-static void run_reference_read (void *device_data);
-static void run_dnd_read(void *device_data);
-static void run_hfdnd_read(void *device_data);
-static void run_dnd_v_gap_read(void *device_data);
-static void run_dnd_h_gap_read(void * device_data);
-static void run_hfdnd_v_gap_read(void *device_data);
-static void run_hfdnd_h_gap_read(void * device_data);
-static void run_delta_read(void *device_data);
+#ifdef SUPPORTED_USE_DUAL_FW
+static void get_module_vendor(void *device_data);
+#endif
+
+static void get_reference_DND(void *device_data);
+/*static void get_reference_RxDND(void *device_data);*/
+static void get_reference_HFDND(void *device_data);
+/*static void get_reference_RxHFDND(void *device_data);*/
+/*static void get_tkey_delta(void *device_data);*/
+static void get_reference_V_Diff(void *device_data);
+/*static void get_reference_max_V_Diff(void *device_data);*/
+static void get_reference_H_Diff(void * device_data);
+/*static void get_reference_max_H_Diff(void * device_data);*/
+/*static void get_max_dnd(void *device_data);*/
+/*static void get_min_dnd(void *device_data);*/
+/*static void get_max_hfdnd(void *device_data);*/
+/*static void get_min_hfdnd(void *device_data);*/
+/*static void get_max_hdiff(void *device_data);*/
+/*static void get_min_hdiff(void *device_data);*/
+/*static void get_max_vdiff(void *device_data);*/
+/*static void get_min_vdiff(void *device_data);*/
+/*static void get_reference(void *device_data);*/
+/*static void get_preference(void *device_data);*/
+/*static void run_preference_read(void *device_data);*/
+static void run_reference_DND(void *device_data);
+static void run_reference_HFDND(void *device_data);
+static void run_reference_V_Diff(void *device_data);
+static void run_reference_H_Diff(void *device_data);
+/*static void run_reference_read(void *device_data);*/
 static void hfdnd_spec_adjust(void *device_data);
 static void clear_reference_data(void *device_data);
 static void run_ref_calibration(void *device_data);
-static void dead_zone_enable(void *device_data);
 
 #define TSP_CMD(name, func) .cmd_name = name, .cmd_func = func
 static struct tsp_cmd tsp_cmds[] = {
@@ -380,40 +396,82 @@ static struct tsp_cmd tsp_cmds[] = {
 	{TSP_CMD("get_fw_ver_bin", get_fw_ver_bin),},
 	{TSP_CMD("get_fw_ver_ic", get_fw_ver_ic),},
 	{TSP_CMD("get_threshold", get_threshold),},
-	{TSP_CMD("get_config_ver", get_config_ver),},
 	{TSP_CMD("module_off_master", module_off_master),},
 	{TSP_CMD("module_on_master", module_on_master),},
 	{TSP_CMD("module_off_slave", module_off_slave),},
 	{TSP_CMD("module_on_slave", module_on_slave),},
 	{TSP_CMD("get_chip_vendor", get_chip_vendor),},
 	{TSP_CMD("get_chip_name", get_chip_name),},
-/*	{ TSP_CMD("get_checksum_data", get_checksum_data), },*/
 	{TSP_CMD("get_x_num", get_x_num),},
 	{TSP_CMD("get_y_num", get_y_num),},
 	{TSP_CMD("not_support_cmd", not_support_cmd),},
 
 	/* vendor dependant command */
-	{TSP_CMD("run_reference_read", run_reference_read),},
-	{TSP_CMD("get_dnd_all_data", get_reference),},
-	{TSP_CMD("run_delta_read", run_delta_read),},
-	{TSP_CMD("get_delta_all_data", get_delta),},
-	{TSP_CMD("run_dnd_read", run_dnd_read),},
-	{TSP_CMD("get_dnd", get_dnd),},
-	{TSP_CMD("run_dnd_v_gap_read", run_dnd_v_gap_read),},
-	{TSP_CMD("get_dnd_v_gap", get_dnd_v_gap),},
-	{TSP_CMD("run_dnd_h_gap_read", run_dnd_h_gap_read),},
-	{TSP_CMD("get_dnd_h_gap", get_dnd_h_gap),},
-	{TSP_CMD("run_hfdnd_read", run_hfdnd_read),},
-	{TSP_CMD("get_hfdnd", get_hfdnd),},
-	{TSP_CMD("run_hfdnd_v_gap_read", run_hfdnd_v_gap_read),},
-	{TSP_CMD("get_hfdnd_v_gap", get_hfdnd_v_gap),},
-	{TSP_CMD("run_hfdnd_h_gap_read", run_hfdnd_h_gap_read),},
-	{TSP_CMD("get_hfdnd_h_gap", get_hfdnd_h_gap),},
+#ifdef SUPPORTED_USE_DUAL_FW
+	{TSP_CMD("get_module_vendor", get_module_vendor),},
+#endif
+	{TSP_CMD("run_reference_read", run_reference_DND),},
+	{TSP_CMD("get_reference", get_reference_DND),},
+	{TSP_CMD("run_vdiff_read", run_reference_V_Diff),},
+	{TSP_CMD("get_vdiff", get_reference_V_Diff),},
+	{TSP_CMD("run_hdiff_read", run_reference_H_Diff),},
+	{TSP_CMD("get_hdiff", get_reference_H_Diff),},
+	{TSP_CMD("run_highfreq_read", run_reference_HFDND),},
+	{TSP_CMD("get_highfreq", get_reference_HFDND),},
 	{TSP_CMD("hfdnd_spec_adjust", hfdnd_spec_adjust),},
 	{TSP_CMD("clear_reference_data", clear_reference_data),},
 	{TSP_CMD("run_ref_calibration", run_ref_calibration),},
-	{TSP_CMD("dead_zone_enable", dead_zone_enable),},
+	/*
+	   {TSP_CMD("get_reference_DND", get_reference_DND),},
+	   {TSP_CMD("get_reference_RxDND", get_reference_RxDND),},
+	   {TSP_CMD("get_reference_HFDND", get_reference_HFDND),},
+	   {TSP_CMD("get_reference_RxHFDND", get_reference_RxHFDND),},
+	   {TSP_CMD("get_reference_V_DIFF", get_reference_V_Diff),},
+	   {TSP_CMD("get_reference_max_V_DIFF", get_reference_max_V_Diff),},
+	   {TSP_CMD("get_reference_H_DIFF", get_reference_H_Diff),},
+	   {TSP_CMD("get_reference_max_H_DIFF", get_reference_max_H_Diff),},
+	   {TSP_CMD("run_reference_HFDND", run_reference_HFDND),},
+	   {TSP_CMD("run_reference_DND", run_reference_DND),},
+	   {TSP_CMD("run_reference_diff", run_reference_PDiff),},
+	   {TSP_CMD("get_max_dnd", get_max_dnd),},
+	   {TSP_CMD("get_min_dnd", get_min_dnd),},
+	   {TSP_CMD("get_max_hfdnd", get_max_hfdnd),},
+	   {TSP_CMD("get_min_hfdnd", get_min_hfdnd),},
+	   {TSP_CMD("get_max_hdiff", get_max_hdiff),},
+	   {TSP_CMD("get_min_hdiff", get_min_hdiff),},
+	   {TSP_CMD("get_max_vdiff", get_max_vdiff),},
+	   {TSP_CMD("get_min_vdiff", get_min_vdiff),},
+	   {TSP_CMD("get_tkey_delta", get_tkey_delta),},
+	   {TSP_CMD("run_reference_read", run_reference_read),},
+	   {TSP_CMD("get_reference", get_reference),},
+	   {TSP_CMD("run_dnd_read", run_preference_read),},
+	   {TSP_CMD("get_dnd", get_preference),},
+	 */
 };
+#if 0
+#ifdef SUPPORTED_TOUCH_KEY
+/* Touch Key */
+static ssize_t touchkey_threshold(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t touch_sensitivity(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t touchkey_back(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t touchkey_recent(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t autocal_stat(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t touchkey_raw_back(struct device *dev,
+		struct device_attribute *attr, char *buf);
+static ssize_t touchkey_raw_menu(struct device *dev,
+		struct device_attribute *attr, char *buf);
+/*static ssize_t touchkey_idac_back(struct device *dev,
+  struct device_attribute *attr, char *buf);
+  static ssize_t touchkey_idac_menu(struct device *dev,
+  struct device_attribute *attr, char *buf);
+ */
+#endif
+#endif
 #endif
 
 #define TSP_NORMAL_EVENT_MSG 1
@@ -453,15 +511,17 @@ struct point_info {
 /*---------------------------------------------------------------------*/
 /* GF1 */
 /*---------------------------------------------------------------------*/
+#define PDIFF_DEBUG	1
+
 #define TSP_INIT_TEST_RATIO	100
 
-#define	SEC_DND_N_COUNT			14
-#define	SEC_DND_U_COUNT			16
-#define	SEC_DND_FREQUENCY		219		/*300khz*/
+#define	SEC_DND_N_COUNT			16
+#define	SEC_DND_U_COUNT			20
+#define	SEC_DND_FREQUENCY		138		/*300khz*/
 
-#define	SEC_HFDND_N_COUNT		14
-#define	SEC_HFDND_U_COUNT		16
-#define	SEC_HFDND_FREQUENCY		55		/*300khz*/
+#define	SEC_HFDND_N_COUNT		16
+#define	SEC_HFDND_U_COUNT		20
+#define	SEC_HFDND_FREQUENCY		27		/*300khz*/
 /*---------------------------------------------------------------------*/
 struct capa_info {
 	u16	vendor_id;
@@ -533,15 +593,21 @@ struct bt541_ts_info {
 	struct input_dev				*input_dev;
 	struct bt541_ts_platform_data	*pdata;
 	char							phys[32];
+	/*struct task_struct				*task;*/
+	/*wait_queue_head_t				wait;*/
+	/*struct semaphore				update_lock;*/
+	/*u32								i2c_dev_addr;*/
 	struct capa_info				cap_info;
 	struct point_info				touch_info;
 	struct point_info				reported_touch_info;
 	u16								icon_event_reg;
 	u16								prev_icon_event;
+	/*u16								event_type;*/
 	int								irq;
 	u8								button[MAX_SUPPORTED_BUTTON_NUM];
 	u8								work_state;
 	struct semaphore				work_lock;
+	/*u16								debug_reg[8];*/ /* for debug */
 #if ESD_TIMER_INTERVAL
 	struct work_struct				tmr_work;
 	struct timer_list				esd_timeout_tmr;
@@ -559,14 +625,66 @@ struct bt541_ts_info {
 	struct tsp_factory_info			*factory_info;
 	struct tsp_raw_data				*raw_data;
 
-	s16 Gap_max_x;
-	s16 Gap_max_y;
-	s16 Gap_max_val;
-	s16 Gap_min_x;
-	s16 Gap_min_y;
-	s16 Gap_min_val;
-	s16 Gap_Gap_val;
-	s16 Gap_node_num;
+	s16 ref_data[MAX_RAW_DATA_SZ];
+	s16 normal_data[MAX_RAW_DATA_SZ];
+	s16 delta_data[MAX_RAW_DATA_SZ];
+	u16 pdnd_data[MAX_RAW_DATA_SZ];
+	u16 hfdnd_data[MAX_RAW_DATA_SZ];
+	u16	PDND2_N_cnt;
+	u16	PDND2_u_cnt;
+	u16	PDND2_freq;
+
+	s16  ref_btn_option;
+
+	s16 dnd_max_x;
+	s16 dnd_max_y;
+	s16 dnd_max_val;
+	s16 dnd_real_max_x;
+	s16 dnd_real_max_y;
+	s16 dnd_real_max_val;
+	s16 dnd_min_x;
+	s16 dnd_min_y;
+	s16 dnd_min_val;
+	s16 dnd_real_min_x;
+	s16 dnd_real_min_y;
+	s16 dnd_real_min_val;
+	s16 dnd_node_num;
+
+	s16 hfdnd_max_x;
+	s16 hfdnd_max_y;
+	s16 hfdnd_max_val;
+	s16 hfdnd_real_max_x;
+	s16 hfdnd_real_max_y;
+	s16 hfdnd_real_max_val;
+	s16 hfdnd_min_x;
+	s16 hfdnd_min_y;
+	s16 hfdnd_min_val;
+	s16 hfdnd_real_min_x;
+	s16 hfdnd_real_min_y;
+	s16 hfdnd_real_min_val;
+	s16 hfdnd_node_num;
+
+	s16 hdiff_max_x;
+	s16 hdiff_max_y;
+	s16 hdiff_max_val;
+	s16 hdiff_min_x;
+	s16 hdiff_min_y;
+	s16 hdiff_min_val;
+	s16 hdiff_diff_val;
+	s16 hdiff_node_num;
+
+	s16 vdiff_max_x;
+	s16 vdiff_max_y;
+	s16 vdiff_max_val;
+	s16 vdiff_min_x;
+	s16 vdiff_min_y;
+	s16 vdiff_min_val;
+	s16 vdiff_diff_val;
+	s16 vdiff_node_num;
+
+	bool	dnd_done;
+	bool	hfdnd_done;
+
 #endif
 #if TOUCH_BOOSTER
 	u8							finger_cnt;
@@ -581,7 +699,7 @@ struct bt541_ts_info {
 /*<= you must set key button mapping*/
 #ifdef NOT_SUPPORTED_TOUCH_DUMMY_KEY
 u32 BUTTON_MAPPING_KEY[MAX_SUPPORTED_BUTTON_NUM] = {
-	KEY_RECENT, KEY_BACK};
+	KEY_APPSELECT, KEY_BACK};
 #else
 u32 BUTTON_MAPPING_KEY[MAX_SUPPORTED_BUTTON_NUM] = {
 	KEY_DUMMY_MENU, KEY_RECENT,// KEY_DUMMY_HOME1,
@@ -592,6 +710,7 @@ u32 BUTTON_MAPPING_KEY[MAX_SUPPORTED_BUTTON_NUM] = {
 static int cal_mode;
 static int get_boot_mode(char *str)
 {
+
 	get_option(&str, &cal_mode);
 	printk("get_boot_mode, uart_mode : %d\n", cal_mode);
 	return 1;
@@ -601,7 +720,7 @@ __setup("calmode=",get_boot_mode);
 static inline s32 read_data(struct i2c_client *client,
 		u16 reg, u8 *values, u16 length)
 {
-	int ret = 0;
+	s32 ret;
 	int count = 0;
 retry:
 	/* select register*/
@@ -627,7 +746,7 @@ retry:
 static inline s32 write_data(struct i2c_client *client,
 		u16 reg, u8 *values, u16 length)
 {
-	int ret = 0;
+	s32 ret;
 	int count = 0;
 	u8 pkt[10]; /* max packet */
 	pkt[0] = (reg) & 0xff; /* reg addr */
@@ -660,7 +779,7 @@ static inline s32 write_reg(struct i2c_client *client, u16 reg, u16 value)
 
 static inline s32 write_cmd(struct i2c_client *client, u16 reg)
 {
-	int ret = 0;
+	s32 ret;
 	int count = 0;
 
 retry:
@@ -681,7 +800,7 @@ retry:
 static inline s32 read_raw_data(struct i2c_client *client,
 		u16 reg, u8 *values, u16 length)
 {
-	int ret = 0;
+	s32 ret;
 	int count = 0;
 
 retry:
@@ -710,7 +829,7 @@ retry:
 static inline s32 read_firmware_data(struct i2c_client *client,
 		u16 addr, u8 *values, u16 length)
 {
-	int ret = 0;
+	s32 ret;
 	/* select register*/
 
 	ret = i2c_master_send(client , (u8 *)&addr , 2);
@@ -789,6 +908,29 @@ static struct miscdevice touch_misc_device = {
 
 struct bt541_ts_info *misc_info;
 
+#ifdef SUPPORTED_USE_DUAL_FW
+static void bt541_firmware_check(void)
+{
+	int i;
+	u16 newHWID;
+
+	for (i = 0; i < TSP_TYPE_COUNT; i++) {
+		newHWID = (u16) (m_pFirmware[i][0x57d2] | (m_pFirmware[i][0x57d3]<<8));
+		if (misc_info->cap_info.hw_id == newHWID) {
+			m_FirmwareIdx = i;
+			break;
+		}
+	}
+	if (i == TSP_TYPE_COUNT)
+		m_FirmwareIdx = 0;
+
+	m_firmware_data = m_pFirmware[m_FirmwareIdx];
+#if defined(TSP_VERBOSE_DEBUG)
+	dev_info(&misc_info->client->dev, "touch tsp type = %d,  hw_id = %d\n", m_FirmwareIdx, misc_info->cap_info.hw_id);
+#endif
+}
+#endif
+
 static u16 m_optional_mode = 0;
 static u16 m_prev_optional_mode = 0;
 static void bt541_set_optional_mode(struct bt541_ts_info *info, bool force)
@@ -829,25 +971,6 @@ void tsp_charger_enable(int status)
 			status ? "connected" : "disconnected");
 }
 EXPORT_SYMBOL(tsp_charger_enable);
-
-static void bt541_firmware_check_with_LCD(void)
-{
-	switch (boot_panel_id) {
-	case 0x534490: /*CPT pannel :GrandPrimeVE 3G*/
-		m_FirmwareIdx =0;
-		dev_info(&misc_info->client->dev, "CPT pannel : touch tsp type = %d,  lcd_id = 0x%x\n", m_FirmwareIdx, boot_panel_id);
-		break;
-	case 0x53b810: /*BOE pannel :GrandPrimeVE LTE*/
-		m_FirmwareIdx =1;
-		dev_info(&misc_info->client->dev, "BOE pannel : touch tsp type = %d,  lcd_id = 0x%x\n", m_FirmwareIdx, boot_panel_id);
-		break;
-	default : 
-		m_FirmwareIdx = 0;
-		dev_info(&misc_info->client->dev, "default pannel : touch tsp type = %d,  lcd_id = 0x%x\n", m_FirmwareIdx, boot_panel_id);
-	}
-
-	m_optional_mode |= ((u16)m_FirmwareIdx<<5);
-}
 
 static bool get_raw_data(struct bt541_ts_info *info, u8 *buff, int skip_cnt)
 {
@@ -963,6 +1086,8 @@ static bool ts_read_coord(struct bt541_ts_info *info)
 #if (TOUCH_POINT_MODE == 1)
 	int i;
 #endif
+
+	/* zinitix_debug_msg("ts_read_coord+\r\n"); */
 
 	/* for  Debugging Tool */
 
@@ -1234,61 +1359,50 @@ fail_power_sequence:
 static struct regulator *touch_regulator;
 static int bt541_power(struct bt541_ts_info *info, int on)
 {
-	struct i2c_client *client = info->client;
-	static u8 is_power_on;
 	int ret = 0;
-
+	static u8 is_power_on;
 	if (touch_regulator == NULL) {
 		touch_regulator = regulator_get(&info->client->dev, "vddsim2");
 		if (IS_ERR(touch_regulator)) {
 			touch_regulator = NULL;
-			dev_info(&client->dev, "%s: get touch_regulator error\n",
+			pr_info("[TSP]: %s: get touch_regulator error\n",
 					__func__);
 			return -EIO;
 		}
-
-		ret = regulator_set_voltage(touch_regulator, 3000000, 3000000);
-		if (ret < 0)
-				dev_info(&client->dev, "%s: set voltage error(%d)\n", __func__, ret);
 	}
-
 	if (on == 0) {
 		if (is_power_on) {
 			is_power_on = 0;
-
 			ret = regulator_disable(touch_regulator);
 			if (ret) {
 				is_power_on = 1;
-				dev_err(&client->dev, "%s: touch_regulator disable " \
+				pr_err("[TSP]: %s: touch_regulator disable " \
 						"failed  (%d)\n", __func__, ret);
 				return -EIO;
 			}
-
 			mdelay(CHIP_OFF_DELAY);
 		}
 	} else {
 		if (!is_power_on) {
 			is_power_on = 1;
-
+			regulator_set_voltage(touch_regulator, 3000000, 3000000);
 			ret = regulator_enable(touch_regulator);
 			if (ret) {
 				is_power_on = 0;
-				dev_err(&client->dev, "%s: touch_regulator enable "\
+				pr_err("[TSP]: %s: touch_regulator enable "\
 						"failed (%d)\n", __func__, ret);
 				return -EIO;
 			}
 		}
 	}
-
-	dev_info(&client->dev, "%s, expected power[%d], actural power[%d]\n",
+	pr_info("[TSP]: %s, expected power[%d], actural power[%d]\n",
 			__func__, on, is_power_on);
 	return 0;
 }
 static bool bt541_power_control(struct bt541_ts_info *info, u8 ctl)
 {
 	int ret=0;
-
-	dev_info(&info->client->dev, "%s, %d\n", __func__, ctl);
+	pr_info("[TSP] %s, %d\n", __func__, ctl);
 
 	if (info->pdata->tsp_supply_type == TSP_REGULATOR_SUPPLY) {
 		ret = info->pdata->tsp_power(info, ctl);
@@ -1307,13 +1421,14 @@ static bool bt541_power_control(struct bt541_ts_info *info, u8 ctl)
 			msleep(CHIP_OFF_DELAY);
 		} else {
 			gpio_direction_output(info->pdata->gpio_ldo_en, 1);
-			msleep(CHIP_ON_DELAY);
+
 			/* zxt power on sequence */
-			if (ctl == POWER_ON_SEQUENCE)
+			if (ctl == POWER_ON_SEQUENCE) {
+				msleep(CHIP_ON_DELAY);
 				return bt541_power_sequence(info);
+			}
 		}
 	}
-
 	return true;
 }
 
@@ -1375,6 +1490,78 @@ static bool ts_check_need_upgrade(struct bt541_ts_info *info,
 
 #define TC_SECTOR_SZ		8
 
+#ifdef SUPPORTED_USE_DUAL_FW
+static void ts_check_hwid_in_fatal_state(struct bt541_ts_info *info)
+{
+	/*u16 flash_addr;*/
+	u8 check_data[80];
+	int i;
+	u16 hw_id0, hw_id1_1, hw_id1_2;
+	int retry = 0;
+retry_fatal:
+	bt541_power_control(info, POWER_OFF);
+	bt541_power_control(info, POWER_ON);
+	mdelay(10);
+	if (write_reg(info->client, 0xc000, 0x0001) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "power sequence error (vendor cmd enable)\n");
+		goto fail_check_hwid;
+	}
+	udelay(10);
+	if (write_cmd(info->client, 0xc004) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "power sequence error (intn clear)\n");
+		goto fail_check_hwid;
+	}
+	udelay(10);
+	if (write_reg(info->client, 0xc002, 0x0001) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "power sequence error (nvm init)\n");
+		goto fail_check_hwid;
+	}
+	/*dev_err(&info->client->dev, "init flash\n");*/
+	mdelay(5);
+	if (write_reg(info->client, 0xc003, 0x0000) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "fail to write nvm vpp on\n");
+		goto fail_check_hwid;
+	}
+	if (write_reg(info->client, 0xc104, 0x0000) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "fail to write nvm wp disable\n");
+		goto fail_check_hwid;
+	}
+	/*dev_err(&info->client->dev, "init flash\n");*/
+	if (write_cmd(info->client, BT541_INIT_FLASH) != I2C_SUCCESS) {
+		dev_err(&info->client->dev, "failed to init flash\n");
+		goto fail_check_hwid;
+	}
+	/*dev_err(&info->client->dev, "read firmware data\n");*/
+	for (i = 0; i < 80; i += TC_SECTOR_SZ) {
+		if (read_firmware_data(info->client,
+					BT541_READ_FLASH,
+					(u8 *)&check_data[i], TC_SECTOR_SZ) < 0) {
+			dev_err(&info->client->dev, "error : read zinitix tc firmare\n");
+			goto fail_check_hwid;
+		}
+	}
+	hw_id0 = check_data[48] + check_data[49]*256;
+	hw_id1_1 = check_data[70];
+	hw_id1_2 = check_data[71];
+
+	/*dev_err(&info->client->dev, "eeprom hw id = %d, %d, %d\n", hw_id0, hw_id1_1, hw_id1_2);*/
+
+	if (hw_id1_1 == hw_id1_2 && hw_id0 != hw_id1_1)
+		info->cap_info.hw_id = hw_id1_1;
+	else
+		info->cap_info.hw_id = hw_id0;
+
+	dev_err(&info->client->dev, "hw id = %d\n", info->cap_info.hw_id);
+	mdelay(5);
+	return;
+
+fail_check_hwid:
+	if (retry++ < 3)
+		goto retry_fatal;
+	dev_err(&info->client->dev, "fail to check hw id\n");
+	mdelay(5);
+}
+#endif
 
 static u8 ts_upgrade_firmware(struct bt541_ts_info *info,
 		const u8 *firmware_data, u32 size)
@@ -1385,7 +1572,7 @@ static u8 ts_upgrade_firmware(struct bt541_ts_info *info,
 	u8 *verify_data;
 	int retry_cnt = 0;
 	int i;
-	int page_sz = info->pdata->page_size;
+	int page_sz = 0;
 	u16 chip_code;
 
 	verify_data = kzalloc(size, GFP_KERNEL);
@@ -1393,10 +1580,10 @@ static u8 ts_upgrade_firmware(struct bt541_ts_info *info,
 		zinitix_printk(KERN_ERR "cannot alloc verify buffer\n");
 		return false;
 	}
-
-	if (read_data(client, BT541_MODULE_ID, (u8 *)&info->cap_info.module_id, 2) < 0)
+#ifdef SUPPORTED_USE_DUAL_FW
+	if (read_data(client, BT541_MODULE_ID, (u8 *)&cap->module_id, 2) < 0)
 		dev_err(&client->dev, "Failed to read Modul ID\n");
-
+#endif
 retry_upgrade:
 	bt541_power_control(info, POWER_OFF);
 	bt541_power_control(info, POWER_ON);
@@ -1415,6 +1602,7 @@ retry_upgrade:
 	}
 
 	zinitix_printk("chip code = 0x%x\n", chip_code);
+	page_sz = 128;
 	udelay(10);
 
 	if (write_cmd(client, 0xc004) != I2C_SUCCESS) {
@@ -1443,37 +1631,6 @@ retry_upgrade:
 		goto fail_upgrade;
 	}
 
-	// Mass Erase
-	//====================================================
-	if (write_reg(client, 0xc108, 0x0007) != I2C_SUCCESS) {
-		zinitix_printk("failed to write 0xc108 - 7\n");
-		goto fail_upgrade;
-	}
-
-	if (write_reg(client, 0xc109, 0x0000) != I2C_SUCCESS) {
-		zinitix_printk("failed to write 0xc109\n");
-		goto fail_upgrade;
-	}
-
-	if (write_reg(client, 0xc10A, 0x0000) != I2C_SUCCESS) {
-		zinitix_printk("failed to write nvm wp disable\n");
-		goto fail_upgrade;
-	}
-
-	if (write_cmd(client, 0xc10B) != I2C_SUCCESS) {
-		zinitix_printk("failed to write mass erease\n");
-		goto fail_upgrade;
-	}
-
-	msleep(20);
-
-	if (write_reg(client, 0xc108, 0x0008) != I2C_SUCCESS) {
-		zinitix_printk("failed to write 0xc108 - 8\n");
-		goto fail_upgrade;
-	}
-	// Mass Erase End
-	//====================================================
-
 	if (write_cmd(client, BT541_INIT_FLASH) != I2C_SUCCESS) {
 		zinitix_printk(KERN_INFO "failed to init flash\n");
 		goto fail_upgrade;
@@ -1484,14 +1641,14 @@ retry_upgrade:
 		for (i = 0; i < page_sz / TC_SECTOR_SZ; i++) {
 			/*zinitix_debug_msg("write :addr=%04x, len=%d\n",	flash_addr, TC_SECTOR_SZ);*/
 			/*zinitix_printk(KERN_INFO "writing :addr = %04x, len=%d \n", flash_addr, TC_SECTOR_SZ);*/
-			if (write_data(client,	BT541_WRITE_FLASH,
+			if (write_data(client,
+						BT541_WRITE_FLASH,
 						(u8 *)&firmware_data[flash_addr], TC_SECTOR_SZ) < 0) {
 				zinitix_printk(KERN_INFO"error : write zinitix tc firmare\n");
 				goto fail_upgrade;
 			}
 			flash_addr += TC_SECTOR_SZ;
 			udelay(100);
-
 		}
 
 		mdelay(30); /*for fuzing delay*/
@@ -1550,12 +1707,12 @@ retry_upgrade:
 			dev_err(&client->dev, "upgrade done, but firmware checksum fail. reg_val = %x\n", reg_val);
 			goto fail_upgrade;
 		}
-
+#ifdef SUPPORTED_USE_DUAL_FW
 		if (read_data(client, BT541_MODULE_ID, (u8 *)&reg_val, 2) < 0)
 			dev_err(&client->dev, "Failed to read Modul ID\n");
 		else {
-			if (info->cap_info.module_id != reg_val) {
-				write_reg(client, BT541_MODULE_ID, info->cap_info.module_id);
+			if (cap->module_id != reg_val) {
+				write_reg(client, BT541_MODULE_ID, cap->module_id);
 				write_reg(client, 0xc003, 0x0001);
 				write_reg(client, 0xc104, 0x0001);
 				udelay(100);
@@ -1563,17 +1720,11 @@ retry_upgrade:
 					goto fail_upgrade;
 
 				mdelay(1000);
-
-				if (write_cmd(client, BT541_SAVE_STATUS_CMD) != I2C_SUCCESS)
-					goto fail_upgrade;
-
-				mdelay(1000);
-
 				write_reg(client, 0xc003, 0x0000);
 				write_reg(client, 0xc104, 0x0000);
 			}
 		}
-
+#endif
 		return true;
 	}
 
@@ -1599,7 +1750,8 @@ static bool ts_hw_calibration(struct bt541_ts_info *info)
 	u16	chip_eeprom_info;
 	int time_out = 0;
 
-	if (write_reg(client, BT541_TOUCH_MODE, 0x07) != I2C_SUCCESS)
+	if (write_reg(client,
+				BT541_TOUCH_MODE, 0x07) != I2C_SUCCESS)
 		return false;
 	mdelay(10);
 	write_cmd(client, BT541_CLEAR_INT_STATUS_CMD);
@@ -1609,10 +1761,12 @@ static bool ts_hw_calibration(struct bt541_ts_info *info)
 	write_cmd(client, BT541_CLEAR_INT_STATUS_CMD);
 	mdelay(10);
 
-	if (write_cmd(client, BT541_CALIBRATE_CMD) != I2C_SUCCESS)
+	if (write_cmd(client,
+				BT541_CALIBRATE_CMD) != I2C_SUCCESS)
 		return false;
 
-	if (write_cmd(client, BT541_CLEAR_INT_STATUS_CMD) != I2C_SUCCESS)
+	if (write_cmd(client,
+				BT541_CLEAR_INT_STATUS_CMD) != I2C_SUCCESS)
 		return false;
 
 	mdelay(10);
@@ -1621,9 +1775,11 @@ static bool ts_hw_calibration(struct bt541_ts_info *info)
 	/* wait for h/w calibration*/
 	do {
 		mdelay(500);
-		write_cmd(client,BT541_CLEAR_INT_STATUS_CMD);
+		write_cmd(client,
+				BT541_CLEAR_INT_STATUS_CMD);
 
-		if (read_data(client, BT541_EEPROM_INFO_REG,
+		if (read_data(client,
+					BT541_EEPROM_INFO_REG,
 					(u8 *)&chip_eeprom_info, 2) < 0)
 			return false;
 
@@ -1661,7 +1817,8 @@ static bool ts_hw_calibration(struct bt541_ts_info *info)
 	write_reg(client, 0xc003, 0x0001);
 	write_reg(client, 0xc104, 0x0001);
 	udelay(100);
-	if (write_cmd(client, BT541_SAVE_CALIBRATION_CMD) != I2C_SUCCESS)
+	if (write_cmd(client,
+				BT541_SAVE_CALIBRATION_CMD) != I2C_SUCCESS)
 		return false;
 
 	mdelay(1000);
@@ -1780,14 +1937,9 @@ retry_init:
 		dev_err(&client->dev, "Failed to read hw id\n");
 		goto fail_init;
 	}
-
-	if (read_data(client, BT541_MODULE_ID, (u8 *)&cap->module_id, 2) < 0) {
-		dev_err(&client->dev, "Failed to read module id\n");
-		goto fail_init;
-	}
-
-	bt541_firmware_check_with_LCD();
-
+#ifdef SUPPORTED_USE_DUAL_FW
+	bt541_firmware_check();
+#endif
 	if (read_data(client, BT541_THRESHOLD, (u8 *)&cap->threshold, 2) < 0)
 		goto fail_init;
 
@@ -1873,11 +2025,15 @@ retry_init:
 		if (read_data(client, BT541_DATA_VERSION_REG,
 					(u8 *)&cap->reg_data_version, 2) < 0)
 			goto fail_init;
-
+#ifdef SUPPORTED_USE_DUAL_FW
 		if (read_data(client, BT541_HW_ID,
 					(u8 *)&cap->hw_id, 2) < 0)
 			goto fail_init;
-
+		bt541_firmware_check();
+		if (read_data(client, BT541_VENDOR_ID,
+					(u8 *)&cap->vendor_id, 2) < 0)
+			goto fail_init;
+#endif
 	}
 #endif
 
@@ -1996,9 +2152,10 @@ fail_init:
 
 		zinitix_debug_msg("retry to initiallize(retry cnt = %d)\r\n", retry_cnt);
 #if TOUCH_FORCE_UPGRADE
-
-		bt541_firmware_check_with_LCD();
-
+#ifdef SUPPORTED_USE_DUAL_FW
+		ts_check_hwid_in_fatal_state(info);
+		bt541_firmware_check();
+#endif
 		if (ts_upgrade_firmware(info, m_firmware_data,
 					cap->ic_fw_size) == false) {
 			zinitix_printk("upgrade failed\n");
@@ -2187,10 +2344,6 @@ static irqreturn_t bt541_touch_work(int irq, void *data)
 	u32 w;
 	u32 tmp;
 	u8 palm = 0;
-#ifdef CONFIG_MUIC_SUPPORT_FACTORY
-	u16 val = 0;
-	int ret = 0;
-#endif
 
 	if (gpio_get_value(info->pdata->gpio_int)) {
 		dev_err(&client->dev, "Invalid interrupt\n");
@@ -2360,14 +2513,7 @@ static irqreturn_t bt541_touch_work(int irq, void *data)
 								touch_cpufreq_lock, PTR_ERR(min_handle));
 						min_handle = NULL;
 					}
-#ifdef CONFIG_SPRD_CPU_DYNAMIC_HOTPLUG
-					cpu_num_limit_handle = _store_cpu_num_min_limit(2, "TSP");
-					if (IS_ERR(cpu_num_limit_handle)) {
-						printk(KERN_ERR "[TSP] cannot get cpuf_num_min limit %d(%ld)\n",
-								2, PTR_ERR(cpu_num_limit_handle));
-						cpu_num_limit_handle = NULL;
-					}
-#endif
+					_store_cpu_num_min_limit(2);
 					dev_info(&client->dev, "cpu freq on\n");
 				}
 				info->finger_cnt++;
@@ -2398,15 +2544,9 @@ static irqreturn_t bt541_touch_work(int irq, void *data)
 				/*				info->touch_info.coord[i].minor_width = PALM_REJECT_WIDTH;*/
 			}
 #endif
-#ifdef CONFIG_MUIC_SUPPORT_FACTORY
-			ret = read_data(client, BT541_REAL_WIDTH + i, (u8*)&val, 2);
-			if (ret < 0)
-					dev_info(&client->dev, ": Failed to read %d's Real width %s\n", i, __func__);
-			input_report_abs(info->input_dev, ABS_MT_PRESSURE, (u32)val);
-#else
-			input_report_abs(info->input_dev, ABS_MT_PRESSURE, (u32)w);
-#endif
+
 			input_report_abs(info->input_dev, ABS_MT_TOUCH_MAJOR, (u32)w);
+			input_report_abs(info->input_dev, ABS_MT_PRESSURE, (u32)w);
 			input_report_abs(info->input_dev, ABS_MT_WIDTH_MAJOR,
 					(u32)((palm == 1) ? w-40 : w));
 #if (TOUCH_POINT_MODE == 2)
@@ -2432,14 +2572,9 @@ static irqreturn_t bt541_touch_work(int irq, void *data)
 			info->finger_cnt--;
 			if (!info->finger_cnt)
 			{
-#ifdef CONFIG_SPRD_CPU_DYNAMIC_HOTPLUG
-				if (cpu_num_limit_handle) {
-					cpu_num_min_limit_put(cpu_num_limit_handle);
-					cpu_num_limit_handle = NULL;
-				}
-#endif
 				cpufreq_limit_put(min_handle);
 				min_handle = NULL;
+				_store_cpu_num_min_limit(1);
 				dev_info(&client->dev, "cpu freq off\n");
 			}
 #endif
@@ -2502,13 +2637,19 @@ static void bt541_ts_late_resume(struct early_suspend *h)
 	if (mini_init_touch(info) == false)
 		goto fail_late_resume;
 
-	if (read_data(info->client, BT541_FIRMWARE_VERSION, (u8 *)&cap->fw_version, 2));
-	if (read_data(info->client, BT541_MINOR_FW_VERSION, (u8 *)&cap->fw_minor_version, 2));
-	if (read_data(info->client, BT541_DATA_VERSION_REG, (u8 *)&cap->reg_data_version, 2));
-	if (read_data(info->client, BT541_HW_ID, (u8 *)&cap->hw_id, 2));
-	if (read_data(info->client, BT541_VENDOR_ID, (u8 *)&cap->vendor_id, 2));
-	if (read_data(info->client, BT541_MODULE_ID, (u8 *)&cap->module_id, 2));
-
+	if (read_data(info->client, BT541_FIRMWARE_VERSION, (u8 *)&cap->fw_version, 2))
+		;
+	if (read_data(info->client, BT541_MINOR_FW_VERSION, (u8 *)&cap->fw_minor_version, 2))
+		;
+	if (read_data(info->client, BT541_DATA_VERSION_REG, (u8 *)&cap->reg_data_version, 2))
+		;
+	if (read_data(info->client, BT541_HW_ID, (u8 *)&cap->hw_id, 2))
+		;
+	if (read_data(info->client, BT541_VENDOR_ID, (u8 *)&cap->vendor_id, 2))
+		;
+#ifdef SUPPORTED_USE_DUAL_FW
+	bt541_firmware_check();
+#endif
 	enable_irq(info->irq);
 	info->work_state = NOTHING;
 	up(&info->work_lock);
@@ -2571,12 +2712,6 @@ static void bt541_ts_early_suspend(struct early_suspend *h)
 	bt541_power_control(info, POWER_OFF);
 #endif
 #if TOUCH_BOOSTER
-#ifdef CONFIG_SPRD_CPU_DYNAMIC_HOTPLUG
-	if (cpu_num_limit_handle) {
-		cpu_num_min_limit_put(cpu_num_limit_handle);
-		cpu_num_limit_handle = NULL;
-	}
-#endif
 	if (min_handle)
 	{
 		dev_err(&info->client->dev,"[TSP] %s %d:: OOPs, Cpu was not in Normal Freq..\n", __func__, __LINE__);
@@ -2623,13 +2758,19 @@ static int bt541_ts_resume(struct device *dev)
 	if (mini_init_touch(info) == false)
 		dev_err(&client->dev, "Failed to resume\n");
 
-	if (read_data(client, BT541_FIRMWARE_VERSION, (u8 *)&cap->fw_version, 2));
-	if (read_data(client, BT541_MINOR_FW_VERSION, (u8 *)&cap->fw_minor_version, 2));
-	if (read_data(client, BT541_DATA_VERSION_REG, (u8 *)&cap->reg_data_version, 2));
-	if (read_data(client, BT541_HW_ID, (u8 *)&cap->hw_id, 2));
-	if (read_data(client, BT541_VENDOR_ID, (u8 *)&cap->vendor_id, 2));
-	if (read_data(client, BT541_MODULE_ID, (u8 *)&cap->module_id, 2));
-
+	if (read_data(client, BT541_FIRMWARE_VERSION, (u8 *)&cap->fw_version, 2))
+		;
+	if (read_data(client, BT541_MINOR_FW_VERSION, (u8 *)&cap->fw_minor_version, 2))
+		;
+	if (read_data(client, BT541_DATA_VERSION_REG, (u8 *)&cap->reg_data_version, 2))
+		;
+	if (read_data(client, BT541_HW_ID, (u8 *)&cap->hw_id, 2))
+		;
+	if (read_data(client, BT541_VENDOR_ID, (u8 *)&cap->vendor_id, 2))
+		;
+#ifdef SUPPORTED_USE_DUAL_FW
+	bt541_firmware_check();
+#endif
 	if (!gpio_get_value(info->pdata->gpio_int))
 	{
 		write_cmd(info->client, BT541_CLEAR_INT_STATUS_CMD);
@@ -3011,8 +3152,8 @@ static void get_fw_ver_bin(void *device_data)
 	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
 	struct i2c_client *client = info->client;
 	struct tsp_factory_info *finfo = info->factory_info;
-	u16 fw_version, fw_minor_version, reg_version, hw_id;
-	u32 version;
+	u16 fw_version, fw_minor_version, reg_version, hw_id, vendor_id;
+	u32 version, length;
 
 	set_default_result(info);
 
@@ -3030,9 +3171,6 @@ static void get_fw_ver_bin(void *device_data)
 		snprintf(finfo->cmd_buff, length + 1, "%s", (u8 *)&vendor_id);
 		snprintf(finfo->cmd_buff + length, sizeof(finfo->cmd_buff) - length,
 					"%06X", version);*/
-
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "ZI%06X", version);
-
 	set_cmd_result(info, finfo->cmd_buff,
 			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 	finfo->cmd_state = OK;
@@ -3048,8 +3186,8 @@ static void get_fw_ver_ic(void *device_data)
 	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
 	struct i2c_client *client = info->client;
 	struct tsp_factory_info *finfo = info->factory_info;
-	u16 fw_version, fw_minor_version, reg_version, hw_id;
-	u32 version;
+	u16 fw_version, fw_minor_version, reg_version, hw_id, vendor_id;
+	u32 version, length;
 
 	set_default_result(info);
 
@@ -3065,9 +3203,6 @@ static void get_fw_ver_ic(void *device_data)
 		snprintf(finfo->cmd_buff, length + 1, "%s", (u8 *)&vendor_id);
 		snprintf(finfo->cmd_buff + length, sizeof(finfo->cmd_buff) - length,
 					"%06X", version);*/
-
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "ZI%06X", version);
-
 	set_cmd_result(info, finfo->cmd_buff,
 			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 	finfo->cmd_state = OK;
@@ -3098,29 +3233,33 @@ static void get_threshold(void *device_data)
 	return;
 }
 
-static void get_config_ver(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	u16 module_id;
-	u8 temp[3];
+/*
+   static void get_key_threshold(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
 
-	set_default_result(info);
+   int ret = 0;
+   u16 threshold;
 
-	module_id = (u16)ntohs(*(u16 *)&info->cap_info.module_id);
-	snprintf(temp, sizeof(temp), "%s", (u8 *)&module_id);
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),	"%s", temp);
-	
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
+   set_default_result(info);
 
-	dev_info(&client->dev, "%s: %s(%s)\n", __func__, finfo->cmd_buff,
-			(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   ret = read_data(misc_info->client, BT541_BUTTON_SENSITIVITY, (u8 *)&threshold, 2);
+   if (ret < 0) {
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "fail");
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = FAIL;
+   return;
+   }
 
-	return;
-}
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", threshold);
+
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+   finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   }
+ */
 
 
 static void module_off_master(void *device_data)
@@ -3165,7 +3304,7 @@ static void get_chip_vendor(void *device_data)
 	return;
 }
 
-#define BT541_CHIP_NAME "BT541C"
+#define BT541_CHIP_NAME "BT541"
 
 static void get_chip_name(void *device_data)
 {
@@ -3186,34 +3325,38 @@ static void get_chip_name(void *device_data)
 	return;
 }
 
-
-/*
-static void get_checksum_data(void *device_data)
+#ifdef SUPPORTED_USE_DUAL_FW
+static void get_module_vendor(void *device_data)
 {
 	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
 	struct i2c_client *client = info->client;
 	struct tsp_factory_info *finfo = info->factory_info;
-	u16 checksum = 0;
-	
+	int module_vendor =0;
+
 	set_default_result(info);
 
-	if (read_data(client, BT541_TSP_CHECKSUM_DATA,
-				(u8 *)&checksum, 2) < 0){
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
-		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
+	switch (info->cap_info.hw_id) {
+	case 0:
+		module_vendor = 0;
+		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s,%d", "OK", module_vendor);
+		break;
+	case 1:
+		module_vendor = 1;
+		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s,%d", "OK", module_vendor);
+		break;
+	default:
+		break;
 	}
-
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "0x%x", checksum);
 	set_cmd_result(info, finfo->cmd_buff,
 			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 	finfo->cmd_state = OK;
 
 	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
-			(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 
-}*/
+	return;
+}
+#endif
 
 static void get_x_num(void *device_data)
 {
@@ -3274,14 +3417,15 @@ static void not_support_cmd(void *device_data)
 	return;
 }
 
-static void run_reference_read(void * device_data)
+#if 0
+static void run_reference_read(void *device_data)
 {
 	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
 	struct i2c_client *client = info->client;
 	struct tsp_factory_info *finfo = info->factory_info;
 	struct tsp_raw_data *raw_data = info->raw_data;
 	u16 min, max;
-	s32 i, j, offset;
+	s32 i,j;
 
 #if ESD_TIMER_INTERVAL
 	esd_timer_stop(misc_info);
@@ -3289,719 +3433,28 @@ static void run_reference_read(void * device_data)
 	set_default_result(info);
 
 	ts_set_touchmode(TOUCH_DND_MODE);
-	get_raw_data(info, (u8 *)raw_data->dnd_data, 5);
+	get_raw_data(info, (u8 *)raw_data->ref_data, 10);
 	ts_set_touchmode(TOUCH_POINT_MODE);
 
 	min = 0xFFFF;
 	max = 0x0000;
 
-	for (i = 0; i < info->cap_info.x_node_num; i++) {
-		for (j = 0; j < info->cap_info.y_node_num; j++) {
-			offset = i * info->cap_info.y_node_num + j;
-
-			if (raw_data->dnd_data[offset] &&
-				  raw_data->dnd_data[offset] < min)
-				min = raw_data->dnd_data[offset];
-
-			if (raw_data->dnd_data[offset] > max)
-				max = raw_data->dnd_data[offset];
-		}
-	}
-
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%d,%d\n", min, max);
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&client->dev, "%s: %s\n", __func__, finfo->cmd_buff);
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_start(CHECK_ESD_TIMER, misc_info);
-#endif
-	return;
-}
-
-static void run_dnd_read(void * device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset, val, x, y, node_num;
-	bool result = true;
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_stop(misc_info);
-#endif
-	set_default_result(info);
-
-	ts_set_touchmode(TOUCH_DND_MODE);
-	get_raw_data(info, (u8 *)raw_data->dnd_data, 5);
-	ts_set_touchmode(TOUCH_POINT_MODE);
-
-	printk("DND start\n");
-
-	for (i = 0; i < x_num; i++) {
-		for (j = 0; j < y_num; j++) {
-			offset = (i * y_num) + j;
-			printk("%d ", raw_data->dnd_data[offset]);
-
-			if ((raw_data->dnd_data[offset] > dnd_max[i][j]) ||
-			  (raw_data->dnd_data[offset] &&
-			  (raw_data->dnd_data[offset] < dnd_min[i][j]))) {
-				val =  raw_data->dnd_data[offset];
-				x = i;
-				y = j;
-				node_num = offset;
-				result = false;				
-			}
-		}
-		printk("\n");
-	}
-
-	if (result) {
-	dev_info(&client->dev, "DND Pass\n");
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	} else {
-	dev_err(&client->dev, "DND Fail\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-				"Fail %d,%d,%d,%d\n",
-				node_num, dnd_min[x][y], dnd_max[x][y], val);
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_start(CHECK_ESD_TIMER, misc_info);
-#endif
-	return;
-}
-
-static void run_dnd_v_gap_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset, val, cur_val, next_val, x, y, node_num, fail_val;
-	bool result = true;
-
-	set_default_result(info);
-
-	memset(raw_data->vgap_data, 0x00, TSP_CMD_NODE_NUM);
-
-	printk("DND V Gap start\n");
-
-	for (i = 0; i < x_num - 1; i++) {
-		for (j = 0; j < y_num; j++) {
-			offset = (i * y_num) + j;
-
-			cur_val = raw_data->dnd_data[offset];
-			next_val = raw_data->dnd_data[offset + y_num];
-			if (!next_val) {
-				raw_data->vgap_data[offset] = next_val;
-				continue;
-	}
-
-			if (next_val > cur_val)
-				val = 100 - ((cur_val * 100) / next_val);
-			else
-				val = 100 - ((next_val * 100) / cur_val);
-
-			printk("%d ", val);
-			cur_val = (s16)(dnd_v_gap[i][j]);
-
-			if (val > cur_val){
-				fail_val = val;
-				x = i;
-				y = j;
-				node_num = offset;
-				result = false;
-		}
-			raw_data->vgap_data[offset] = val;
-	}
-		printk("\n");
-}
-
-	if (result) {
-		dev_info(&client->dev, "DND V Gap Pass\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	} else {
-		dev_err(&client->dev, "DND V Gap Fail\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-				"Fail %d,%d,%d,%d\n",
-				node_num, 0, dnd_v_gap[x][y], fail_val);
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	return;
-}
-
-static void run_dnd_h_gap_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset, val, cur_val, next_val, x, y, node_num, fail_val;
-	bool result = true;
-
-	set_default_result(info);
-
-	memset(raw_data->hgap_data, 0x00, TSP_CMD_NODE_NUM);
-
-	printk("DND H Gap start\n");
-
-	for (i = 0; i < x_num ; i++) {
-		for (j = 0; j < y_num-1; j++) {
-			offset = (i * y_num) + j;
-
-			cur_val = raw_data->dnd_data[offset];
-			if (!cur_val) {
-				raw_data->hgap_data[offset] = cur_val;
-				continue;
-			}
-
-			next_val = raw_data->dnd_data[offset + 1];
-			if (!next_val) {
-				raw_data->hgap_data[offset] = next_val;
-				for (++j; j < y_num - 1; j++) {
-					offset = (i * y_num) + j;
-
-					next_val = raw_data->dnd_data[offset];
-					if (!next_val) {
-						raw_data->hgap_data[offset]
-							= next_val;
-						continue;
-			}
-
-					break;
-		}
-	}
-
-			if (next_val > cur_val)
-				val = 100 - ((cur_val * 100) / next_val);
-		else
-				val = 100 - ((next_val * 100) / cur_val);
-
-			printk("%d ", val);
-			cur_val = (s16)(dnd_h_gap[i][j]);
-
-			if (val > cur_val){
-				fail_val = val;
-				x = i;
-				y = j;
-				node_num = offset;
-				result = false;
-		}
-			raw_data->hgap_data[offset] = val;
-	}
-		printk("\n");
-}
-
-	if (result) {
-		dev_info(&client->dev, "DND H Gap Pass\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	} else {
-		dev_err(&client->dev, "DND H Gap Fail\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-				"Fail %d,%d,%d,%d\n",
-				node_num, 0, dnd_h_gap[x][y], fail_val);
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	return;
-}
-
-static void get_dnd_h_gap(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_node, y_node;
-	int node_num;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num - 1) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
-		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-	
-	node_num = (x_node * y_num) + y_node;
-
-	sprintf(finfo->cmd_buff, "%d", raw_data->hgap_data[node_num]);
-	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
-			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-}
-
-static void get_dnd_v_gap(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_node, y_node;
-	int node_num;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= x_num - 1 || y_node < 0 || y_node >= y_num) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
-		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-	
-	node_num = (x_node * y_num) + y_node;
-
-	sprintf(finfo->cmd_buff, "%d", raw_data->vgap_data[node_num]);
-	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
-			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-}
-
-#define DEF_RAW_DATA_CNT	10
-static void run_hfdnd_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset;
-	bool result = true;
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_stop(misc_info);
-#endif
-	set_default_result(info);
-
-	for (i = 0; i < TSP_CMD_NODE_NUM; i++)
-		raw_data->hfdnd_data_sum[i] = 0;
-
-	ts_set_touchmode2(TOUCH_DND_MODE);
-	for (i = 0; i < DEF_RAW_DATA_CNT; i++) {
-		get_raw_data(info, (u8 *)raw_data->hfdnd_data, 2);
-		write_cmd(misc_info->client, BT541_CLEAR_INT_STATUS_CMD);
-
-		for (j = 0; j < TSP_CMD_NODE_NUM; j++)
-			raw_data->hfdnd_data_sum[j] += raw_data->hfdnd_data[j];
-	}
-	ts_set_touchmode2(TOUCH_POINT_MODE);
-
-	for (i = 0; i < TSP_CMD_NODE_NUM; i++)
-		raw_data->hfdnd_data[i] = raw_data->hfdnd_data_sum[i] / DEF_RAW_DATA_CNT;
-
-	printk("HF DND start\n");
-
-	for (i = 0; i < x_num; i++) {
-		for (j = 0; j < y_num; j++) {
-			offset = (i * y_num) + j;
-			printk("%d ", raw_data->hfdnd_data[offset]);			
-		}
-		printk("\n");
-	}
-
-	if (result) {
-		dev_info(&client->dev, "HF DND Pass\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_start(CHECK_ESD_TIMER, misc_info);
-#endif
-	return;
-}
-
-
-static void run_hfdnd_v_gap_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset, val, cur_val, next_val, x, y, node_num, fail_val;
-	bool result = true;
-
-	set_default_result(info);
-
-	memset(raw_data->vgap_data, 0x00, TSP_CMD_NODE_NUM);
-
-	printk("HFDND V Gap start\n");
-
-	for (i = 0; i < x_num - 1; i++) {
-		for (j = 0; j < y_num; j++) {
-			offset = (i * y_num) + j;
-
-			cur_val = raw_data->hfdnd_data[offset];
-			next_val = raw_data->hfdnd_data[offset + y_num];
-			if (!next_val) {
-				raw_data->vgap_data[offset] = next_val;
-				continue;
-			}
-
-			if (next_val > cur_val)
-				val = 100 - ((cur_val * 100) / next_val);
-			else
-				val = 100 - ((next_val * 100) / cur_val);
-
-			printk("%d ", val);
-			cur_val = (s16)(hfdnd_v_gap[i][j]);
-
-			if (val > cur_val){
-				fail_val = val;
-				x = i;
-				y = j;
-				node_num = offset;
-				result = false;
-		}
-			raw_data->vgap_data[offset] = val;
-	}
-		printk("\n");
-}
-
-	if (result) {
-		dev_info(&client->dev, "HF DND V Gap Pass\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	} else {
-		dev_err(&client->dev, "HF DND V Gap Fail\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-				"Fail %d,%d,%d,%d\n",
-				node_num, 0, hfdnd_v_gap[x][y], fail_val);
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	return;
-}
-
-static void run_hfdnd_h_gap_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-	int i, j, offset, val, cur_val, next_val, x, y, node_num, fail_val;
-	bool result = true;
-
-	set_default_result(info);
-
-	memset(raw_data->hgap_data, 0x00, TSP_CMD_NODE_NUM);
-
-	printk("HF DND H Gap start\n");
-
-	for (i = 0; i < x_num ; i++) {
-		for (j = 0; j < y_num-1; j++) {
-			offset = (i * y_num) + j;
-
-			cur_val = raw_data->hfdnd_data[offset];
-			if (!cur_val) {
-				raw_data->hgap_data[offset] = cur_val;
-				continue;
-			}
-
-			next_val = raw_data->hfdnd_data[offset + 1];
-			if (!next_val) {
-				raw_data->hgap_data[offset] = next_val;
-				for (++j; j < y_num - 1; j++) {
-					offset = (i * y_num) + j;
-
-					next_val = raw_data->hfdnd_data[offset];
-					if (!next_val) {
-						raw_data->hgap_data[offset]
-							= next_val;
-						continue;
-			}
-
-					break;
-		}
-	}
-
-			if (next_val > cur_val)
-				val = 100 - ((cur_val * 100) / next_val);
-		else
-				val = 100 - ((next_val * 100) / cur_val);
-
-			printk("%d ", val);
-			cur_val = (s16)(hfdnd_h_gap[i][j]);
-
-			if (val > cur_val){
-				fail_val = val;
-				x = i;
-				y = j;
-				node_num = offset;
-			result = false;
-		}
-			raw_data->hgap_data[offset] = val;
-	}
-		printk("\n");
-}
-
-	if (result) {
-		dev_info(&client->dev, "HF DND H Gap Pass\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "OK\n");
-	} else {
-		dev_err(&client->dev, "HF DND H Gap Fail\n");
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-				"Fail %d,%d,%d,%d\n",
-				node_num, 0, hfdnd_h_gap[x][y], fail_val);
-	}
-
-	set_cmd_result(info, finfo->cmd_buff,
-			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	return;
-}
-
-static void get_hfdnd_h_gap(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_node, y_node;
-	int node_num;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num - 1) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
-		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-
-	node_num = (x_node * y_num) + y_node;
-
-	sprintf(finfo->cmd_buff, "%d", raw_data->hgap_data[node_num]);
-	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
-			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-}
-
-static void get_hfdnd_v_gap(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	int x_node, y_node;
-	int node_num;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= x_num - 1 || y_node < 0 || y_node >= y_num) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
-		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-	
-	node_num = (x_node * y_num) + y_node;
-
-	sprintf(finfo->cmd_buff, "%d", raw_data->vgap_data[node_num]);
-	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
-			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-}
-
-static void get_reference(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-/*	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	unsigned int val;
-	int x_node, y_node;
-	int node_num;*/
-
-	set_default_result(info);
-/*
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
-		y_node < 0 || y_node >= info->cap_info.y_node_num) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
-		set_cmd_result(info, finfo->cmd_buff,
-		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-
-	node_num = x_node * info->cap_info.y_node_num + y_node;
-
-	val = raw_data->ref_data[node_num];
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
-	set_cmd_result(info, finfo->cmd_buff,
-	strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
-			(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-*/
-	return;
-}
-
-static void get_dnd(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	unsigned int val;
-	int x_node, y_node;
-	int node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
-		y_node < 0 || y_node >= info->cap_info.y_node_num) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
-		set_cmd_result(info, finfo->cmd_buff,
-		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-
-	node_num = x_node * info->cap_info.y_node_num + y_node;
-
-	val = raw_data->dnd_data[node_num];
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
-	set_cmd_result(info, finfo->cmd_buff,
-	strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
-		(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-
-	return;
-}
-
-static void get_hfdnd(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	unsigned int val;
-	int x_node, y_node;
-	int node_num;
-
-	set_default_result(info);
-
-	x_node = finfo->cmd_param[0];
-	y_node = finfo->cmd_param[1];
-
-	if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
-		y_node < 0 || y_node >= info->cap_info.y_node_num) {
-		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
-		set_cmd_result(info, finfo->cmd_buff,
-		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
-		return;
-	}
-
-	node_num = x_node * info->cap_info.y_node_num + y_node;
-
-	val = raw_data->hfdnd_data[node_num];
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
-	set_cmd_result(info, finfo->cmd_buff,
-	strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
-		(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-
-	return;
-}
-
-static void run_delta_read(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct i2c_client *client = info->client;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct tsp_raw_data *raw_data = info->raw_data;
-	s16 min, max;
-	s32 i,j, offset;
-	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
-
-#if ESD_TIMER_INTERVAL
-	esd_timer_stop(misc_info);
-#endif
-
-	set_default_result(info);
-
-	ts_set_touchmode(TOUCH_DELTA_MODE);
-	get_raw_data(info, (u8 *)raw_data->delta_data, 10);
-	ts_set_touchmode(TOUCH_POINT_MODE);
-
-	min = (s16)0x7FFF;
-	max = (s16)0x8000;
-
-	for (i = 0; i < x_num; i++) {
-		for (j = 0; j < y_num; j++) {
-//			printk("delta_data : %d\n", raw_data->delta_data[j+i]);
-			offset = (i * y_num) + j;
-			printk("%d ", raw_data->delta_data[offset]);
-
-			if (raw_data->delta_data[offset] < min &&
-					raw_data->delta_data[offset] != 0)
-				min = raw_data->delta_data[offset];
-
-			if (raw_data->delta_data[offset] > max)
-				max = raw_data->delta_data[offset];
+	for (i = 0; i < info->cap_info.x_node_num; i++)
+	{
+		for (j = 0; j < info->cap_info.y_node_num; j++)
+		{
+			/*pr_info("ref_data : %d ",
+			  raw_data->ref_data[i * info->cap_info.y_node_num + j]);*/
+
+			if (raw_data->ref_data[i * info->cap_info.y_node_num + j] < min &&
+					raw_data->ref_data[i * info->cap_info.y_node_num + j] != 0)
+				min = raw_data->ref_data[i * info->cap_info.y_node_num + j];
+
+			if (raw_data->ref_data[i * info->cap_info.y_node_num + j] > max)
+				max = raw_data->ref_data[i * info->cap_info.y_node_num + j];
 
 		}
-		printk("\n");
+		/*pr_info("\n");*/
 	}
 
 	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%d,%d\n", min, max);
@@ -4015,11 +3468,1213 @@ static void run_delta_read(void *device_data)
 #if ESD_TIMER_INTERVAL
 	esd_timer_start(CHECK_ESD_TIMER, misc_info);
 #endif
+	return;
+}
+#endif
+static bool run_reference_DND_read(void *device_data, int button0, int button1) //DND
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	int i, j, nButton;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+	int buttons[2] = {button0,button1};
+	bool result = true, item_result= true;
+
+#if ESD_TIMER_INTERVAL
+	esd_timer_stop(misc_info);
+#endif
+
+	set_default_result(info);
+	ts_set_touchmode(TOUCH_DND_MODE);
+	get_raw_data(info, (u8 *)info->pdnd_data, 5);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+
+	printk("DND_data =\n");
+	for (i = 0; i < x_num; i++) {
+		for (j = 0; j < y_num; j++) {
+			printk("%d ", info->pdnd_data[j+i*y_num]);
+		}
+		printk("\n");
+	}
+
+	info->dnd_max_x = info->dnd_max_y = info->dnd_min_x = info->dnd_min_y = 0;
+	info->dnd_max_val = -32768;
+	info->dnd_min_val = 32767;
+	info->dnd_real_max_val = -32768;
+	info->dnd_real_min_val = 32767;
+	info->dnd_node_num = -1;
+
+	for (i = 0; i < x_num-1; i++) {
+		for (j = 0; j < y_num; j++) {
+			if (info->dnd_real_min_val > info->pdnd_data[j+i*y_num]) {
+				info->dnd_real_min_x = i;
+				info->dnd_real_min_y = j;
+				info->dnd_real_min_val = info->pdnd_data[j+i*y_num];
+			}
+			if (info->dnd_real_max_val < info->pdnd_data[j+i*y_num]) {
+				info->dnd_real_max_x = i;
+				info->dnd_real_max_y = j;
+				info->dnd_real_max_val = info->pdnd_data[j+i*y_num];
+			}
+
+			if ((info->pdnd_data[j+i*y_num] < pdnd_min[i][j]) && (info->pdnd_data[j+i*y_num] != 0)) {
+				printk(" DND View Min fail : NODE = %u, Raw data = %d, SPEC = %u\n", j+i*y_num, info->pdnd_data[j+i*y_num], pdnd_min[i][j]);
+				item_result = false;
+				result = false;
+
+				if (info->dnd_node_num == -1)
+					info->dnd_node_num = j + (i * y_num);
+			}
+			if (info->dnd_min_val > info->pdnd_data[j+i*y_num] - pdnd_min[i][j]) {
+				info->dnd_min_x = i;
+				info->dnd_min_y = j;
+				info->dnd_min_val = info->pdnd_data[j+i*y_num] - pdnd_min[i][j];
+			}
+			if (info->pdnd_data[j+i*y_num] > pdnd_max[i][j]) {
+				printk(" DND View Max fail : NODE = %u, Raw data = %d, SPEC = %u\n", j+i*y_num, info->pdnd_data[j+i*y_num], pdnd_max[i][j]);
+				item_result = false;
+				result = false;
+
+				if (info->dnd_node_num == -1)
+					info->dnd_node_num = j + (i * y_num);
+			}
+			if (info->dnd_max_val < info->pdnd_data[j+i*y_num] - pdnd_max[i][j]) {
+				info->dnd_max_x = i;
+				info->dnd_max_y = j;
+				info->dnd_max_val = info->pdnd_data[j+i*y_num] - pdnd_max[i][j];
+			}
+		}
+	}
+
+	if (item_result)
+		printk("DND View pass\n");
+	else
+		printk("DND View fail\n");
+
+	/*button*/
+	item_result = true;
+	if (info->cap_info.button_num) {
+		for (i = 0; i < 2; i++) {
+			nButton = buttons[i];
+
+			if (nButton < 0)
+				continue;
+
+			if (info->dnd_real_min_val > info->pdnd_data[(x_num-1)*y_num+nButton]) {
+				info->dnd_real_min_x = x_num-1;
+				info->dnd_real_min_y = nButton;
+				info->dnd_real_min_val = info->pdnd_data[(x_num-1)*y_num+nButton];
+			}
+
+			if (info->dnd_real_max_val < info->pdnd_data[(x_num-1)*y_num+nButton]) {
+				info->dnd_real_max_x = x_num-1;
+				info->dnd_real_max_y = nButton;
+				info->dnd_real_max_val = info->pdnd_data[(x_num-1)*y_num+nButton];
+			}
+
+			if (info->pdnd_data[(x_num-1)*y_num+nButton] < pdnd_min[x_num-1][nButton]) {
+				printk(" DND Button Min fail : NODE = %u,  Raw data = %d, SPEC = %u\n", nButton, info->pdnd_data[(x_num-1)*y_num+nButton], pdnd_min[x_num-1][nButton]);
+				item_result = false;
+				result = false;
+
+				if (info->dnd_node_num == -1)
+					info->dnd_node_num = ((x_num - 1) * y_num) + nButton;
+			}
+
+			if (info->dnd_min_val > info->pdnd_data[(x_num-1)*y_num+nButton] - pdnd_min[x_num-1][nButton]) {
+				info->dnd_min_x = x_num-1;
+				info->dnd_min_y = nButton;
+				info->dnd_min_val = info->pdnd_data[(x_num-1)*y_num+nButton] - pdnd_min[x_num-1][nButton];
+			}
+
+			if (info->pdnd_data[(x_num-1)*y_num+nButton] > pdnd_max[x_num-1][nButton]) {
+				printk(" DND Button Max fail : NODE = %u, Raw data = %d, SPEC = %u\n", nButton, info->pdnd_data[(x_num-1)*y_num+nButton], pdnd_max[x_num-1][nButton]);
+				item_result = false;
+				result = false;
+
+				if (info->dnd_node_num == -1)
+					info->dnd_node_num = ((x_num - 1) * y_num) + nButton;
+			}
+
+			if (info->dnd_max_val <  info->pdnd_data[(x_num-1)*y_num+nButton] - pdnd_max[x_num-1][nButton]) {
+				info->dnd_max_x = x_num-1;
+				info->dnd_max_y = nButton;
+				info->dnd_max_val =  info->pdnd_data[(x_num-1)*y_num+nButton] - pdnd_max[x_num-1][nButton];
+			}
+		}
+	}
+
+	if (item_result) {
+		info->dnd_done = true;
+		printk("DND Button pass\n");
+	} else {
+		info->dnd_done = false;
+		printk("DND Butoon fail\n");
+	}
+
+#if ESD_TIMER_INTERVAL
+	esd_timer_start(CHECK_ESD_TIMER, misc_info);
+#endif
+
+	return result;
+}
+
+static void run_reference_DND(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	bool temp;
+
+	set_default_result(info);
+
+	temp = run_reference_DND_read(device_data, 4, 7);
+
+	if (temp) {
+		pr_info("DND pass\n");
+		sprintf(finfo->cmd_buff, "OK\n");
+	} else {
+		int x, y, node_num;
+
+		node_num = info->dnd_node_num;
+		x = node_num / info->cap_info.y_node_num;
+		y = node_num % info->cap_info.y_node_num;
+
+		pr_info("DND Fail\n");
+		sprintf(finfo->cmd_buff, "%d,%d,%d,%d\n",
+				node_num,
+				pdnd_min[x][y],
+				pdnd_max[x][y],
+				info->pdnd_data[node_num]);
+	}
+
+	finfo->cmd_state = OK;
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+static bool run_reference_HFDND_read(void *device_data, int button0, int button1) //DND
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	int i, j, nButton;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+	int buttons[2] = {button0,button1};
+	bool result = true, item_result= true;
+
+#if ESD_TIMER_INTERVAL
+	esd_timer_stop(misc_info);
+#endif
+
+	set_default_result(info);
+	ts_set_touchmode2(TOUCH_DND_MODE);
+	get_raw_data(info, (u8 *)info->hfdnd_data, 5);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+
+	printk("HFDND_data =\n");
+	for (i = 0; i < x_num; i++) {
+		for (j = 0; j < y_num; j++) {
+			printk("%d ", info->hfdnd_data[j+i*y_num]);
+		}
+		printk("\n");
+	}
+
+	info->hfdnd_max_x = info->hfdnd_max_y = info->hfdnd_min_x = info->hfdnd_min_y = 0;
+	info->hfdnd_max_val = -32768;
+	info->hfdnd_min_val = 32767;
+	info->hfdnd_real_max_val = -32768;
+	info->hfdnd_real_min_val = 32767;
+	info->hfdnd_node_num = -1;
+
+	//MAX
+	for (i = 0; i < x_num-1; i++) {
+		for (j = 0; j < y_num; j++) {
+			if (info->hfdnd_real_min_val > info->hfdnd_data[j+i*y_num]) {
+				info->hfdnd_real_min_x = i;
+				info->hfdnd_real_min_y = j;
+				info->hfdnd_real_min_val = info->hfdnd_data[j+i*y_num];
+			}
+
+			if (info->hfdnd_real_max_val < info->hfdnd_data[j+i*y_num]) {
+				info->hfdnd_real_max_x = i;
+				info->hfdnd_real_max_y = j;
+				info->hfdnd_real_max_val = info->hfdnd_data[j+i*y_num];
+			}
+
+			if ((info->hfdnd_data[j+i*y_num] < hfdnd_min[i][j]) && (info->hfdnd_data[j+i*y_num] != 0)) {
+				printk(" HFDND View Min fail : NODE = %u,Raw data = %d, SPEC = %u\n", j+i*y_num, info->hfdnd_data[j+i*y_num], hfdnd_min[i][j]);
+				item_result = false;
+				result = false;
+
+				if (info->hfdnd_node_num == -1)
+					info->hfdnd_node_num = j + (i * y_num);
+			}
+
+			if (info->hfdnd_min_val > info->hfdnd_data[j+i*y_num] - hfdnd_min[i][j]) {
+				info->hfdnd_min_x = i;
+				info->hfdnd_min_y = j;
+				info->hfdnd_min_val = info->hfdnd_data[j+i*y_num] - hfdnd_min[i][j];
+			}
+
+			if (info->hfdnd_data[j+i*y_num] > hfdnd_max[i][j]) {
+				printk(" HFDND View Max fail : NODE = %u, Raw data = %d, SPEC = %u\n", j+i*y_num, info->hfdnd_data[j+i*y_num], hfdnd_max[i][j]);
+				item_result = false;
+				result = false;
+
+				if (info->hfdnd_node_num == -1)
+					info->hfdnd_node_num = j + (i * y_num);
+			}
+
+			if (info->hfdnd_max_val < info->hfdnd_data[j+i*y_num] - hfdnd_max[i][j]) {
+				info->hfdnd_max_x = i;
+				info->hfdnd_max_y = j;
+				info->hfdnd_max_val = info->hfdnd_data[j+i*y_num] - hfdnd_max[i][j];
+			}
+		}
+	}
+
+	if (item_result)
+		printk("HFDND View pass\n");
+	else
+		printk("HFDND View Fail\n");
+
+	//button
+	item_result = true;
+	if (info->cap_info.button_num) {
+		for (i = 0; i < 2; i++) {
+			nButton = buttons[i];
+			if (nButton < 0)
+				continue;
+
+			if (info->hfdnd_real_min_val > info->hfdnd_data[(x_num-1)*y_num+nButton]) {
+				info->hfdnd_real_min_x = x_num-1;
+				info->hfdnd_real_min_y = nButton;
+				info->hfdnd_real_min_val = info->hfdnd_data[(x_num-1)*y_num+nButton];
+			}
+
+			if (info->hfdnd_real_max_val < info->hfdnd_data[(x_num-1)*y_num+nButton]) {
+				info->hfdnd_real_max_x = x_num-1;
+				info->hfdnd_real_max_y = nButton;
+				info->hfdnd_real_max_val = info->hfdnd_data[(x_num-1)*y_num+nButton];
+			}
+
+			if (info->hfdnd_data[(x_num-1)*y_num+nButton] < hfdnd_min[x_num-1][nButton]) {
+				printk(" HFDND Button Min fail : NODE = %u, Raw data = %d, SPEC = %u\n", nButton, info->hfdnd_data[(x_num-1)*y_num+nButton], hfdnd_min[x_num-1][nButton]);
+				item_result = false;
+				result = false;
+
+				if (info->hfdnd_node_num == -1)
+					info->hfdnd_node_num = ((x_num - 1) * y_num) + nButton;
+			}
+			if (info->hfdnd_min_val > info->hfdnd_data[(x_num-1)*y_num+nButton] - hfdnd_min[x_num-1][nButton]) {
+				info->hfdnd_min_x = x_num-1;
+				info->hfdnd_min_y = nButton;
+				info->hfdnd_min_val = info->hfdnd_data[(x_num-1)*y_num+nButton] - hfdnd_min[x_num-1][nButton];
+			}
+			if (info->hfdnd_data[(x_num-1)*y_num+nButton] > hfdnd_max[x_num-1][nButton]) {
+				printk(" HFDND Button Max fail : NODE = %u, Raw data = %d, SPEC = %u\n", nButton, info->hfdnd_data[(x_num-1)*y_num+nButton], hfdnd_min[x_num-1][nButton]);
+				item_result = false;
+				result = false;
+
+				if (info->hfdnd_node_num == -1)
+					info->hfdnd_node_num = ((x_num - 1) * y_num) + nButton;
+			}
+			if (info->hfdnd_max_val <  info->hfdnd_data[(x_num-1)*y_num+nButton] -	hfdnd_min[x_num-1][nButton]) {
+				info->hfdnd_max_x = x_num-1;
+				info->hfdnd_max_y = nButton;
+				info->hfdnd_max_val =  info->hfdnd_data[(x_num-1)*y_num+nButton] -	hfdnd_min[x_num-1][nButton];
+			}
+		}
+	}
+
+	if (item_result) {
+		info->hfdnd_done = true;
+		printk("HFDND Button pass\n");
+	} else {
+		info->hfdnd_done = false;
+		printk("HFDND Button fail\n");
+	}
+
+#if ESD_TIMER_INTERVAL
+	esd_timer_start(CHECK_ESD_TIMER, misc_info);
+#endif
+
+	return result;
+}
+
+static void run_reference_HFDND(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	bool	temp;
+
+	set_default_result(info);
+
+	temp = run_reference_HFDND_read(device_data, 4, 7);
+
+	if (temp) {
+		pr_info("HF DND pass\n");
+		sprintf(finfo->cmd_buff, "OK\n");
+	} else {
+		int x, y, node_num;
+
+		node_num = info->hfdnd_node_num;
+		x = node_num / info->cap_info.y_node_num;
+		y = node_num % info->cap_info.y_node_num;
+
+		pr_info("HF DND Fail\n");
+		sprintf(finfo->cmd_buff, "%d,%d,%d,%d\n",
+				node_num,
+				hfdnd_min[x][y],
+				hfdnd_max[x][y],
+				info->hfdnd_data[node_num]);
+	}
+
+	finfo->cmd_state = OK;
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+static bool run_reference_V_Diff_read(void *device_data, int button0, int button1) //DND
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+
+	int print_diff[19*10]={0,};
+	int buttons[2] = {button0,button1};
+	int i, j, diff_val, pre_val, next_val, nButton;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+	bool result = true, item_result = true;
+
+	printk("TSP Diff test scale factor = %d\n",TSP_INIT_TEST_RATIO);
+	printk("V Diff start\n");
+
+	info->vdiff_max_x = info->vdiff_max_y = info->vdiff_min_x = info->vdiff_min_y = 0;
+	info->vdiff_max_val = -32768;
+	info->vdiff_min_val = 32767;
+	info->vdiff_node_num = -1;
+
+	item_result = true;
+	for (i = 0; i < x_num-2; i++) {
+		for (j = 0; j < y_num; j++) {
+			//printk("%d ", info->pdnd_data[i*y_num+j]);
+			next_val = info->pdnd_data[(i*y_num)+j];
+			pre_val = info->pdnd_data[(i*y_num)+j+y_num];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			printk(" %d ", diff_val);
+
+			pre_val = (TSP_INIT_TEST_RATIO == 100)?((s16)dnd_v_diff[i][j]):((s16)(((s32)dnd_v_diff[i][j] * TSP_INIT_TEST_RATIO) /100));
+			if (diff_val > pre_val) {
+				result = false;
+				item_result = false;
+
+				if (info->vdiff_node_num == -1) {
+					info->vdiff_node_num = j + (i * y_num);
+					info->vdiff_diff_val = diff_val;
+				}
+			}
+#if PDIFF_DEBUG
+			print_diff[i*y_num+j] = diff_val;
+#endif
+			if (info->vdiff_max_val < diff_val) {
+				info->vdiff_max_val = diff_val;
+				info->vdiff_max_x = i;
+				info->vdiff_max_y= j;
+			}
+			if (info->vdiff_min_val > diff_val) {
+				info->vdiff_min_val = diff_val;
+				info->vdiff_min_x = i;
+				info->vdiff_min_y= j;
+			}
+		}
+		printk("\n");
+	}
+
+	if (item_result)
+		printk("V Diff view pass\n");
+	else
+		printk("V Diff view fail\n");
+
+	item_result = true;
+	if ( info->cap_info.button_num) {
+		printk("TSP Button scale = %d\n", TSP_INIT_TEST_RATIO);
+		printk("TSP Button Diff Spec. = %d %d\n",
+				dnd_v_diff[x_num-2][buttons[0]], dnd_v_diff[x_num-2][buttons[1]]);
+
+		for (i = 0; i < 2; i++) {
+			nButton = buttons[i];
+			if (nButton < 0)
+				continue;
+			next_val = info->pdnd_data[(x_num-1)*y_num+nButton];
+			pre_val = info->pdnd_data[(x_num-2)*y_num+nButton];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			pre_val = (TSP_INIT_TEST_RATIO == 100)?( (s16)dnd_v_diff[x_num-2][nButton]+info->ref_btn_option): \
+				  ((s16)(((s32)dnd_v_diff[x_num-2][nButton]*TSP_INIT_TEST_RATIO)/100)+info->ref_btn_option);
+
+			if (diff_val > pre_val) {
+				item_result = false;
+				result = false;
+
+				if (info->vdiff_node_num == -1) {
+					info->vdiff_node_num = ((x_num - 2) * y_num) + nButton;
+					info->vdiff_diff_val = diff_val;
+				}
+			}
+			if (info->vdiff_max_val < diff_val) {
+				info->vdiff_max_val = diff_val;
+				info->vdiff_max_x = x_num - 1;
+				info->vdiff_max_y= nButton;
+			}
+			if (info->vdiff_min_val	>diff_val) {
+				info->vdiff_min_val = diff_val;
+				info->vdiff_min_x = x_num - 1;
+				info->vdiff_min_y= nButton;
+			}
+#if PDIFF_DEBUG
+			printk("buttons[%d]'s diff_val is %d\n", i, diff_val);
+#endif
+		}
+	}
+
+	if (item_result)
+		printk("Button V Diff pass\n");
+	else
+		printk("Button V Diff fail\n");
+
+	return result;
+}
+
+static void run_reference_V_Diff(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	bool temp;
+
+	set_default_result(info);
+
+	temp = run_reference_V_Diff_read(device_data, 4, 7);
+
+	if (temp) {
+		pr_info("V Diff pass\n");
+		sprintf(finfo->cmd_buff, "OK\n");
+	} else {
+		int x, y, node_num;
+
+		node_num = info->dnd_node_num;
+		x = node_num / info->cap_info.y_node_num;
+		y = node_num % info->cap_info.y_node_num;
+
+		pr_info("V Diff Fail\n");
+		sprintf(finfo->cmd_buff, "%d,%d,%d,%d\n",
+				node_num,
+				0,
+				dnd_v_diff[x][y],
+				info->vdiff_diff_val);
+	}
+
+	finfo->cmd_state = OK;
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+static bool run_reference_H_Diff_read(void *device_data, int button0, int button1) //DND
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+
+	int print_diff[19*10]={0,};
+	int buttons[2] = {button0,button1};
+	int i, j, diff_val, pre_val, next_val;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+	bool result = true, item_result = true;
+
+	printk("TSP Diff test scale factor = %d\n",TSP_INIT_TEST_RATIO);
+	printk("Diff start\n");
+	//H DIff
+	info->hdiff_max_x = info->hdiff_max_y = info->hdiff_min_x = info->hdiff_min_y = 0;
+	info->hdiff_max_val = -32768;
+	info->hdiff_min_val = 32767;
+	info->hdiff_node_num = -1;
+
+	for (i = 0; i < x_num - 1; i++) {
+		for (j = 0; j < y_num-1; j++) {
+			//printk("%d ", info->dnd_data[i*y_num+j]);
+			next_val = info->pdnd_data[(i*y_num)+(j+1)];
+			pre_val = info->pdnd_data[(i*y_num)+j];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			printk("%d ", diff_val);
+
+			pre_val = (TSP_INIT_TEST_RATIO== 100)?((s16)dnd_h_diff[i][j]):((s16)(((s32)dnd_h_diff[i][j] * TSP_INIT_TEST_RATIO) /100));
+			if (diff_val > pre_val) {
+				result = false;
+				item_result = false;
+
+				if (info->hdiff_node_num == -1) {
+					info->hdiff_node_num = j + (i * y_num);
+					info->hdiff_diff_val = diff_val;
+				}
+			}
+#if PDIFF_DEBUG
+			print_diff[i*y_num+j] = diff_val;
+#endif
+			if (info->hdiff_max_val < diff_val) {
+				info->hdiff_max_val = diff_val;
+				info->hdiff_max_x = i;
+				info->hdiff_max_y= j;
+			}
+			if (info->hdiff_min_val > diff_val) {
+				info->hdiff_min_val =  diff_val;
+				info->hdiff_min_x = i;
+				info->hdiff_min_y= j;
+			}
+		}
+		printk("\n");
+	}
+
+	if (item_result)
+		printk("H Diff pass\n");
+	else
+		printk("H Diff fail\n");
+
+	item_result = true;
+	if (info->cap_info.button_num) {
+		printk("TSP Button scale = %d\n", TSP_INIT_TEST_RATIO);
+		printk("TSP Button Diff Spec. = %d %d\n",
+				dnd_v_diff[x_num-2][buttons[0]], dnd_v_diff[x_num-2][buttons[1]]);
+
+		pre_val = info->pdnd_data[(x_num-1)*y_num+button0];
+		next_val = info->pdnd_data[(x_num-1)*y_num+button1];
+		diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+		pre_val = (TSP_INIT_TEST_RATIO == 100)?( (s16)dnd_h_diff[x_num-1][button1]+info->ref_btn_option): \
+			  ((s16)(((s32)dnd_h_diff[x_num-1][button1]*TSP_INIT_TEST_RATIO)/100)+info->ref_btn_option);
+
+		if (diff_val > pre_val) {
+			item_result = false;
+			result = false;
+
+			if (info->hdiff_node_num == -1) {
+				info->hdiff_node_num = ((x_num - 1) * y_num) + button1;
+				info->hdiff_diff_val = diff_val;
+			}
+		}
+		if (info->hdiff_max_val < diff_val) {
+			info->hdiff_max_val = diff_val;
+			info->hdiff_max_x = x_num - 1;
+			info->hdiff_max_y= button1;
+		}
+		if (info->hdiff_min_val	>diff_val) {
+			info->hdiff_min_val = diff_val;
+			info->hdiff_min_x = x_num - 1;
+			info->hdiff_min_y= button1;
+		}
+	}
+
+	if (item_result)
+		printk("Button H Diff pass\n");
+	else
+		printk("Button H Diff fail\n");
+
+	return result;
+}
+
+static void run_reference_H_Diff(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	bool	temp;
+	u8 *ret_string;
+
+	set_default_result(info);
+
+	temp = run_reference_H_Diff_read(device_data, 4, 7);
+
+	if (temp)
+		ret_string = "H Diff pass";
+	else
+		ret_string = "H Diff Fail";
+
+	if (temp) {
+		pr_info("H Diff pass\n");
+		sprintf(finfo->cmd_buff, "OK\n");
+	} else {
+		int x, y, node_num;
+
+		node_num = info->hfdnd_node_num;
+		x = node_num / info->cap_info.y_node_num;
+		y = node_num % info->cap_info.y_node_num;
+
+		pr_info("H Diff Fail\n");
+		sprintf(finfo->cmd_buff, "%d,%d,%d,%d\n",
+				node_num,
+				0,
+				dnd_h_diff[x][y],
+				info->hdiff_diff_val);
+	}
+
+	finfo->cmd_state = OK;
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+static void get_reference_DND(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	char buff[19*7] = {0};
+	// char tmp[16] = {0};
+	int x_node, y_node;
+	int node_num;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+
+	set_default_result(info);
+
+	if (!info->dnd_done)
+		run_reference_DND_read(device_data, 4, 7);
+
+	x_node = finfo->cmd_param[0];
+	y_node = finfo->cmd_param[1];
+
+	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num) {
+		snprintf(buff, sizeof(buff), "%s", "NG");
+		set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+		finfo->cmd_state = FAIL;
+		return;
+	}
+	/*
+	   for (i = 0; i < x_num-1; i++) {
+	   node_num = i*y_num + y_node;
+	   sprintf(tmp, "%d",  info->pdnd_data[node_num]);
+	   strcat(buff, tmp);
+	   if (i < x_num-2)
+	   strcat(buff, " ");
+	   }
+	 */
+	node_num = (x_node * y_num) + y_node;
+
+	sprintf(finfo->cmd_buff, "%d", info->pdnd_data[node_num]);
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+			buff, (int)strnlen(buff, sizeof(buff)));
 
 	return;
 }
 
-static void get_delta(void *device_data)
+/*
+   static void get_reference_max_H_Diff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+   int H_diff[19*9] = {0};
+   int i, j, diff_val, pre_val, next_val;
+   int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+   int max_hdiff = 0;
+
+   set_default_result(info);
+
+   if (!info->dnd_done)
+   run_reference_DND_read(device_data, 4, 7);
+
+   printk("H Diff start\n");
+//H DIff
+for (i = 0; i < x_num - 1; i++) {
+for (j = 0; j <y_num-1; j++) {
+next_val = info->pdnd_data[(i*y_num)+(j+1)];
+pre_val = info->pdnd_data[(i*y_num)+j];
+diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+printk("%4d ", diff_val);
+H_diff[i*(y_num-1)+j] = diff_val;
+if ((i == 0) && (j == 0))
+max_hdiff = diff_val;
+else {
+if (max_hdiff < diff_val)
+max_hdiff = diff_val;
+}
+}
+printk("\n");
+}
+
+
+sprintf(finfo->cmd_buff, "%d", max_hdiff);
+set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+finfo->cmd_state = OK;
+
+dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+ */
+
+static void get_reference_H_Diff(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	int H_diff[19*9] = {0};
+	//char tmp[10] = {0};
+	int x_node, y_node;
+	int node_num;
+	int i, j, diff_val, pre_val, next_val;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+
+	set_default_result(info);
+
+	if (!info->dnd_done)
+		run_reference_DND_read(device_data, 4, 7);
+
+	printk("H Diff start\n");
+	//H DIff
+	for (i = 0; i < x_num - 1; i++) {
+		for (j = 0; j < y_num-1; j++) {
+			next_val = info->pdnd_data[(i*y_num)+(j+1)];
+			pre_val = info->pdnd_data[(i*y_num)+j];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			printk("%4d ", diff_val);
+			H_diff[i*(y_num-1)+j] = diff_val;
+		}
+		printk("\n");
+	}
+
+	x_node = finfo->cmd_param[0];
+	y_node = finfo->cmd_param[1];
+
+	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num) {
+		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
+		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+		finfo->cmd_state = FAIL;
+		return;
+	}
+	/*
+	   for (i = 0; i < x_num-1; i++) {
+	   node_num = i*(y_num-1) + y_node;
+	   sprintf(tmp, "%d", H_diff[node_num]);
+	   strcat(finfo->cmd_buff, tmp);
+	   if (i < x_num-2)
+	   strcat(finfo->cmd_buff, " ");
+	   }
+	 */
+	node_num = (x_node * y_num) + y_node;
+
+	sprintf(finfo->cmd_buff, "%d", H_diff[node_num]);
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+/*
+   static void get_reference_max_V_Diff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+   int V_Diff[19*10] = {0};
+   int buttons[2] = {4,7};
+   int i, j, pre_val, next_val, nButton;
+   int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+   int diff_val = 0, max_vdiff = 0;
+
+   set_default_result(info);
+
+   if (!info->dnd_done)
+   run_reference_DND_read(device_data, 4, 7);
+
+   for (i = 0; i < x_num-2; i++) {
+   for (j=0; j < y_num; j++) {
+   next_val = info->pdnd_data[(i*y_num)+j];
+   pre_val = info->pdnd_data[(i*y_num)+j+y_num];
+   diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+   printk(" %4d ", diff_val);
+   V_Diff[i*y_num+j] = diff_val;
+   if ((i == 0) && (j == 0))
+   max_vdiff = diff_val;
+   else {
+   if (max_vdiff < diff_val)
+   max_vdiff = diff_val;
+   }
+   }
+   printk("\n");
+   }
+
+//V DIff  button
+if ( info->cap_info.button_num) {
+for (i = 0; i < 2; i++) {
+nButton = buttons[i];
+if (nButton < 0)
+continue;
+next_val = info->pdnd_data[(x_num-1)*y_num+nButton];
+pre_val = info->pdnd_data[(x_num-2)*y_num+nButton];
+diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+V_Diff[(x_num-1)*y_num + nButton] = diff_val;
+if (max_vdiff < diff_val)
+max_vdiff = diff_val;
+}
+}
+
+sprintf(finfo->cmd_buff, "%d", diff_val);
+set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+finfo->cmd_state = OK;
+
+dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+ */
+
+static void get_reference_V_Diff(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	/*char tmp[10] = {0};*/
+	int V_Diff[19*10] = {0};
+	int x_node, y_node;
+	int node_num;
+	int buttons[2] = {4,7};
+	int i, j, diff_val, pre_val, next_val, nButton;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+
+	set_default_result(info);
+
+	if (!info->dnd_done)
+		run_reference_DND_read(device_data, 4, 7);
+
+	for (i = 0; i < x_num-2; i++) {
+		for (j = 0; j < y_num; j++) {
+			next_val = info->pdnd_data[(i*y_num)+j];
+			pre_val = info->pdnd_data[(i*y_num)+j+y_num];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+
+			printk(" %d ", diff_val);
+			V_Diff[i*y_num+j] = diff_val;
+		}
+		printk("\n");
+	}
+
+	//V DIff  button
+	if ( info->cap_info.button_num) {
+		for (i = 0; i < 2; i++) {
+			nButton = buttons[i];
+			if (nButton < 0)
+				continue;
+			next_val = info->pdnd_data[(x_num-1)*y_num+nButton];
+			pre_val = info->pdnd_data[(x_num-2)*y_num+nButton];
+			diff_val = (next_val > pre_val)?(next_val - pre_val):(pre_val - next_val);
+			V_Diff[(x_num-1)*y_num + nButton] = diff_val;
+		}
+	}
+
+	x_node = finfo->cmd_param[0];
+	y_node = finfo->cmd_param[1];
+
+	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num) {
+		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
+		set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+		finfo->cmd_state = FAIL;
+		return;
+	}
+	/*
+	   for (i = 0; i < x_num-2; i++) {
+	   node_num = i*y_num + y_node;
+	   sprintf(tmp, "%d", V_Diff[node_num]);
+	   strcat(finfo->cmd_buff, tmp);
+	   if (i < x_num-3)
+	   strcat(finfo->cmd_buff, " ");
+	   }
+	 */
+	node_num = (x_node * y_num) + y_node;
+
+	sprintf(finfo->cmd_buff, "%d", V_Diff[node_num]);
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+}
+
+static void get_reference_HFDND(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+	char buff[512] = {0};
+	// char tmp[16] = {0};
+	int x_node, y_node;
+	int node_num;
+	int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+
+	set_default_result(info);
+
+	if (!info->hfdnd_done)
+		run_reference_HFDND_read(device_data, 4, 7);
+
+	x_node = finfo->cmd_param[0];
+	y_node = finfo->cmd_param[1];
+
+	if (x_node < 0 || x_node >= x_num || y_node < 0 || y_node >= y_num) {
+		snprintf(buff, sizeof(buff), "%s", "NG");
+		set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+		finfo->cmd_state = FAIL;
+		return;
+	}
+	/*
+	   for (i = 0; i < x_num-1; i++) {
+	   node_num = i*y_num + y_node;
+	   sprintf(tmp, "%d",  info->hfdnd_data[node_num]);
+	   strcat(buff, tmp);
+	   if (i < x_num-2)
+	   strcat(buff, " ");
+	   }
+	 */
+	node_num = (x_node * y_num) + y_node;
+
+	sprintf(finfo->cmd_buff, "%d", info->hfdnd_data[node_num]);
+	set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+			buff, (int)strnlen(buff, sizeof(buff)));
+
+	return;
+}
+
+/*
+   static void get_max_dnd(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   set_default_result(info);
+
+   if (!info->dnd_done)
+   run_reference_DND_read(device_data, 4, 7);
+
+   sprintf(finfo->cmd_buff, "%d", info->dnd_real_max_val);
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_min_dnd(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   set_default_result(info);
+
+   if (!info->dnd_done)
+   run_reference_DND_read(device_data, 4, 7);
+
+   sprintf(finfo->cmd_buff, "%d", info->dnd_real_min_val);
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_max_hfdnd(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->hfdnd_max_x;
+   val[1] =  info->hfdnd_max_y;
+   val[2] =  info->hfdnd_max_val;
+
+   memcpy(finfo->cmd_buff, (char*)val, sizeof(finfo->cmd_buff));
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_min_hfdnd(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->hfdnd_min_x;
+   val[1] =  info->hfdnd_min_y;
+   val[2] =  info->hfdnd_min_val;
+
+   memcpy(finfo->cmd_buff, (char*)val, sizeof(finfo->cmd_buff));
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_max_hdiff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->hdiff_max_x;
+   val[1] =  info->hdiff_max_y;
+   val[2] =  info->hdiff_max_val;
+
+   sprintf(finfo->cmd_buff, "%d", info->hdiff_max_val);
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_min_hdiff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->hdiff_min_x;
+   val[1] =  info->hdiff_min_y;
+   val[2] =  info->hdiff_min_val;
+
+   sprintf(finfo->cmd_buff, "%d", info->hdiff_min_val);
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_max_vdiff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->vdiff_max_x;
+   val[1] =  info->vdiff_max_y;
+   val[2] =  info->vdiff_max_val;
+
+   memcpy(finfo->cmd_buff, (char*)val, sizeof(finfo->cmd_buff));
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_min_vdiff(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   s16 val[3] = {0};
+
+   set_default_result(info);
+
+   val[0] =  info->vdiff_min_x;
+   val[1] =  info->vdiff_min_y;
+   val[2] =  info->vdiff_min_val;
+
+   memcpy(finfo->cmd_buff, (char*)val, sizeof(finfo->cmd_buff));
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+   }
+ */
+
+/*
+   static void get_reference(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct i2c_client *client = info->client;
+   struct tsp_factory_info *finfo = info->factory_info;
+   struct tsp_raw_data *raw_data = info->raw_data;
+   unsigned int val;
+   int x_node, y_node;
+   int node_num;
+
+   set_default_result(info);
+
+   x_node = finfo->cmd_param[0];
+   y_node = finfo->cmd_param[1];
+
+   if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
+   y_node < 0 || y_node >= info->cap_info.y_node_num) {
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
+   set_cmd_result(info, finfo->cmd_buff,
+   strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = FAIL;
+   return;
+   }
+
+   node_num = x_node * info->cap_info.y_node_num + y_node;
+
+   val = raw_data->ref_data[node_num];
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
+   set_cmd_result(info, finfo->cmd_buff,
+   strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+
+   dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
+   (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+
+   return;
+   }
+ */
+
+#if 0
+static void run_preference_read(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct i2c_client *client = info->client;
+	struct tsp_factory_info *finfo = info->factory_info;
+	struct tsp_raw_data *raw_data = info->raw_data;
+	u16 min, max;
+	s32 i,j;
+
+	set_default_result(info);
+
+	ts_set_touchmode(TOUCH_PDND_MODE);
+	get_raw_data(info, (u8 *)raw_data->pref_data, 10);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+
+	min = 0xFFFF;
+	max = 0x0000;
+
+	for (i = 0; i < info->cap_info.x_node_num; i++)
+	{
+		for (j = 0; j < info->cap_info.y_node_num; j++)
+		{
+			/*pr_info("pref_data : %d ",
+			  raw_data->pref_data[i * info->cap_info.y_node_num + j]);*/
+
+			if (raw_data->pref_data[i * info->cap_info.y_node_num + j] < min &&
+					raw_data->pref_data[i * info->cap_info.y_node_num + j] != 0)
+				min = raw_data->pref_data[i * info->cap_info.y_node_num + j];
+
+			if (raw_data->pref_data[i * info->cap_info.y_node_num + j] > max)
+				max = raw_data->pref_data[i * info->cap_info.y_node_num + j];
+
+		}
+		/*pr_info("\n");*/
+	}
+
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%d,%d\n", min, max);
+	set_cmd_result(info, finfo->cmd_buff,
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&client->dev, "%s: \"%s\"(%d)\n", __func__, finfo->cmd_buff,
+			strlen(finfo->cmd_buff));
+
+	return;
+}
+
+static void get_preference(void *device_data)
 {
 	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
 	struct i2c_client *client = info->client;
@@ -4035,28 +4690,270 @@ static void get_delta(void *device_data)
 	y_node = finfo->cmd_param[1];
 
 	if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
-		y_node < 0 || y_node >= info->cap_info.y_node_num) {
+			y_node < 0 || y_node >= info->cap_info.y_node_num) {
 		snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
 		set_cmd_result(info, finfo->cmd_buff,
-		strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-		finfo->cmd_state = FAIL;
+				strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+		info->factory_info->cmd_state = FAIL;
 
 		return;
-	   }
+	}
 
 	node_num = x_node * info->cap_info.y_node_num + y_node;
 
-	val = raw_data->delta_data[node_num];
+	val = raw_data->pref_data[node_num];
 	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
 	set_cmd_result(info, finfo->cmd_buff,
-	strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 	finfo->cmd_state = OK;
 
 	dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
-		(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
 
 	return;
 }
+/*
+   static void run_scantime_read(void *device_data)
+   {
+   return;
+   }
+
+   static void get_scantime(void *device_data)
+   {
+   return;
+   }
+ */
+
+static void run_normal_read(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct tsp_factory_info *finfo = info->factory_info;
+
+	set_default_result(info);
+	ts_set_touchmode(TOUCH_NORMAL_MODE);
+	get_raw_data(info, (u8 *)info->normal_data, 5);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+	finfo->cmd_state = OK;
+}
+#endif
+
+#if 0
+static void run_delta_read(void *device_data)
+{
+	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+	struct i2c_client *client = info->client;
+	struct tsp_factory_info *finfo = info->factory_info;
+	struct tsp_raw_data *raw_data = info->raw_data;
+	s16 min, max;
+	s32 i,j;
+
+	set_default_result(info);
+
+	ts_set_touchmode(TOUCH_DELTA_MODE);
+	get_raw_data(info, (u8 *)(u8 *)raw_data->delta_data, 5);
+	ts_set_touchmode(TOUCH_POINT_MODE);
+	finfo->cmd_state = OK;
+
+	min = (s16)0x7FFF;
+	max = (s16)0x8000;
+
+	for (i = 0; i < info->cap_info.x_node_num; i++)
+	{
+		for (j = 0; j < info->cap_info.y_node_num; j++)
+		{
+			/*printk("delta_data : %d\n", raw_data->delta_data[j+i]);*/
+
+			if (raw_data->delta_data[i * info->cap_info.y_node_num + j] < min &&
+					raw_data->delta_data[i * info->cap_info.y_node_num + j] != 0)
+				min = raw_data->delta_data[i * info->cap_info.y_node_num + j];
+
+			if (raw_data->delta_data[i * info->cap_info.y_node_num + j] > max)
+				max = raw_data->delta_data[i * info->cap_info.y_node_num + j];
+
+		}
+		/*printk("\n");*/
+	}
+
+	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%d,%d\n", min, max);
+	set_cmd_result(info, finfo->cmd_buff,
+			strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+	finfo->cmd_state = OK;
+
+	dev_info(&client->dev, "%s: \"%s\"(%d)\n", __func__, finfo->cmd_buff,
+			(int)strlen(finfo->cmd_buff));
+
+	return;
+}
+#endif
+
+/*
+   static void get_reference_RxDND(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+   int y_node, i;
+   int node_num;
+   int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+   s16 val[20] = {0};
+   char buff[40] = {0};
+
+   set_default_result(info);
+
+   y_node = finfo->cmd_param[0];
+
+   if (y_node < 0 || y_node > y_num) {
+   snprintf(buff, sizeof(buff), "%s", "abnormal");
+   set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+   finfo->cmd_state = FAIL;
+   return;
+   }
+
+   for (i = 0; i < x_num; i++) {
+   node_num = i*y_num + y_node;
+   val[i] = info->pdnd_data[node_num];
+   }
+
+   memcpy(buff, (char*)val, sizeof(buff));
+   set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+   finfo->cmd_state = OK;
+
+   dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+   buff, (int)strnlen(buff, sizeof(buff)));
+   }
+ */
+
+/*
+   static void get_reference_RxHFDND(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+   char buff[40] = {0};
+   s16 val[20] = {0};
+   int y_node, i;
+   int node_num;
+   int x_num = info->cap_info.x_node_num, y_num = info->cap_info.y_node_num;
+
+   set_default_result(info);
+
+   y_node = finfo->cmd_param[0];
+
+   if (y_node < 0 || y_node > y_num) {
+   snprintf(buff, sizeof(buff), "%s", "NG");
+   set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+   finfo->cmd_state = FAIL;
+   return;
+   }
+
+   for (i = 0; i < x_num; i++) {
+   node_num = i*y_num + y_node;
+   val[i] = info->hfdnd_data[node_num];
+   }
+
+   memcpy(buff, (char*)val, sizeof(buff));
+   set_cmd_result(info, buff, strnlen(buff, sizeof(buff)));
+   finfo->cmd_state = OK;
+
+   dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+   buff, (int)strnlen(buff, sizeof(buff)));
+   }
+ */
+
+/*
+   static void get_delta(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct i2c_client *client = info->client;
+   struct tsp_factory_info *finfo = info->factory_info;
+   struct tsp_raw_data *raw_data = info->raw_data;
+   unsigned int val;
+   int x_node, y_node;
+   int node_num;
+
+   set_default_result(info);
+
+   x_node = finfo->cmd_param[0];
+   y_node = finfo->cmd_param[1];
+
+   if (x_node < 0 || x_node >= info->cap_info.x_node_num ||
+   y_node < 0 || y_node >= info->cap_info.y_node_num) {
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "abnormal");
+   set_cmd_result(info, finfo->cmd_buff,
+   strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = FAIL;
+
+   return;
+   }
+
+   node_num = x_node * info->cap_info.y_node_num + y_node;
+
+   val = raw_data->delta_data[node_num];
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
+   set_cmd_result(info, finfo->cmd_buff,
+   strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+
+   dev_info(&client->dev, "%s: %s(%d)\n", __func__, finfo->cmd_buff,
+   (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+
+   return;
+   }
+ */
+
+/*
+   static void get_tkey_delta(void *device_data)
+   {
+   struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
+   struct tsp_factory_info *finfo = info->factory_info;
+
+   u16 val;
+   int btn_node;
+   int ret;
+
+   set_default_result(info);
+
+   btn_node = finfo->cmd_param[0];
+
+   if (btn_node < 0 || btn_node > MAX_SUPPORTED_BUTTON_NUM)
+   goto err_out;
+
+   disable_irq(misc_info->irq);
+   down(&misc_info->work_lock);
+   if (misc_info->work_state != NOTHING) {
+   printk(KERN_INFO "other process occupied.. (%d)\n",
+   misc_info->work_state);
+   enable_irq(misc_info->irq);
+   up(&misc_info->work_lock);
+   goto err_out;
+   }
+   misc_info->work_state = SET_MODE;
+
+   ret = read_data(misc_info->client, BT541_BTN_WIDTH + btn_node, (u8 *)&val, 2);
+
+   if (ret < 0) {
+   printk(KERN_INFO "read error..\n");
+   enable_irq(misc_info->irq);
+   misc_info->work_state = NOTHING;
+   up(&misc_info->work_lock);
+   goto err_out;
+   }
+   misc_info->work_state = NOTHING;
+   enable_irq(misc_info->irq);
+   up(&misc_info->work_lock);
+
+   snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%u", val);
+   set_cmd_result(info, finfo->cmd_buff, strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   finfo->cmd_state = OK;
+
+   dev_info(&info->client->dev, "%s: %s(%d)\n", __func__,
+   finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+   return;
+
+err_out:
+snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "NG");
+set_cmd_result(info, finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
+finfo->cmd_state = FAIL;
+}
+ */
 
 static void hfdnd_spec_adjust(void *device_data)
 {
@@ -4070,19 +4967,19 @@ static void hfdnd_spec_adjust(void *device_data)
 	test = finfo->cmd_param[0];
 
 	if (test) {
-		dnd_h_gap = assy_dnd_h_gap;
-		dnd_v_gap = assy_dnd_v_gap;
-		hfdnd_h_gap = assy_hfdnd_h_gap;
-		hfdnd_v_gap = assy_hfdnd_v_gap;
-		dnd_max = assy_dnd_max;
-		dnd_min = assy_dnd_min;
+		dnd_v_diff = assy_dnd_v_diff;
+		dnd_h_diff = assy_dnd_h_diff;
+		pdnd_max = assy_pdnd_max;
+		pdnd_min = assy_pdnd_min;
+		hfdnd_max = assy_hfdnd_max;
+		hfdnd_min = assy_hfdnd_min;
 	} else {
-		dnd_h_gap = tsp_dnd_h_gap;
-		dnd_v_gap = tsp_dnd_v_gap;
-		hfdnd_h_gap = tsp_hfdnd_h_gap;
-		hfdnd_v_gap = tsp_hfdnd_v_gap;
-		dnd_max = tsp_dnd_max;
-		dnd_min = tsp_dnd_min;
+		dnd_v_diff = tsp_dnd_v_diff;
+		dnd_h_diff = tsp_dnd_h_diff;
+		pdnd_max = tsp_pdnd_max;
+		pdnd_min = tsp_pdnd_min;
+		hfdnd_max = tsp_hfdnd_max;
+		hfdnd_min = tsp_hfdnd_min;
 	}
 
 	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff), "%s", "OK");
@@ -4145,16 +5042,6 @@ static void run_ref_calibration(void *device_data)
 
 	set_default_result(info);
 
-	disable_irq(info->irq);
-	
-	down(&info->work_lock);
-	if (info->work_state != NOTHING) {
-	   printk(KERN_INFO "other process occupied.. (%d)\n", info->work_state);
-	   enable_irq(info->irq);
-	   up(&info->work_lock);
-	   return false;
-	}
-
 #if ESD_TIMER_INTERVAL
 	esd_timer_stop(info);
 	write_reg(client, BT541_PERIODICAL_INTERRUPT_INTERVAL, 0);
@@ -4186,35 +5073,6 @@ static void run_ref_calibration(void *device_data)
 
 	dev_info(&client->dev, "%s: %s(%d)\n", __func__,
 			finfo->cmd_buff, (int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-
-	enable_irq(info->irq);
-	up(&info->work_lock);
-	
-	return;
-}
-
-static void dead_zone_enable(void *device_data)
-{
-	struct bt541_ts_info *info = (struct bt541_ts_info *)device_data;
-	struct tsp_factory_info *finfo = info->factory_info;
-	struct i2c_client *client = info->client;
-	int val = finfo->cmd_param[0];
-
-	set_default_result(info);
-
-	if(val) //disable
-		zinitix_bit_clr(m_optional_mode, 3);
-	else //enable
-		zinitix_bit_set(m_optional_mode, 3);
-
-	snprintf(finfo->cmd_buff, sizeof(finfo->cmd_buff),
-			"dead_zone %s", val ? "disable" : "enable");
-	set_cmd_result(info, finfo->cmd_buff,
-			(int)strnlen(finfo->cmd_buff, sizeof(finfo->cmd_buff)));
-	finfo->cmd_state = OK;
-
-	dev_info(&client->dev, "%s(), %s\n", __func__, finfo->cmd_buff);
-
 	return;
 }
 
@@ -4353,31 +5211,9 @@ static ssize_t show_cmd_result(struct device *dev, struct device_attribute
 			"%s\n", finfo->cmd_result);
 }
 
-/* sysfs: /sys/class/sec/tsp/input/enabled */
-static ssize_t show_enabled(struct device *dev, struct device_attribute
-		*devattr, char *buf)
-
-{
-	struct bt541_ts_info *info = dev_get_drvdata(dev);
-	struct i2c_client *client = info->client;
-
-	int val =0;
-	
-	if(info->work_state == EALRY_SUSPEND || info->work_state == SUSPEND)
-		val =0;
-	else
-		val =1;
-
-	dev_info(&client->dev, " enabled is %d\n", info->work_state);
-
-	return snprintf(buf, sizeof(val),"%d\n", val);
-}
-
 static DEVICE_ATTR(cmd, S_IWUSR | S_IWGRP, NULL, store_cmd);
 static DEVICE_ATTR(cmd_status, S_IRUGO, show_cmd_status, NULL);
 static DEVICE_ATTR(cmd_result, S_IRUGO, show_cmd_result, NULL);
-static DEVICE_ATTR(enabled, S_IRUGO, show_enabled, NULL);
-
 
 static struct attribute *touchscreen_attributes[] = {
 	&dev_attr_cmd.attr,
@@ -4386,19 +5222,9 @@ static struct attribute *touchscreen_attributes[] = {
 	NULL,
 };
 
-static struct attribute *sec_touch_pretest_attributes[] = {
-	&dev_attr_enabled.attr,
-	NULL,
-};
-
 static struct attribute_group touchscreen_attr_group = {
 	.attrs = touchscreen_attributes,
 };
-
-static struct attribute_group sec_touch_pertest_attr_group = {
-	.attrs	= sec_touch_pretest_attributes,
-};
-
 
 #ifdef SUPPORTED_TOUCH_KEY
 static ssize_t show_touchkey_threshold(struct device *dev,
@@ -4422,6 +5248,36 @@ static ssize_t show_touchkey_threshold(struct device *dev,
 			cap->dummy_threshold);
 #endif
 }
+#if 0
+static ssize_t enable_dummy_key(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t count)
+{
+	static char enable = '0';
+	struct bt541_ts_info *info = dev_get_drvdata(dev);
+	struct i2c_client *client = info->client;
+
+	if (!strcmp(buf, ""))
+		count = sprintf(buf, "%c", enable);
+	else {
+		if ((buf[0] - '0' <= 1) && count == 2)
+			enable = *buf;
+		else {
+			dev_err(&client->dev, "%s: Invalid parameter\n", __func__);
+
+			goto err_out;
+		}
+	}
+
+	dev_info(&client->dev, "%s: Extra button event %c\n", __func__, enable);
+
+	return count;
+
+err_out:
+	return sprintf(buf, "NG");
+
+	return 0;
+}
+#endif
 
 static ssize_t show_touchkey_sensitivity(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -4429,7 +5285,7 @@ static ssize_t show_touchkey_sensitivity(struct device *dev,
 	struct bt541_ts_info *info = dev_get_drvdata(dev);
 	struct i2c_client *client = info->client;
 	u16 val = 0;
-	int ret = 0;
+	int ret;
 	int i;
 
 #ifdef NOT_SUPPORTED_TOUCH_DUMMY_KEY
@@ -4462,9 +5318,7 @@ static ssize_t show_touchkey_sensitivity(struct device *dev,
 		goto err_out;
 	}
 #endif
-	down(&info->work_lock);
 	ret = read_data(client, BT541_BTN_WIDTH + i, (u8 *)&val, 2);
-	up(&info->work_lock);
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: Failed to read %d's key sensitivity\n",
 				__func__, i);
@@ -4492,8 +5346,23 @@ static ssize_t show_menu_key_raw_data(struct device *dev,
 {
 	return 0;
 }
+/*
+   static ssize_t show_back_key_idac_data(struct device *dev,
+   struct device_attribute *attr, char *buf)
+   {
+   return 0;
+   }
+
+   static ssize_t show_menu_key_idac_data(struct device *dev,
+   struct device_attribute *attr, char *buf)
+   {
+   return 0;
+   }
+ */
 
 static DEVICE_ATTR(touchkey_threshold, S_IRUGO, show_touchkey_threshold, NULL);
+/*static DEVICE_ATTR(touch_sensitivity, S_IRUGO, back_key_state_show, NULL);*/
+//static DEVICE_ATTR(extra_button_event, S_IWUSR | S_IWGRP | S_IRUGO, NULL, enable_dummy_key);
 static DEVICE_ATTR(touchkey_recent, S_IRUGO, show_touchkey_sensitivity, NULL);
 static DEVICE_ATTR(touchkey_back, S_IRUGO, show_touchkey_sensitivity, NULL);
 #ifndef NOT_SUPPORTED_TOUCH_DUMMY_KEY
@@ -4506,13 +5375,19 @@ static DEVICE_ATTR(touchkey_dummy_btn4, S_IRUGO,
 static DEVICE_ATTR(touchkey_dummy_btn6, S_IRUGO,
 		show_touchkey_sensitivity, NULL);
 #endif
+/*static DEVICE_ATTR(autocal_stat, S_IRUGO, show_autocal_status, NULL);*/
 static DEVICE_ATTR(touchkey_raw_back, S_IRUGO, show_back_key_raw_data, NULL);
 static DEVICE_ATTR(touchkey_raw_menu, S_IRUGO, show_menu_key_raw_data, NULL);
+/*static DEVICE_ATTR(touchkey_idac_back, S_IRUGO, show_back_key_idac_data, NULL);
+  static DEVICE_ATTR(touchkey_idac_menu, S_IRUGO, show_menu_key_idac_data, NULL);*/
 
 static struct attribute *touchkey_attributes[] = {
 	&dev_attr_touchkey_threshold.attr,
+	/*&dev_attr_touch_sensitivity.attr,*/
 	&dev_attr_touchkey_back.attr,
 	&dev_attr_touchkey_recent.attr,
+	//&dev_attr_autocal_stat.attr,
+	//&dev_attr_extra_button_event.attr,
 	&dev_attr_touchkey_raw_menu.attr,
 	&dev_attr_touchkey_raw_back.attr,
 #ifndef NOT_SUPPORTED_TOUCH_DUMMY_KEY
@@ -4521,6 +5396,8 @@ static struct attribute *touchkey_attributes[] = {
 	&dev_attr_touchkey_dummy_btn4.attr,
 	&dev_attr_touchkey_dummy_btn6.attr,
 #endif
+	//&dev_attr_touchkey_idac_back.attr,
+	//&dev_attr_touchkey_idac_menu.attr,
 	NULL,
 };
 static struct attribute_group touchkey_attr_group = {
@@ -4534,10 +5411,9 @@ static int init_sec_factory(struct bt541_ts_info *info)
 #ifdef SUPPORTED_TOUCH_KEY
 	struct device *factory_tk_dev;
 #endif
-	struct device *sec_pretest_dev;
 	struct tsp_factory_info *factory_info;
 	struct tsp_raw_data *raw_data;
-	int ret = 0;
+	int ret;
 	int i;
 
 	factory_info = kzalloc(sizeof(struct tsp_factory_info), GFP_KERNEL);
@@ -4577,13 +5453,6 @@ static int init_sec_factory(struct bt541_ts_info *info)
 	}
 #endif
 
-	/* /sys/class/sec/tsp/input/ */
-	sec_pretest_dev = device_create(sec_class, factory_ts_dev, 4, info, "input");
-	if (IS_ERR(sec_pretest_dev)) {
-		dev_err(&info->client->dev, "Failed to create device (%s)!\n", "tsp");
-		goto err_create_device;
-	}
-
 	ret = sysfs_create_group(&factory_ts_dev->kobj, &touchscreen_attr_group);
 	if (unlikely(ret)) {
 		dev_err(&info->client->dev, "Failed to create touchscreen sysfs group\n");
@@ -4598,24 +5467,18 @@ static int init_sec_factory(struct bt541_ts_info *info)
 	}
 #endif
 
-	/* /sys/class/sec/tsp/... */
-	if (sysfs_create_group(&sec_pretest_dev->kobj, &sec_touch_pertest_attr_group)) {
-		dev_err(&info->client->dev, "Failed to create sysfs group(%s)!\n", "input");
-		goto err_create_sysfs;
-	}
-
 	mutex_init(&factory_info->cmd_lock);
 	factory_info->cmd_is_running = false;
 
 	info->factory_info = factory_info;
 	info->raw_data = raw_data;
 
-	dnd_h_gap = assy_dnd_h_gap;
-	dnd_v_gap = assy_dnd_v_gap;
-	hfdnd_h_gap = assy_hfdnd_h_gap;
-	hfdnd_v_gap = assy_hfdnd_v_gap;
-	dnd_max = assy_dnd_max;
-	dnd_min = assy_dnd_min;
+	dnd_v_diff = assy_dnd_v_diff;
+	dnd_h_diff = assy_dnd_h_diff;
+	pdnd_max = assy_pdnd_max;
+	pdnd_min = assy_pdnd_min;
+	hfdnd_max = assy_hfdnd_max;
+	hfdnd_min = assy_hfdnd_min;
 
 	return ret;
 
@@ -4705,7 +5568,7 @@ static long ts_misc_fops_ioctl(struct file *filp,
 		if (copy_from_user(&sz, argp, sizeof(size_t)))
 			return -1;
 
-		printk(KERN_INFO "[zinitix_touch]: firmware size = %d, %d\r\n", (int)sz, misc_info->cap_info.ic_fw_size);
+		printk(KERN_INFO "[zinitix_touch]: firmware size = %d\r\n", (int)sz);
 		if (misc_info->cap_info.ic_fw_size != sz) {
 			pr_info("[zinitix_touch]: firmware size error\r\n");
 			return -1;
@@ -5003,21 +5866,18 @@ static int bt541_ts_probe_dt(struct device_node *np,
 
 	pdata->gpio_int = of_get_named_gpio(np,"gpios", 0);
 	if (pdata->gpio_int < 0) {
-		dev_err(dev, "%s: of_get_named_gpio failed: %d\n", __func__,
+		pr_err("%s: of_get_named_gpio failed: %d\n", __func__,
 				pdata->gpio_int);
 		return -EINVAL;
 	}
-
 	ret = of_property_read_u32(np, "bt541,x_resolution",
 			&pdata->x_resolution);
 	if (ret < 0)
 		return ret;
-
 	ret = of_property_read_u32(np, "bt541,y_resolution",
 			&pdata->y_resolution);
 	if (ret < 0)
 		return ret;
-
 	ret = of_property_read_u32(np, "bt541,orientation",
 			&pdata->orientation);
 	if (ret < 0)
@@ -5030,7 +5890,7 @@ static int bt541_ts_probe_dt(struct device_node *np,
 	ret = of_property_read_u32(np, "tsp_vdd_supply_type",
 			&pdata->tsp_supply_type);
 	if (ret < 0) {
-		dev_err(dev, "%s: failed to read property tsp_vdd_supply_type\n",
+		pr_err("%s: failed to read property tsp_vdd_supply_type\n",
 				__func__);
 		return ret;
 	}
@@ -5038,14 +5898,12 @@ static int bt541_ts_probe_dt(struct device_node *np,
 	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY) {
 		pdata->gpio_ldo_en = of_get_named_gpio(np, "gpio_ldo_en", 0);
 		if (pdata->gpio_ldo_en < 0) {
-			dev_err(dev, "%s: of_get_named_gpio failed: %d\n", __func__,
+			pr_err("%s: of_get_named_gpio failed: %d\n", __func__,
 					pdata->gpio_ldo_en);
 			return -EINVAL;
 		}
 	}
-
 	pdata->tsp_power = bt541_power;
-
 	return 0;
 
 }
@@ -5061,11 +5919,6 @@ static int bt541_ts_probe(struct i2c_client *client,
 	int i;
 
 	struct device_node *np = client->dev.of_node;
-
-	if (boot_panel_id == 0) {
-		dev_err(&client->dev, "[%s]: There is no TSP device!\n", __FUNCTION__);
-		return -ENODEV;
-	}
 
 	if (IS_ENABLED(CONFIG_OF)) {
 		if (!pdata) {
@@ -5095,25 +5948,13 @@ static int bt541_ts_probe(struct i2c_client *client,
 		ret = -ENOMEM;
 		goto err_no_platform_data;
 	}
-	
 	ret = gpio_request(pdata->gpio_int, "bt541_int");
 	if (ret < 0) {
 		pr_err("%s: Request GPIO failed, gpio %d (%d)\n", BT541_TS_DEVICE,
 				pdata->gpio_int, ret);
 		goto err_gpio_alloc;
 	}
-
 	gpio_direction_input(pdata->gpio_int);
-
-	if (pdata->tsp_supply_type == TSP_LDO_SUPPLY) {
-		ret = gpio_request(pdata->gpio_ldo_en, "bt541_ldo_en");
-		if (ret < 0) {
-			pr_err("%s: Request bt541_ldo_en GPIO failed, gpio %d (%d)\n", BT541_TS_DEVICE,
-					pdata->gpio_ldo_en, ret);
-			goto err_gpio_alloc;
-		}
-	}
-	
 	i2c_set_clientdata(client, info);
 	info->client = client;
 	info->pdata = pdata;
@@ -5143,8 +5984,6 @@ static int bt541_ts_probe(struct i2c_client *client,
 	/* init touch mode */
 	info->touch_mode = TOUCH_POINT_MODE;
 	misc_info = info;
-
-	sprd_i2c_ctl_chg_clk(1, 400000); // up h/w i2c 1 400k
 
 	if (init_touch(info, true) == false) {
 		ret = -EPERM;
@@ -5194,10 +6033,6 @@ static int bt541_ts_probe(struct i2c_client *client,
 
 	input_set_abs_params(info->input_dev, ABS_MT_TOUCH_MAJOR,
 			0, 255, 0, 0);
-#ifdef CONFIG_MUIC_SUPPORT_FACTORY
-	input_set_abs_params(info->input_dev, ABS_MT_PRESSURE,
-			0, 3000, 0, 0);	
-#endif
 	input_set_abs_params(info->input_dev, ABS_MT_WIDTH_MAJOR,
 			0, 255, 0, 0);
 
@@ -5270,6 +6105,7 @@ static int bt541_ts_probe(struct i2c_client *client,
 		goto err_request_irq;
 	}
 	dev_info(&client->dev, "zinitix touch probe.\r\n");
+	sprd_i2c_ctl_chg_clk(1, 400000); // up h/w i2c 1 400k
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	info->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	info->early_suspend.suspend = bt541_ts_early_suspend;
@@ -5426,6 +6262,8 @@ extern unsigned int lpcharge;
 
 static int __init bt541_ts_init(void)
 {
+	pr_info("[TSP]: %s\n", __func__);
+
 	if (!lpcharge)
 		return i2c_add_driver(&bt541_ts_driver);
 	else
@@ -5441,4 +6279,6 @@ module_init(bt541_ts_init);
 module_exit(bt541_ts_exit);
 
 MODULE_DESCRIPTION("touch-screen device driver using i2c interface");
+MODULE_AUTHOR("<mika.kim@samsung.com>");
 MODULE_LICENSE("GPL");
+

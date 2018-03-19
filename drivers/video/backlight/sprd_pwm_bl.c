@@ -21,6 +21,7 @@
 #include <linux/earlysuspend.h>
 #include <linux/gpio.h>
 #include <linux/err.h>
+#include <linux/delay.h>
 //  HEAD
 
 #include <soc/sprd/hardware.h>
@@ -123,6 +124,7 @@ static void pwm_write(int index, uint32_t value, uint32_t reg)
 }
 
 //sprd used PWM2(mapped to gpio190) for external backlight control.
+extern void backlight_control(int brigtness);
 static int sprd_pwm_bl_update_status(struct backlight_device *bldev)
 {
         u32 led_level;
@@ -131,23 +133,32 @@ static int sprd_pwm_bl_update_status(struct backlight_device *bldev)
             bldev->props.power != FB_BLANK_UNBLANK ||
             sprd_pwm_bl.suspend ||
             bldev->props.brightness == 0) {
+#ifndef CONFIG_FB_LCD_AMS549HQ01_MIPI
                 /* disable backlight */
                 pwm_write(sprd_pwm_bl.pwm_index, 0, PWM_PRESCALE);
                 pwm_clk_en(0);
+#else
+                backlight_control(bldev->props.brightness);
+                msleep(200);
+#endif
                 PRINT_INFO("disabled\n");
         } else {
                 led_level = bldev->props.brightness & PWM_MOD_MAX;
                 //led_level = (led_level * (PWM_DUTY_MAX+1) / (PWM_MOD_MAX+1)) + 10;
-                led_level = led_level * 67 / 100;
-				if (led_level <= 8)
-					led_level = 8;
+				led_level = led_level * sprd_pwm_bl.brightness_max / 255;
+				if (led_level <= sprd_pwm_bl.brightness_min)
+					led_level = sprd_pwm_bl.brightness_min;
 				PRINT_INFO("brightness = %d, led_level = %d\n", bldev->props.brightness, led_level);
+#ifndef CONFIG_FB_LCD_AMS549HQ01_MIPI
                 pwm_clk_en(1);
                 pwm_write(sprd_pwm_bl.pwm_index, PWM2_SCALE, PWM_PRESCALE);
                 pwm_write(sprd_pwm_bl.pwm_index, (led_level << 8) | PWM_MOD_MAX, PWM_CNT);
                 pwm_write(sprd_pwm_bl.pwm_index, PWM_REG_MSK, PWM_PAT_LOW);
                 pwm_write(sprd_pwm_bl.pwm_index, PWM_REG_MSK, PWM_PAT_HIG);
                 pwm_write(sprd_pwm_bl.pwm_index, PWM_ENABLE, PWM_PRESCALE);
+#else
+                backlight_control(bldev->props.brightness);
+#endif
         }
         return 0;
 }
@@ -310,7 +321,11 @@ static int sprd_backlight_probe(struct platform_device *pdev)
         PRINT_INFO("gpio_ctrl_pin=%d\n", sprd_pwm_bl.gpio_ctrl_pin);
 
         sprd_pwm_bl.brightness_max= pdata->brightness_max;
+		if (sprd_pwm_bl.brightness_max >= 255)
+			sprd_pwm_bl.brightness_max = 170;/*use default value*/
         sprd_pwm_bl.brightness_min= pdata->brightness_min;
+		if (sprd_pwm_bl.brightness_min <= 0)
+			sprd_pwm_bl.brightness_min = 8;/*use default value*/
         sprd_pwm_bl.pwm_index = pdata->pwm_index;
 
         /*fixme, the pwm's clk name must like this:clk_pwmx*/

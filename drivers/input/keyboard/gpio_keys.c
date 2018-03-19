@@ -393,7 +393,7 @@ static irqreturn_t gpio_keys_gpio_isr(int irq, void *dev_id)
 	BUG_ON(irq != bdata->irq);
 
 	if (irqd_get_trigger_type(irq_get_irq_data(irq)) != bdata->irqflags) {
-		pr_info("wake up cpu from deepsleep by gpio edge interrupt!");
+		pr_info("wake up cpu from deepsleep by gpio level interrupt!");
 		irq_set_irq_type(bdata->irq, bdata->irqflags);
 	}
 
@@ -693,6 +693,13 @@ gpio_keys_get_devtree_pdata(struct device *dev)
 		if (of_property_read_u32(pp, "debounce-interval",
 					 &button->debounce_interval))
 			button->debounce_interval = 5;
+
+		of_property_read_u32(pp, "trig_irq-level", &button->ds_irqflags);
+		if(!button->ds_irqflags)
+			button->ds_irqflags = IRQF_TRIGGER_LOW;
+		else if(button->ds_irqflags)
+			button->ds_irqflags = IRQF_TRIGGER_HIGH;
+		PRINT_INFO("button->ds_irqflags = 0x%08x\n",button->ds_irqflags);
 	}
 
 	if (pdata->nbuttons == 0) {
@@ -866,12 +873,11 @@ static int gpio_keys_suspend(struct device *dev)
 	struct gpio_button_data *bdata = &ddata->data[0];
 	int i;
 
-	if (bdata->button->ds_irqflags)
-		irq_set_irq_type(bdata->irq, bdata->button->ds_irqflags);
-
 	for (i = 0; i < ddata->pdata->nbuttons; i++) {
-		struct gpio_button_data *bdata = &ddata->data[i];
-		bdata->is_deepsleep = true;
+			struct gpio_button_data *bdata = &ddata->data[i];
+				bdata->is_deepsleep = true;
+			if (bdata->button->ds_irqflags)
+				irq_set_irq_type(bdata->irq, bdata->button->ds_irqflags);
 	}
 
 	if (device_may_wakeup(dev)) {
@@ -898,9 +904,6 @@ static int gpio_keys_resume(struct device *dev)
 	int error = 0;
 	int i;
 
-	if (bdata->button->ds_irqflags)
-		irq_set_irq_type(bdata->irq, bdata->irqflags);
-
 	if (device_may_wakeup(dev)) {
 		for (i = 0; i < ddata->pdata->nbuttons; i++) {
 			struct gpio_button_data *bdata = &ddata->data[i];
@@ -920,8 +923,10 @@ static int gpio_keys_resume(struct device *dev)
 	gpio_keys_report_state(ddata);
 
 	for (i = 0; i < ddata->pdata->nbuttons; i++) {
-		struct gpio_button_data *bdata = &ddata->data[i];
-		bdata->is_deepsleep = false;
+			struct gpio_button_data *bdata = &ddata->data[i];
+				bdata->is_deepsleep = false;
+			if (bdata->button->ds_irqflags)
+				irq_set_irq_type(bdata->irq, bdata->irqflags);
 	}
 
 	return 0;

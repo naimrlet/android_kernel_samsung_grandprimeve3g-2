@@ -183,6 +183,9 @@ dsih_error_t mipi_dsih_dphy_configure(dphy_t * phy, uint8_t no_of_lanes, uint32_
 		input_divider = step + (loop_divider * phy->reference_freq) / output_freq;
 //		phy->log_info("D-PHY: Approximated Frequency: %d KHz", (loop_divider * (phy->reference_freq / input_divider)));
 	}
+	printk("D-PHY: Frequency: %d KHz, divier=%d,%d\n",
+			(loop_divider * (phy->reference_freq / input_divider)),
+			loop_divider, input_divider);
 #ifdef CONFIG_FB_DYNAMIC_FREQ_SCALING
 	if (phy->phy_keep_work != true)
 #endif
@@ -239,6 +242,7 @@ dsih_error_t mipi_dsih_dphy_configure(dphy_t * phy, uint8_t no_of_lanes, uint32_
     //mipi_dsih_dphy_write(phy, 0x74, data, 1);
 
   /* Jessica add - end*/
+
     data[0] =  0x70;
     mipi_dsih_dphy_write(phy, 0x16, data, 1);
 

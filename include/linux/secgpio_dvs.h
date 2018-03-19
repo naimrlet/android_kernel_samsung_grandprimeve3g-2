@@ -29,12 +29,19 @@ enum gdvs_io_value {
 	GDVS_IO_ERR
 };
 
+struct dvs_gpio_map_table
+{
+       unsigned int index;
+       unsigned int gpio;
+       unsigned int reg;
+};
 
 struct gpio_dvs {
 	struct gpiomap_result *result;
 	unsigned int count;
 	bool check_sleep;
 	void (*check_gpio_status)(unsigned char phonestate);
+	struct dvs_gpio_map_table *dvs_gpio;
 };
 
 void gpio_dvs_check_initgpio(void);

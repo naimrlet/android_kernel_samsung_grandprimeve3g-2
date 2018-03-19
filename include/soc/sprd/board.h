@@ -10,9 +10,13 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
-
+ 
 #ifndef __ASM_ARCH_BOARD_H
 #define __ASM_ARCH_BOARD_H
+
+#if defined (CONFIG_MACH_SPWHALE_5MODEB) || (CONFIG_MACH_SPWHALE_5MODEA)
+#include "__board-spwhale.h"
+#endif
 
 #ifdef	CONFIG_MACH_SP8825EA
 #include "__board-sp8825ea.h"
@@ -25,7 +29,6 @@
 #ifdef	CONFIG_MACH_SPX35EB
 #include "__board-sp8830eb.h"
 #endif
-
 #ifdef	CONFIG_MACH_SP8835EB
 #include "__board-sp8835eb.h"
 #endif
@@ -62,8 +65,32 @@
 #include "__board-sp7731gea.h"
 #endif
 
+#ifdef	CONFIG_MACH_SP7730SW_FPGA
+#include "__board-sp7730sw_fpga.h"
+#endif
+
+#ifdef	CONFIG_MACH_SP7730SW_T2
+#include "__board-sp7730sw_t2.h"
+#endif
+
+#ifdef	CONFIG_MACH_SP7730SW
+#include "__board-sp7730sw.h"
+#endif
+
+#ifdef	CONFIG_MACH_SP8730SEEA_T3
+#include "__board-sp8730seea_t3.h"
+#endif
+
+#ifdef	CONFIG_MACH_SP8730SEEA
+#include "__board-sp8730seea.h"
+#endif
+
 #ifdef	CONFIG_MACH_SP8730SEEA_QHD
 #include "__board-sp8730seea_qhd.h"
+#endif
+
+#ifdef	CONFIG_MACH_SP8730SEEA_JIG
+#include "__board-sp8730seea_jig.h"
 #endif
 
 #ifdef	CONFIG_MACH_SP7731GEA_HD2
@@ -78,8 +105,12 @@
 #include "__board-sp7731gea_hd.h"
 #endif
 
-#ifdef	CONFIG_MACH_SP7720EA
-#include "__board-sp7720ea.h"
+#ifdef	CONFIG_MACH_SP7731CEA
+#include "__board-sp7731cea.h"
+#endif
+
+#if defined (CONFIG_MACH_SP7731CEB) || (CONFIG_MACH_SP7720EB_PRIME)
+#include "__board-sp7731ceb.h"
 #endif
 
 #ifdef	CONFIG_MACH_SP7731GEA_HDR
@@ -162,15 +193,120 @@
 #include "__board-coreprimelite.h"
 #endif
 
+#ifdef CONFIG_MACH_SHARKLS_Z3LTE
+#include "__board-sharkls_z3lte.h"
+#endif
+
+#ifdef CONFIG_MACH_SHARKL_J1POPLTE
+#include "__board-sharkl_j1poplte.h"
+#endif
+
 #if defined (CONFIG_MACH_SP9836AEA_4MOD) || defined(CONFIG_MACH_SP9836AEA_3MOD)
 #include "__board-sp9836aea.h"
 #endif
 
-#if defined (CONFIG_MACH_SP9838AEA_5MOD) || defined(CONFIG_MACH_SP9838AEA_FPGA)
+#ifdef CONFIG_MACH_SHARKLS_J1MINI
+#include "__board-sharkls_j1mini.h"
+#endif
+
+#ifdef CONFIG_MACH_SHARKLS_J3LTE
+#include "__board-sharkls_j3lte.h"
+#endif
+/* 9838-1 board */
+#if defined(CONFIG_MACH_SP9838AEA_5MOD)
 #include "__board-sp9838aea.h"
 #endif
 
-#if defined (CONFIG_MACH_SS_SHARKLT8)
+#ifdef CONFIG_MACH_ACE4NEOLTE
+#include "__board-sharkl_ace4neolte.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_POWER_DEBUG)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_8CORE_LIGHT_SLEEP)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_FHD)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_AUTO_SLT)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_FPGA)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_JIAOTU_TC)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_JIAOTU_TC_VOLTE)
+#include "__board-sp9838aea_volte.h"
+#endif
+/* 9838-2 board */
+#if defined(CONFIG_MACH_SP9838AEA_2342A)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_2342A_FHD)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_2723TS)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined(CONFIG_MACH_SP9838AEA_NO_WCN)
+#include "__board-sp9838aea.h"
+#endif
+
+#ifdef CONFIG_MACH_J1ACEVELTE
+#include "__board-sharkl_j1acevelte.h"
+#endif
+
+#ifdef CONFIG_MACH_J1MINILTE
+#include "__board-sharkl_j1minilte.h"
+#endif
+
+#ifdef CONFIG_MACH_J3XLTE
+#include "__board-sharkl_j3xlte.h"
+#endif
+
+#ifdef CONFIG_MACH_J3XNLTE
+#include "__board-sharkl_j3xnlte.h"
+#endif
+
+#ifdef CONFIG_MACH_J2XLTE
+#include "__board-sharkl_j2xlte.h"
+#endif
+
+#ifdef CONFIG_MACH_GTEXSLTE
+#include "__board-sharkl_gtexslte.h"
+#endif
+
+/* 9838-2 board volte */
+#if defined(CONFIG_MACH_SP9838AEA_VOLTE) || defined(CONFIG_MACH_SP9838AEA_3_VOLTE)
+#include "__board-sp9838aea_volte.h"
+#endif
+
+#if defined (CONFIG_MACH_SP9836AEA_4MOD) || defined(CONFIG_MACH_SP9836AEA_3MOD)
+#include "__board-sp9836aea.h"
+#endif
+
+/* 9838-3 board */
+#if defined(CONFIG_MACH_SP9838AEA_SR3593)
+#include "__board-sp9838aea.h"
+#endif
+#if defined (CONFIG_MACH_SP9838AEA_5MOD) || defined(CONFIG_MACH_SP9838AEA_POWER_DEBUG) || defined(CONFIG_MACH_SP9838AEA_8CORE_LIGHT_SLEEP) || defined(CONFIG_MACH_SP9838AEA_FHD) || defined(CONFIG_MACH_SP9838AEA_AUTO_SLT) || defined(CONFIG_MACH_SP9838AEA_2342A) || defined(CONFIG_MACH_SP9838AEA_FPGA)
+#include "__board-sp9838aea.h"
+#endif
+
+#if defined (CONFIG_MACH_SS_SHARKLT8) || defined(CONFIG_MACH_SS_SHARKLT8LIGHTSLEEP)
 #include "__board-ss_sharklt8.h"
 #endif
 
@@ -186,6 +322,17 @@
 #include "__board-sp9830aea_5m_h100.h"
 #endif
 
+#ifdef CONFIG_MACH_SP9830AEA_5M_H100_32V4
+#include "__board-sp9830aea_5m_h100_32v4.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830A_7H10
+#include "__board-sp9830a_7h10.h"
+#endif
+#ifdef CONFIG_MACH_SP9830A_7H10_VOLTE
+#include "__board-sp9830a_7h10_volte.h"
+#endif
+
 #ifdef CONFIG_MACH_SP9830AEA_5M_VOLTE
 #include "__board-sp9830aea_5m_volte.h"
 #endif
@@ -194,8 +341,24 @@
 #include "__board-sp9830aeb_5m_h100.h"
 #endif
 
+#ifdef CONFIG_MACH_SP9830A_5H10_5MVOLTE
+#include "__board-sp9830a_5h10_5mvolte.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830A_2H10_4M
+#include "__board-sp9830a_2h10_4m.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830AEF_5M_VOLTE
+#include "__board-sp9830aef_5m_volte.h"
+#endif
+
 #ifdef CONFIG_MACH_SP9830AEC_4M_H100
 #include "__board-sp9830aec_4m_h100.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830I_2H11_4M
+#include "__board-sp9830i_2h11_4m.h"
 #endif
 
 #ifdef CONFIG_MACH_SP9830IEA_4M_H100
@@ -208,6 +371,29 @@
 
 #ifdef CONFIG_MACH_SP9830IEB_5M_H100
 #include "__board-sp9830ieb_5m_h100.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9832A_2H11_4M
+#include "__board-sp9832a_2h11_4m.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9832A_2H11_VOLTE
+#include "__board-sp9832a_2h11_volte.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830I_J3LTE
+#include "__board-sp9830i_j3lte.h"
+#endif
+
+#ifdef CONFIG_MACH_SHARKLC_Z2LTE
+#include "__board-sharklc_z2lte.h"
+#endif
+
+#ifdef CONFIG_MACH_SP9830I_J2LTE
+#include "__board-sp9830i_j2lte.h"
+#endif
+#ifdef CONFIG_MACH_SP9832A_3H10_VOLTE
+#include "__board-sp9832a_3h10_volte.h"
 #endif
 
 #ifdef CONFIG_MACH_SP9830IEC_4M_H100
@@ -276,29 +462,29 @@
 #ifdef CONFIG_MACH_CORE3
 #include "__board-core3.h"
 #endif
-
 #ifdef  CONFIG_MACH_TSHARK2TABE
 #include "__board-tshark2tabe.h"
 #endif
-
-#ifdef  CONFIG_MACH_GRANDPRIMEVE3G
-#include "__board-grandprimeve3g.h"
+#ifdef  CONFIG_MACH_GRANDPRIME3G_VE
+#include "__board-grandprime3g_ve.h"
 #endif
-
-#ifdef  CONFIG_MACH_COREPRIMEVE3G
-#include "__board-coreprimeve3g.h"
+#ifdef CONFIG_MACH_GRANDPRIME_DTV
+#include "__board-grandprime_dtv.h"
 #endif
-
-#ifdef  CONFIG_MACH_GTEL3G
-#include "__board-gtel3g.h"
-#endif
-
 #ifdef CONFIG_MACH_PIKEAYOUNG2DTV
 #include "__board-pikeayoung2dtv.h"
 #endif
 
 #ifdef  CONFIG_MACH_COREPRIME3G_VE
 #include "__board-coreprime3g_ve.h"
+#endif
+
+#ifdef  CONFIG_MACH_COREPRIMEVE3G
+#include "__board-coreprime3g_ve.h"
+#endif
+
+#ifdef  CONFIG_MACH_GRANDPRIMEVE3G
+#include "__board-grandprime3g_ve.h"
 #endif
 #include <asm/sizes.h>
 
@@ -366,19 +552,21 @@
 	#if (defined(CONFIG_MACH_SP8730SEEA)  || defined(CONFIG_MACH_SP8730SEEA_QHD) || defined(CONFIG_MACH_TSHARKCOREPRIME) \
 		|| defined(CONFIG_MACH_TSHARKGRANDNEO) ||defined(CONFIG_MACH_COREPRIME3G_VE)||defined(CONFIG_MACH_SP9830IEA_5M_H100) \
 		|| defined(CONFIG_MACH_SP9830AEA_5M_H100) || defined(CONFIG_MACH_SP9630EA4MN) || defined(CONFIG_MACH_SP9630EB4MN) \
-		|| defined(CONFIG_MACH_GRANDPRIME3G_VE) || defined(CONFIG_MACH_SP7720EA) || defined(CONFIG_MACH_SP7731GEA_HD) \
-		|| defined(CONFIG_MACH_GRANDPRIMEVE3G) || defined(CONFIG_MACH_COREPRIMEVE3G))
+		|| defined(CONFIG_MACH_GRANDPRIME3G_VE) || defined(CONFIG_MACH_SP7720EA) || defined(CONFIG_MACH_SP7720EB) \
+		|| defined(CONFIG_MACH_SP7731GEA_HD) || defined(CONFIG_MACH_COREPRIMEVE3G) || defined(CONFIG_MACH_GRANDPRIMEVE3G) \
+		|| defined(CONFIG_MACH_SP9830I) \
+		|| defined(CONFIG_MACH_GRANDPRIME_DTV) )
 
-	#define SPRD_ION_MEM_BASE	\
-		((CONFIG_PHYS_OFFSET & (~(SZ_1G - 1))) + SZ_1G - SPRD_ION_MEM_SIZE)
-    #elif (defined(CONFIG_MACH_TSHARK2TABE) || defined (CONFIG_MACH_GTEL3G))
-        #define SPRD_ION_MEM_BASE	\
-            ((CONFIG_PHYS_OFFSET & (~(SZ_1G_512M - 1))) + SZ_1G_512M - SPRD_ION_MEM_SIZE)
-	#else
+
+#define SPRD_ION_MEM_BASE	\
+	((CONFIG_PHYS_OFFSET & (~(SZ_1G - 1))) + SZ_1G - SPRD_ION_MEM_SIZE)
+#elif (defined(CONFIG_MACH_TSHARK2TABE))
+#define SPRD_ION_MEM_BASE	\
+	((CONFIG_PHYS_OFFSET & (~(SZ_1G_512M - 1))) + SZ_1G_512M - SPRD_ION_MEM_SIZE)
+#else
 extern phys_addr_t sprd_reserve_limit;
 #define SPRD_ION_MEM_BASE (sprd_reserve_limit - SPRD_ION_MEM_SIZE)
-#endif
-
+	#endif
 #endif
 
 
@@ -401,25 +589,5 @@ extern phys_addr_t sprd_reserve_limit;
 #ifdef CONFIG_SPRD_IQ
 #define SPRD_IQ_SIZE SZ_128M
 #endif
-
-//#define SPRD_SYSDUMP_MAGIC     (SPRD_ION_MEM_BASE + SPRD_ION_MEM_SIZE - SZ_1M)
-#define SPRD_SYSDUMP_MAGIC     (0x80000000 + 0x20000000 - (1024<<10))
-
-struct sysdump_mem {
-	unsigned long paddr;
-	unsigned long vaddr;
-	unsigned long soff;
-	size_t size;
-	int type;
-};
-
-enum sysdump_type {
-	SYSDUMP_RAM,
-	SYSDUMP_MODEM,
-	SYSDUMP_IOMEM,
-};
-
-extern int sprd_dump_mem_num;
-extern struct sysdump_mem sprd_dump_mem[];
 
 #endif

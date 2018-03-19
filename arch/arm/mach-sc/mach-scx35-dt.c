@@ -35,11 +35,6 @@
 #include <soc/sprd/sci_glb_regs.h>
 #include <soc/sprd/hardware.h>
 
-#ifdef CONFIG_PROC_AVC
-#include <linux/proc_avc.h>
-#endif
-
-
 extern void __init sci_reserve(void);
 extern void __init sci_map_io(void);
 extern void __init sci_init_irq(void);
@@ -238,10 +233,6 @@ do {							\
 static void __init sc8830_init_machine(void)
 {
 	printk("sci get chip id = 0x%x\n",__sci_get_chip_id());
-
-#ifdef CONFIG_PROC_AVC
-	sec_avc_log_init();
-#endif
 
 	sci_adc_init();
 	sci_regulator_init();

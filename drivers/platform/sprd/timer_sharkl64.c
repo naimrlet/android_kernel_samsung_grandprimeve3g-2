@@ -124,7 +124,11 @@ static int sprd_ap_system_timer_init(void)
 
 	of_node_put(np);
 
+#if defined(CONFIG_ARCH_WHALE)
+	sci_glb_set(REG_AON_APB_APB_EB0, BIT_AON_APB_AON_SYST_EB);
+#else
 	sci_glb_set(REG_AON_APB_APB_EB0, BIT_AP_SYST_EB);
+#endif
 
 	/* disable irq for syscnt */
 	__raw_writel(0, SYST_INT);
@@ -137,13 +141,12 @@ arch_initcall(sprd_ap_system_timer_init);
 
 static inline void bctimer_ctl(int enable, int mode)
 {
-	__raw_writel(enable | mode, TIMER_CTL);
+	__raw_writel(enable | mode | TIMER_NEW, TIMER_CTL);
 }
 
 static int bctimer_set_next_event(unsigned long cycles,
 				  struct clock_event_device *c)
 {
-	while (TIMER_INT_BUSY & __raw_readl(TIMER_INT)) ;
 	bctimer_ctl(TIMER_DISABLE, ONETIME_MODE);
 	__raw_writel(cycles, TIMER_LOAD);
 	bctimer_ctl(TIMER_ENABLE, ONETIME_MODE);
@@ -230,10 +233,17 @@ static void sprd_gptimer_clockevent_init(unsigned int irq, const char *name,
 
 static void sci_enable_timer_early(void)
 {
+#if defined(CONFIG_ARCH_WHALE)
+	sci_glb_set(REG_AON_APB_APB_EB0, BIT_AON_APB_AON_TMR_EB |
+		BIT_AON_APB_AON_SYST_EB | BIT_AON_APB_AP_TMR0_EB);
+	sci_glb_set(REG_AON_APB_APB_EB1, BIT_AON_APB_AP_TMR2_EB |
+		BIT_AON_APB_AP_TMR2_EB);
+#else
 	/* enable timer, need modify */
 	sci_glb_set(REG_AON_APB_APB_EB0,
 		    BIT_AON_TMR_EB | BIT_AP_SYST_EB | BIT_AP_TMR0_EB);
 	sci_glb_set(REG_AON_APB_APB_EB1, BIT_AP_TMR2_EB | BIT_AP_TMR1_EB);
+#endif
 }
 
 static int sprd_init_timer_sharkl64(void)

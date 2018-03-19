@@ -318,7 +318,12 @@ static ssize_t sysfs_write_mipi_clk(struct device *dev,
 	}
 
 	if (dphy_freq <= 1500000 && dphy_freq >= 90000) {
+#ifdef CONFIG_HOP_FREQ_SCALING
+		printk("this enables hop freq\n");
+		ret = sprdfb_chg_clk_intf(fb_dev, SPRDFB_DYNAMIC_MIPI_CLK, attr_info->origin_mipi_clk);
+#else
 		ret = sprdfb_chg_clk_intf(fb_dev, SPRDFB_DYNAMIC_MIPI_CLK, dphy_freq);
+#endif
 		if (ret) {
 			pr_err("sprdfb_chg_clk_intf change d-phy freq fail.\n");
 			return count;

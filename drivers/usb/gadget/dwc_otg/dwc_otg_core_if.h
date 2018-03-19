@@ -50,6 +50,10 @@ typedef struct dwc_otg_core_if dwc_otg_core_if_t;
 /** Maximum number of Endpoints/HostChannels */
 #define MAX_EPS_CHANNELS 16
 
+/** SPRAM address configuration */
+#define	SPRAM_START_ADDR	0x00028000
+#define	SPRAM_END_ADDR		0x000280e0
+
 extern dwc_otg_core_if_t *dwc_otg_cil_init(const uint32_t * _reg_base_addr);
 extern void dwc_otg_core_init(dwc_otg_core_if_t * _core_if);
 extern void dwc_otg_cil_remove(dwc_otg_core_if_t * _core_if);

@@ -16,6 +16,9 @@ sprd_rotation
 /* memory reserved for LTE modem */
 /memreserve/ 0x89600000 0x4600000; /* Offset:150M, Size:70M*/
 
+/* memory reserved for sml logbuf */
+/memreserve/ 0x8e900000 0x8000; /* Offset: 233M, Size:32K*/
+
 /* memory reserved for fb */
 /memreserve/ 0x9F74F000 0x4B1000; /* 480*854*4*3, 4K alignment*/
 
@@ -325,11 +328,11 @@ sprd_rotation
 	usb: usb@20200000{
 		 compatible  = "sprd,usb";
 		 interrupts = <0 55 0x0>;
-		 ngpios = <1>;
-		 gpios = <&a_eic_gpio 0 0>;
+		 vbus-gpios = <&a_eic_gpio 0 0>;
 		 reg = <0 0x20200000 0 0x1000>;
 		 tune_value = <0x44073e33>;
 		 usb-supply = <&vddusb>;
+		 phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
@@ -481,7 +484,7 @@ sprd_rotation
 		sprd,name = "spipe_lte";
 		sprd,dst = <5>;
 		sprd,channel = <4>;
-		sprd,ringnr = <9>;
+		sprd,ringnr = <15>;
 		sprd,size-rxbuf = <0x1000>; /* 4*1024 */
 		sprd,size-txbuf = <0x1000>; /* 4*1024 */
 	};
@@ -602,9 +605,11 @@ sprd_rotation
 		#size-cells = <1>;
 		/* segnr=4 */
 		ranges = <0x1800000 0 0x8ae00000 0x02E00000>,
-			<0x0020000 0 0x89620000 0x002E0000>,
-			<0x0300000 0 0x89900000 0x1C0000>,
-			<0x4900000 0 0x8df00000 0xA00000>;
+			 <0x0020000 0 0x89620000 0x002E0000>,
+			 <0x0300000 0 0x89900000 0x1C0000>,
+			 <0x4900000 0 0x8df00000 0xA00000>,
+                         <0x23e0000 0x8b9e0000 0x6C000>,
+                         <0x244C000 0x8bA4C000 0x90000>;
 		modem@0x1800000 {
 			cproc,name = "modem";
 			reg = <0x1800000 0x02E00000>; /* <modem_addr size> */
@@ -620,6 +625,14 @@ sprd_rotation
                 modem@0x4900000 {
 			cproc,name = "warm";
 			reg = <0x4900000 0xA00000>; /* <modem_addr size>*/
+		};
+		fixnv@0x23e0000 {
+			cproc,name = "fixnv";
+			reg = <0x23e0000 0x6c000>;
+		};
+		runnv@0x244C000 {
+			cproc,name = "runnv";
+			reg = <0x244C000 0x90000>;
 		};
 	};
 

@@ -41,6 +41,18 @@ config BUS_MONITOR_DEBUG
 	help
 	  Say Y here to support debug busmonitor
 
+config DJTAG
+    bool "Spreadtrum DJTAG Support"
+	default y
+	help
+	  Say Y here to support djtag
+
+config BUS_MONITOR_PERF
+    bool "Spreadtrum NEW BM Support"
+	default y
+	help
+	  Say Y here to support sprd busmonitor, only for perf.
+
 config SC_FPGA
 	bool "Spreadtrum FPGA support"
 	default n
@@ -89,6 +101,11 @@ config SPRD_ION_OVERLAY_SIZE
 
 config SPRD_VIBRATOR_2723
         bool "vibrator for sprd_vibrator_2723"
+        select ANDROID_TIMED_OUTPUT
+        default n
+
+config SPRD_VIBRATOR_2731
+        bool "vibrator for sprd_vibrator_2731"
         select ANDROID_TIMED_OUTPUT
         default n
 
@@ -234,8 +251,12 @@ config TSP_0_1_A
         default n
 
 config SPRD_MAILBOX
-        bool "Spreadtrum Mailbox IPI Arch"
-        default n
+	bool "Spreadtrum Mailbox IPI Arch"
+	default n
+
+config SPRD_MAILBOX_FIFO
+	bool "Spreadtrum Mailbox Use FIFO"
+	default n
 
 config MUIC_CABLE_DETECT
 	bool "usb, jig-box and so on cables are detected by external MUIC chip"
@@ -244,10 +265,15 @@ config MUIC_CABLE_DETECT
 
 config SPRD_SYSDUMP
         bool "Enable SPRD sysdump handler"
-        depends on ARM64
         help
           This option enables Spreadtrum sysdump which prepare debug info
 	  for u-boot to write into mmc storage after kernel panics.
+config SPRD_POWEROFF
+        bool "Enable SPRD Adie power-off and reset Operation"
+	default y
+	depends on ARCH_WHALE || ADIE_SC2731
+        help
+          This option enables Spreadtrum power-off and reset pmic opertaion.
 
 config SPRD_DEBUG
 	bool "Enable SPRD DEBUG"
@@ -259,8 +285,106 @@ config SPRD_DEBUG_SCHED_LOG
 	help
 	  SPRD Scheduler Logging Feature for Debug use.
 
+config SPRD_DEBUG_DMALOG
+	bool "SPRD dma Logging Feature"
+	depends on SPRD_DEBUG
+	default y
+	help
+	  SPRD DMA Logging Feature for Debug use.
+
+config SEC_DEBUG64
+	bool "enable SEC_DEBUG"
+	depends on ARM64
+
+config SEC_LOG64
+	bool "enable SEC_LOG"
+	depends on ARM64
+
+
+comment "BSP Feature"
+menuconfig SEC_BSP
+	bool "Samsung TN BSP Feature"
+	default n
+	help
+	  Samsung TN BSP Feature.
+
+config SEC_DEBUG
+	bool "Enable SEC DEBUG"
+	default n
+
+if SEC_DEBUG
+config SEC_DEBUG_SCHED_LOG
+	bool "Samsung Scheduler Logging Feature"
+	default n
+	help
+	 Samsung Scheduler Logging Feature for Debug use.
+
+config SEC_DEBUG_SCHED_LOG_NONCACHED
+    bool "Samsung Scheduler log for non cache"
+	default n
+	depends on SEC_DEBUG_SCHED_LOG
+
+config SEC_DEBUG_SOFTIRQ_LOG
+	bool "Samsung Softirq Logging Feature"
+	default n
+	depends on SEC_DEBUG_SCHED_LOG
+	help
+	 Samsung Softirq Logging Feature for Debug use.
+         This option enables us to log softirq enter/exit.
+         It is not only hard-irq which results in scheduler lockup,
+         To be more clear we need to see also softirq logs.
+
+config SEC_DEBUG_TIMER_LOG
+        bool "Samsung Timer Logging Feature"
+        default n
+        help
+          Samsung Timer Logging Feature for Debug use.
+
+config SEC_LOG
+        bool "Samsung log buffer"
+        default n
+
+config SEC_LOG_BUF_NOCACHE
+	bool "samsung log buf for cache type"
+	depends on SEC_LOG
+	default n
+	
+config SEC_LOG_LAST_KMSG
+        bool "Samsung Use Sec Log Last Kmsg"
+        depends on SEC_LOG
+        default n
+        help
+           This feature creats a node to read contents of sec_log_buf
+           area just before booting into kernel from bootloader.
+           This is very helpful to read sec_log_buf area without reset
+           or entering upload mode.
+
+config SEC_DEBUG_USER
+        bool "Enable user options"
+        default n
+
+config SEC_DEBUG_REG_ACCESS
+        bool "Samsung reg access debugging"
+        default n
+endif
+
 config GPS_LSI_S5N6420
 bool "LSI_GPS_CHIPSET_HARRIER"
 default n
+
+config SPRD_EIRQSOFF_DEBUG
+	bool "spreadtrum IRQ disable time debug"
+	depends on IRQSOFF_TRACER && SPRD_DEBUG
+	default y
+config SEC_THERMISTOR
+		bool "Sec thermister for SIOP implementation"
+		default y
+
+comment "use for Factory mode"
+config SEC_FACTORY
+	bool "when it comes to sec factory mode"
+	default n
+	help
+	  It will support a sec factory mode
 
 endmenu

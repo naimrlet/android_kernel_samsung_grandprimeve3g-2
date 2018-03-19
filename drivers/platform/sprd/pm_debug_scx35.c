@@ -41,7 +41,7 @@ static int is_print_wakeup = 1;
 static int is_print_irq_runtime = 0;
 static int is_print_time = 1;
 static int print_thread_enable = 1;
-static int print_thread_interval = 30;
+static int print_thread_interval = 120;
 static unsigned int core_time = 0;
 static unsigned int mcu_time = 0;
 static unsigned int lit_time = 0;
@@ -98,10 +98,10 @@ static char * sleep_mode_str[]  = {
 #define	INTCV3_FIQ_STS		INTC3_REG(0x0020)
 #define INT_IRQ_MASK	(1<<3)
 
-#define ANA_REG_INT_MASK_STATUS         (ANA_CTL_INT_BASE + 0x0000)
-#define ANA_REG_INT_RAW_STATUS          (ANA_CTL_INT_BASE + 0x0004)
-#define ANA_REG_INT_EN                  (ANA_CTL_INT_BASE + 0x0008)
-#define ANA_REG_INT_MASK_STATUS_SYNC    (ANA_CTL_INT_BASE + 0x000c)
+#define ANA_REG_INT_MASK_STATUS         (ANA_INTC_BASE + 0x0000)
+#define ANA_REG_INT_RAW_STATUS          (ANA_INTC_BASE + 0x0004)
+#define ANA_REG_INT_EN                  (ANA_INTC_BASE + 0x0008)
+#define ANA_REG_INT_MASK_STATUS_SYNC    (ANA_INTC_BASE + 0x000c)
 
 void pm_debug_dump_ahb_glb_regs(void);
 
@@ -168,6 +168,9 @@ void print_int_status(void)
 #define GPIO_GROUP_NUM		16
 #define IRQ_EIC		(1<<14)
 #define IRQ_BUSMON	(1<<13)
+#if defined(CONFIG_ARCH_SCX35L)
+#define MBOX_TAR_AP	(1<<12)
+#endif
 #define IRQ_WDG		(1<<11)
 #define IRQ_CP2		(1<<10)
 #define IRQ_CP1		(1<<9)
@@ -185,7 +188,7 @@ void print_hard_irq_inloop(int ret)
 	unsigned int i, j, val;
 	unsigned int ana_sts;
 	unsigned int gpio_irq[GPIO_GROUP_NUM];
-	static unsigned int cp0_cnt = 0;
+	static unsigned int cp_cnt = 0;
 	static unsigned int alarm_cnt = 0;
 
 	if(sprd_irqs_sts[0] != 0)
@@ -198,6 +201,13 @@ void print_hard_irq_inloop(int ret)
 	if(sprd_irqs_sts[0]&IRQ_BUSMON){
 		printk("wake up by busmoniter\n");
 	}
+#if defined(CONFIG_ARCH_SCX35L)
+	if(sprd_irqs_sts[0]& MBOX_TAR_AP)
+	{
+		cp_cnt++;
+		printk("wake up by mbox_tar_ap :total cp %u times, alarm %u times\n", cp_cnt, alarm_cnt);
+	}
+#endif
 	if(sprd_irqs_sts[0]&IRQ_WDG){
 		printk("wake up by ca7_wdg or ap_wdg\n");
 	}
@@ -208,8 +218,7 @@ void print_hard_irq_inloop(int ret)
 		printk("wake up by cp1\n");
 	}
 	if(sprd_irqs_sts[0]&IRQ_CP0){
-		printk("wake up by cp0 :total cp0 %u times, alarm %u times\n", cp0_cnt, alarm_cnt);
-		cp0_cnt++;
+		printk("wake up by cp0\n");
 	}
 	if(sprd_irqs_sts[0]&IRQ_GPU){
 		printk("wake up by gpu\n");
@@ -237,10 +246,9 @@ void print_hard_irq_inloop(int ret)
 				printk("gpio 0 ~ 16 0x%08x\n", sci_adi_read(SPRD_MISC_BASE + 0x0480 + 0x1c));
 				printk("gpio 17 ~ 31 0x%08x\n", sci_adi_read(SPRD_MISC_BASE + 0x0480 + 0x40 + 0x1c));
 			}
-			if(ana_sts & BIT(2)){
-				printk("rtc :total cp0 %u times, alarm %u times\n", cp0_cnt, alarm_cnt);
+			if(ana_sts & BIT(2))
 				alarm_cnt++;
-			}
+				printk("rtc :total cp %u times, alarm %u times\n", cp_cnt, alarm_cnt);
 			if(ana_sts & BIT(3))
 				printk("wdg\n");
 			if(ana_sts & BIT(4))
@@ -511,7 +519,7 @@ static void print_debug_info(void)
 	unsigned int ahb_eb, apb_eb0, cp_slp_status0, cp_slp_status1, ldo_pd_ctrl,
 			ap_apb_eb, apb_pwrstatus0, apb_pwrstatus1, apb_pwrstatus2,
 			apb_pwrstatus3, mpll_cfg, dpll_cfg, emc_clk_cfg,
-			apb_slp_status, ap_sys_auto_sleep_cfg;
+			apb_slp_status, ap_sys_auto_sleep_cfg, ca5_lte_status;
 #if defined(CONFIG_ARCH_SCX15)
 	unsigned int ldo_dcdc_pd_ctrl;
 #endif
@@ -529,10 +537,14 @@ static void print_debug_info(void)
 #if !defined(CONFIG_ARCH_SCX35L)
 	cp_slp_status1 = sci_glb_read(REG_PMU_APB_CP_SLP_STATUS_DBG1, -1UL);
 #endif
+	ca5_lte_status = sci_glb_read(REG_PUB_APB_DDR_ID2QOS_RCFG9, -1UL);
 	apb_pwrstatus0 = sci_glb_read(REG_PMU_APB_PWR_STATUS0_DBG, -1UL);
 	apb_pwrstatus1 = sci_glb_read(REG_PMU_APB_PWR_STATUS1_DBG, -1UL);
 	apb_pwrstatus2 = sci_glb_read(REG_PMU_APB_PWR_STATUS2_DBG, -1UL);
 #if !defined(CONFIG_ARCH_SCX35L)
+	apb_pwrstatus3 = sci_glb_read(REG_PMU_APB_PWR_STATUS3_DBG, -1UL);
+#endif
+#if defined(CONFIG_ARCH_SCX35LT8)
 	apb_pwrstatus3 = sci_glb_read(REG_PMU_APB_PWR_STATUS3_DBG, -1UL);
 #endif
 	apb_slp_status = __raw_readl(REG_PMU_APB_SLEEP_STATUS);
@@ -570,10 +582,9 @@ static void print_debug_info(void)
 	printk("###---- REG_PMU_APB_PWR_STATUS0_DBG : 0x%08x\n", apb_pwrstatus0);
 	printk("###---- REG_PMU_APB_PWR_STATUS1_DBG : 0x%08x\n", apb_pwrstatus1);
 	printk("###---- REG_PMU_APB_PWR_STATUS2_DBG : 0x%08x\n", apb_pwrstatus2);
-#if !defined(CONFIG_ARCH_SCX35L)
 	printk("###---- REG_PMU_APB_PWR_STATUS3_DBG : 0x%08x\n", apb_pwrstatus3);
-#endif
 	printk("###---- REG_PMU_APB_SLEEP_STATUS : 0x%08x\n", apb_slp_status);
+	printk("###---- REG_PUB_APB_DDR_ID2QOS_RCFG9 : 0x%08x\n", ca5_lte_status);
 #if defined(CONFIG_ARCH_SCX15) || defined(CONFIG_ARCH_SCX35) || defined(CONFIG_ARCH_SCX30G)
 	printk("###---- REG_AON_APB_MPLL_CFG : 0x%08x\n", mpll_cfg);
 	printk("###---- REG_AON_APB_DPLL_CFG : 0x%08x\n", dpll_cfg);
@@ -734,6 +745,88 @@ static void print_debug_info(void)
 	if (ap_apb_eb & BIT_IIS0_EB)
 		printk("###---- BIT_IIS0_EB set! ----###\n");
 #endif
+
+#if defined(CONFIG_ARCH_SCX35LT8)
+	if (sleep_ctrl & BIT_VCP1_FORCE_LIGHT_SLEEP)
+		printk("###---- force VCP1 in light sleep ----###\n");
+	if (sleep_ctrl & BIT_VCP0_FORCE_LIGHT_SLEEP)
+		printk("###---- force VCP0 in light sleep ----###\n");
+	if (sleep_ctrl & BIT_CP1_FORCE_LIGHT_SLEEP)
+		printk("###---- force CP1 in light sleep  ----###\n");
+	if (sleep_ctrl & BIT_CP0_FORCE_LIGHT_SLEEP)
+		printk("###---- force CP0 in light sleep  ----###\n");
+	if (sleep_ctrl & BIT_AP_FORCE_LIGHT_SLEEP)
+		printk("###---- force AP in light sleep   ----###\n");
+	if (sleep_ctrl & BIT_VCP1_LIGHT_SLEEP)
+		printk("###---- VCP1 is in light sleep status ----###\n");
+	if (sleep_ctrl & BIT_VCP0_LIGHT_SLEEP)
+		printk("###--- VCP0 is in light sleep status ----###\n");
+	if (sleep_ctrl & BIT_CP1_LIGHT_SLEEP)
+		printk("###---- CP1 is in light sleep status ----###\n");
+	if (sleep_ctrl & BIT_CP0_LIGHT_SLEEP)
+		printk("###---- CP0 is in light sleep status ----###\n");
+	if (sleep_ctrl & BIT_AP_LIGHT_SLEEP)
+		printk("###---- AP is in light sleep status ----###\n");
+
+	if (apb_pwrstatus0){
+		printk("status of power domain 'MM_TOP' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_MM_TOP_STATE(15)) >> 28);
+		printk("status of power domain 'GPU_TOP' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_GPU_TOP_STATE(15)) >> 24);
+		printk("status of power domain 'AP_SYS' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_AP_SYS_STATE(15)) >> 20);
+		printk("status of power domain 'CA53_LIT_C3' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_CA53_LIT_C3_STATE(15)) >> 16);
+		printk("status of power domain 'CA53_LIT_C2' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_CA53_LIT_C2_STATE(15)) >> 12);
+		printk("status of power domain 'CA53_LIT_C1' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_CA53_LIT_C1_STATE(15)) >> 8);
+		printk("status of power domain 'CA53_LIT_C0' 0x%08x\n", (apb_pwrstatus0 & BITS_PD_CA53_LIT_C0_STATE(15)) >> 4);
+		printk("status of power domain 'CA53_TOP' 0x%08x\n", apb_pwrstatus0 & BITS_PD_CA53_TOP_STATE(15));
+	}
+	if (apb_pwrstatus1){
+		printk("status of power domain 'CP0_CEVA_1' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_CEVA_1_STATE(15)) >> 28);
+		printk("status of power domain 'CP_CEVA_0' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_CEVA_0_STATE(15)) >> 24);
+		printk("status of power domain 'CP0_GSM_0' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_GSM_0_STATE(15)) >> 20);
+		printk("status of power domain 'CP0_GSM_1' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_GSM_1_STATE(15)) >> 16);
+		printk("status of power domain 'CP0_HU3GE' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_HU3GE_STATE(15)) >> 12);
+		printk("status of power domain 'CP0_ARM9_1' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_ARM9_1_STATE(15)) >> 8);
+		printk("status of power domain 'CP0_ARM9_0' 0x%08x\n", (apb_pwrstatus1 & BITS_PD_CP0_ARM9_0_STATE(15)) >> 4);
+		printk("status of power domain 'CP0_TD' 0x%08x\n", apb_pwrstatus1 & BITS_PD_CP0_TD_STATE(15));
+	}
+	if (apb_pwrstatus2){
+		printk("status of power domain 'CP0_PUB_SYS' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_PUB_SYS_STATE(15)) >> 24);
+		printk("status of power domain 'CP1_COMWRAP' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_CP1_COMWRAP_STATE(15)) >> 20);
+		printk("status of power domain 'CP1_LTE_P2' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_CP1_LTE_P2_STATE(15)) >> 16);
+		printk("status of power domain 'CP1_LTE_P1' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_CP1_LTE_P1_STATE(15)) >> 12);
+		printk("status of power domain 'CP1_CEVA' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_CP1_CEVA_STATE(15)) >> 8);
+		printk("status of power domain 'CP1_CA5' 0x%08x\n", (apb_pwrstatus2 & BITS_PD_CP1_CA5_STATE(15)) >> 4);
+		printk("status of power domain 'CA53_LIT_MP4' 0x%08x\n", apb_pwrstatus2 & BITS_PD_CA53_LIT_MP4_STATE(15));
+	}
+	if (apb_pwrstatus3){
+		printk("###---- status of power domain 'MM_CODEC' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_MM_CODEC_STATE(15)) >> 28);
+		printk("###---- status of power domain 'CA53_BIG_C3' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_CA53_BIG_C3_STATE(15)) >> 24);
+		printk("###---- status of power domain 'CA53_BIG_C2' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_CA53_BIG_C2_STATE(15)) >> 20);
+		printk("###---- status of power domain 'CA53_BIG_C1' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_CA53_BIG_C1_STATE(15)) >> 16);
+		printk("###---- status of power domain 'CA53_BIG_C0' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_CA53_BIG_C0_STATE(15)) >> 12);
+		printk("###---- status of power domain 'CA53_BIG_MP4' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_CA53_BIG_MP4_STATE(15)) >> 8);
+		printk("###---- status of power domain 'GPU_C1' 0x%08x----###\n", (apb_pwrstatus3 & BITS_PD_GPU_C1_STATE(15)) >> 4);
+		printk("###---- status of power domain 'GPU_C0' 0x%08x----###\n", apb_pwrstatus3 & BITS_PD_GPU_C0_STATE(15));
+	}
+
+	if (mpll_cfg1 & BIT_MPLL_LOCK_DONE)
+		printk("###---- MPLL lock_none bit is set ----###\n");
+	if (mpll_cfg1 & BIT_MPLL_DIV_S)
+		printk("###---- MPLL feedback is fractional divider ----###");
+	if (mpll_cfg1 & BIT_MPLL_MOD_EN)
+		printk("###---- MPLL modulator MOD enable ----###\n");
+	if (mpll_cfg1 & BIT_MPLL_SDM_EN)
+		printk("###---- MPLL modulator SDM enable ----###\n");
+
+	if (dpll_cfg1 & BIT_DPLL_LOCK_DONE)
+		printk("###---- DPLL lock_node bit is set ----###\n");
+	if (dpll_cfg1 & BIT_DPLL_DIV_S)
+		printk("###---- DPLL feedback is fractional divider ----###\n");
+	if (dpll_cfg1 & BIT_DPLL_MOD_EN)
+		printk("###---- DPLL modulator MOD enable ----###\n");
+	if (dpll_cfg1 & BIT_DPLL_SDM_EN)
+		printk("###---- DPLL modulator SDM enable ----###\n");
+#endif
+
 
 }
 
@@ -900,3 +993,442 @@ void pm_debug_clr_apwdt(void)
 	sci_adi_clr(WDG_CTRL, WDG_CNT_EN_BIT | WDG_RST_EN_BIT);
 	//sci_adi_raw_write(WDG_LOCK, (uint16_t) (~WDG_UNLOCK_KEY));
 }
+
+#ifdef CONFIG_ARCH_SCX20
+#include <soc/sprd/hardware.h>
+#include "../../media/sprd_gsp/gsp_config_if.h"
+//return register n_bit value from offset
+int GET_BIT_NUM(int x,int offset,int n)
+{
+	int reg_val;
+	reg_val = __raw_readl((void *)x);
+	return (reg_val&(((1<<n)-1)<<offset))>>offset;
+}
+
+int GET_BIT_NUM_FROM_VAL(int reg_val,int offset,int n)
+{
+	return (reg_val&(((1<<n)-1)<<offset))>>offset;
+}
+//if bit is 0, return 1;
+int GET_BIT_EB(int x,int offset)
+{
+	unsigned int reg_val;
+	reg_val = __raw_readl((void *)x);
+	if(((reg_val&(1<<offset))>>offset) == 0)
+		return 1;
+	else
+		return 0;
+}
+
+struct sleep_dump_reg_t
+{
+	int reg;
+	int val;
+	int mask;
+	int reg_phy;
+	//char reg_name[10]
+};
+extern int gREG_AP_AHB_MCU_PAUSE ;
+int glowpower_debug_count = 0;
+
+#define DMA_REG_DMA_DEBUG_STATUS (SPRD_DMA0_BASE+0x20)
+
+struct sleep_dump_reg_t lightsleep_reg_dump[7]=
+{
+	//reg, val, mask,reg_phy
+	{0, 0x0000000a, 0x0000003F,0x20D03004},
+	{0, 0x00000000, 0x00000002,0x20A00000},
+	{0, 0x00000000, 0x00100000,0x20100020},
+	{0, 0x00001FFF, 0x00000F0E,0x20D03034},
+	{0, 0x00000000, 0x40000000,0x402E0000},
+	{0, 0x00000000, 0x00020F30,0x20D00000},
+	{0, 0x00000100, 0x00000300,0x20D00010},
+};
+
+void compareGoldenLight(void)
+{
+	int loop;
+	int reg_num =7;
+	int gsp_busy = 0;
+
+	lightsleep_reg_dump[0].reg = REG_AP_AHB_MCU_PAUSE;
+	lightsleep_reg_dump[1].reg = REG_AP_CLK_GSP_CFG;
+	lightsleep_reg_dump[2].reg = DMA_REG_DMA_DEBUG_STATUS;
+	lightsleep_reg_dump[3].reg = REG_AP_AHB_CA7_STANDBY_STATUS;
+	lightsleep_reg_dump[4].reg = REG_AON_APB_APB_EB0;
+	lightsleep_reg_dump[5].reg = REG_AP_AHB_AHB_EB;
+	lightsleep_reg_dump[6].reg = REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG;
+
+
+	gsp_busy = GSP_WORKSTATUS_GET();
+	printk("REG_AP_AHB_MCU_PAUSE=0x%x \n",gREG_AP_AHB_MCU_PAUSE);
+	printk("REG_AP_CLK_GSP_CFG(gsp_busy)= 0x%x \n",gsp_busy);
+	printk("DMA_REG_DMA_DEBUG_STATUS=0x%x \n",__raw_readl((void *)DMA_REG_DMA_DEBUG_STATUS));
+	printk("REG_AP_AHB_CA7_STANDBY_STATUS 0x=%x \n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+	printk("REG_AON_APB_APB_EB0 0x=%x \n",__raw_readl((void *)REG_AON_APB_APB_EB0));
+	printk("REG_AP_AHB_AHB_EB 0x=%x \n",__raw_readl((void *)REG_AP_AHB_AHB_EB));
+	printk("REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG 0x=%x \n",__raw_readl((void *)REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG));
+
+
+	//for(loop = 0;loop < reg_num; loop++){
+	//	printk("reg[0x%08x]=0x%08x ?= 0x%08x\n", lightsleep_reg_dump[loop].reg_phy,__raw_readl(lightsleep_reg_dump[loop].reg)&lightsleep_reg_dump[loop].mask,lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask);
+	//}
+
+
+	//loop 0 gREG_AP_AHB_MCU_PAUSE
+	loop = 0;
+	if((gREG_AP_AHB_MCU_PAUSE&lightsleep_reg_dump[loop].mask) != (lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask))
+		printk("**reg[0x%08x]=0x%08x ?= 0x%08x\n", lightsleep_reg_dump[loop].reg_phy,gREG_AP_AHB_MCU_PAUSE&lightsleep_reg_dump[loop].mask,lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask);
+	loop = 1;
+	if((gsp_busy&lightsleep_reg_dump[loop].mask) != (lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask))
+		printk("**reg[0x%08x]=0x%08x ?= 0x%08x\n", lightsleep_reg_dump[loop].reg_phy,gsp_busy&lightsleep_reg_dump[loop].mask,lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask);
+
+	for(loop = 2;loop < reg_num; loop++){
+		if((__raw_readl((void *)lightsleep_reg_dump[loop].reg)&lightsleep_reg_dump[loop].mask) != (lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask))
+			printk("**reg[0x%08x]=0x%08x ?= 0x%08x\n", lightsleep_reg_dump[loop].reg_phy,__raw_readl((void *)lightsleep_reg_dump[loop].reg)&lightsleep_reg_dump[loop].mask,lightsleep_reg_dump[loop].val&lightsleep_reg_dump[loop].mask);
+	}
+
+}
+
+#include <soc/sprd/hardware.h>
+#include <linux/kernel.h>
+
+
+
+void showAPLightSleepStatus(void)
+{
+	int ca7standby;
+	int mcu_sleep_follow_ca7;
+	int mcu_sleep_follow_ca7_en,ca7_sleep,mcu_core_sleep;
+	int dma_busy = 0;
+	int gsp_busy,gsp_auto_gate_en,gsp_ckg_force_en;
+
+	//light sleep
+	int mcu_light_stop,dispc0_eb,dispc1_eb;
+	int mcu_light_sleep_en;
+	int mmtx_light_stop;
+	int dma_act_light_en;
+	int gsp_ckg_auto_en_eb,ap_light_sleep_req;
+	int zipenc_ckg_en_eb,zipdec_ckg_en_eb;
+
+	compareGoldenLight();
+
+	//Tshark , pike DMA register offset is different
+	dma_busy = GET_BIT_NUM(DMA_REG_DMA_DEBUG_STATUS,20,1);
+
+
+	ca7standby = __raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS);
+	if ((ca7standby&0xF0E) == 0xF0E)
+		ca7standby = 1;
+	else
+		ca7standby = 0;
+
+	mcu_sleep_follow_ca7_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,4,1);
+
+	mcu_core_sleep = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,0,1);
+
+	if((mcu_core_sleep == 1) || (ca7standby == 1)/*|| (ap_wakeup_nirq == 1)*/)
+		ca7_sleep = 1;
+	else
+		ca7_sleep = 0;
+
+	if(( mcu_sleep_follow_ca7_en == 1) && ( ca7_sleep == 1 )){
+		mcu_sleep_follow_ca7 = 1;
+	}else{
+		mcu_sleep_follow_ca7 = 0;
+	}
+
+	//light sleep part
+	mcu_light_sleep_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,3,1);
+	zipenc_ckg_en_eb = GET_BIT_EB(REG_AP_AHB_AHB_EB,20);
+	zipdec_ckg_en_eb = GET_BIT_EB(REG_AP_AHB_AHB_EB,21);
+
+	gsp_busy = GSP_WORKSTATUS_GET();
+
+	gsp_auto_gate_en = GET_BIT_NUM(REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG,8,1);
+	gsp_ckg_force_en = GET_BIT_NUM(REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG,9,1);
+
+	if((( gsp_auto_gate_en == 1 ) && ( gsp_busy == 1 ))	||
+		( gsp_ckg_force_en == 1 ))
+		gsp_ckg_auto_en_eb = 1;
+	else
+		gsp_ckg_auto_en_eb = 0;
+
+	dispc0_eb = GET_BIT_EB(REG_AP_AHB_AHB_EB,1);
+	dispc1_eb = GET_BIT_EB(REG_AP_AHB_AHB_EB,2);
+	dma_act_light_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,5,1);
+
+	mcu_light_sleep_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,3,1);
+	if(
+	((GET_BIT_EB(REG_AON_APB_APB_EB0,30) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,4) == 1) ||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,8) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,9) == 1) ||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,10) == 1 ||( mcu_sleep_follow_ca7 == 1))) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,11) == 1)||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,17) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		(( dma_act_light_en == 1 )||((!((GET_BIT_NUM(REG_AP_AHB_AHB_EB,5,1)==1)&&(dma_busy==1)))||( mcu_sleep_follow_ca7 == 1)))/*ch2*/&&
+		(( dma_act_light_en == 1 )||((!((GET_BIT_NUM(REG_AP_AHB_AHB_EB,5,1)==1)&&(dma_busy==1)))||( mcu_sleep_follow_ca7 == 1)))/*ch3*/&&
+		((mcu_sleep_follow_ca7 == 1)||(ca7_sleep == 1))){
+		mmtx_light_stop = 1;
+	}else{
+		mmtx_light_stop = 0;
+	}
+
+	if(( mmtx_light_stop == 1 )&&( mcu_light_sleep_en == 1 )){
+		mcu_light_stop = 1;
+	}else{
+		mcu_light_stop = 0;
+	}
+	if((gsp_ckg_auto_en_eb == 0) && ( mcu_light_stop == 1) &&
+		(dispc0_eb == 1) && ( dispc1_eb == 1) &&
+		( zipenc_ckg_en_eb == 1)&& ( zipdec_ckg_en_eb == 1)){
+		ap_light_sleep_req = 1;
+	}else{
+		ap_light_sleep_req = 0;
+	}
+
+	printk(KERN_INFO "Note: light sleep cannot read dispc0_busy,dispc1_busy status\n");
+
+	if( ap_light_sleep_req == 0 ){
+		if ( zipdec_ckg_en_eb == 0)
+			printk("*. zipdec_ckg_en_eb = 0 \n");
+		if ( zipenc_ckg_en_eb == 0)
+			printk("*. zipenc_ckg_en_eb = 0 \n");
+		if ( dispc1_eb == 0)
+			printk("*. dispc1_eb = 0, but need to double check dispc1_busy \n");
+		if ( dispc0_eb == 0)
+			printk("*. dispc0_eb = 0, but need to double check dispc0_busy \n");
+		if( gsp_ckg_auto_en_eb == 1 ){
+			printk("*. gsp_ckg_auto_en_eb = 1 \n");
+			printk("*. gsp_auto_gate_en = %d gsp_busy=%d (1,1) will not enter light\n",gsp_auto_gate_en,gsp_busy);
+			printk("*. gsp_ckg_force_en = %d \n",gsp_ckg_force_en);
+		}
+		if(mcu_light_stop == 0 )
+			printk("*. mcu_light_stop = 0 mmtx_light_stop=%d mcu_light_sleep_en=%d\n",mmtx_light_stop,mcu_light_sleep_en);
+
+
+		if((ca7standby == 0) && (__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS)!= 0xfee))
+			printk("ca7standby = 0x%x, if(val == 0xfee)some core not in wfi mode\n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+		//0xfee: standbywfi2 and standbywfi[0] not 1, it correct at this point
+
+
+		if( mcu_light_stop == 0 ){
+			printk("** mcu_light_stop = 0 \n");
+			if( mcu_light_sleep_en == 0 )
+				printk("**. mcu_light_sleep_en = 0 \n");
+			if( mmtx_light_stop == 0 ){
+				printk("**. mmtx_light_stop = 0 \n");
+				if ( mcu_sleep_follow_ca7 == 0)
+					printk("@ mcu_sleep_follow_ca7 = 0 mean each driver must turn off by itself @\n");
+				if( GET_BIT_EB(REG_AON_APB_APB_EB0,30) == 0 )
+					printk("***. ca7_dap_eb = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,4) == 0 )
+					printk("***. usb_eb = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,8) == 0 )
+					printk("***. sdio0_eb = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,9) == 0 )
+					printk("***. sdio1_eb = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,10) == 0 )
+					printk("***. sdio2_eb = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,11) == 0 )
+					printk("***. emmc = 0 \n");
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,17) == 0 )
+					printk("***. nandc_eb = 0 \n");
+				if(ca7_sleep == 0){
+					printk("** ca7_sleep==0\n");
+
+					if(ca7standby == 0)
+						printk("*** ca7standby=0 ca7standby_status=0x%x (?=0xfee)\n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+					if((ca7standby == 0) && (__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS)!= 0xfee))
+						printk("ca7standby = 0x%x, if(val == 0xfee)some core not in wfi mode\n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+					//0xfee: standbywfi2 and standbywfi[0] not 1, it correct at this point
+				}
+				if( GET_BIT_EB(REG_AP_AHB_AHB_EB,5) == 0 )
+					printk("***. dma_eb = 0 \n");
+				if(dma_busy == 1)
+					printk("* dma_busy = 1 \n");
+
+				if( dma_act_light_en == 0 )
+					printk("@* dma_act_light_en = 0 it will not effect light sleep\n *@");
+				if( mcu_sleep_follow_ca7_en == 0)
+					printk("@ mcu_sleep_follow_ca7_en = 0 for_test not effect result@\n");
+			}
+			printk("? ap_wakeup_nirq cannot be read");
+		}
+
+	}
+	if( mcu_core_sleep == 1)
+		printk("ERROR!!force A7 into sleep by software. mcu_core_sleep = 1 it's for debug, it should not be 1\n");
+
+	printk("check end \n");
+
+}
+#define REG_AP_SYS_FORCE_SLEEP_CFG (SPRD_AHB_BASE+0x0C)
+void showAPDeepSleepStatus(void)
+{
+	int ca7standby;
+	int ap_deep_sleep_req;
+	int ap_apb_sleep,apb_peri_frc_slp,apb_peri_sleep;
+	int mcu_deep_stop,mcu_deep_sleep_en,mmtx_deep_stop,mcu_sleep_follow_ca7;
+	int mcu_sleep_follow_ca7_en,ca7_sleep,mcu_core_sleep;
+	int dma_busy;
+	int peri_stop;
+
+	ap_apb_sleep = GET_BIT_NUM(REG_AP_SYS_FORCE_SLEEP_CFG, 0, 1);
+	apb_peri_frc_slp = GET_BIT_NUM(REG_AP_SYS_FORCE_SLEEP_CFG, 1, 1);
+
+	if(	(GET_BIT_EB(SPRD_APBREG_BASE,1) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE, 2) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE,3) == 1) &&
+		(GET_BIT_EB(SPRD_APBREG_BASE,4) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE, 8) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE,9) == 1) &&
+		(GET_BIT_EB(SPRD_APBREG_BASE,10) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE, 11) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE,12) == 1) &&
+		(GET_BIT_EB(SPRD_APBREG_BASE,13) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE, 14) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE,15) == 1) &&
+		(GET_BIT_EB(SPRD_APBREG_BASE,16) == 1) && (GET_BIT_EB(SPRD_APBREG_BASE, 17) == 1) && (GET_BIT_EB(REG_AP_SYS_FORCE_SLEEP_CFG,2) == 1)){
+		apb_peri_sleep = 1;
+	}else{
+		apb_peri_sleep = 0;
+	}
+
+	if(( ap_apb_sleep != 0 ) || ( apb_peri_frc_slp != 0 ) ||( apb_peri_sleep != 0 )){
+		peri_stop = 1;
+	}else{
+		peri_stop = 0;
+		ap_deep_sleep_req = 0;
+		printk("Not in dsleep mode\n");
+	}
+
+	mcu_deep_sleep_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,2,1);
+	dma_busy = GET_BIT_NUM(DMA_REG_DMA_DEBUG_STATUS,20,1);
+
+	ca7standby = __raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS);
+	if ((ca7standby&0xF0E) == 0xF0E)
+		ca7standby = 1;
+	else
+		ca7standby = 0;
+	//ca7standby = 1; //temp need a funciton to get the check WFI mode
+	mcu_sleep_follow_ca7_en = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,4,1);
+	mcu_core_sleep = GET_BIT_NUM_FROM_VAL(gREG_AP_AHB_MCU_PAUSE,0,1);
+	if((mcu_core_sleep == 1) || (ca7standby == 1)/*|| (ap_wakeup_nirq == 1)*/)
+		ca7_sleep = 1;
+	else
+		ca7_sleep = 0;
+
+	if(( mcu_sleep_follow_ca7_en == 1) && ( ca7_sleep == 1 )){
+		mcu_sleep_follow_ca7 = 1;
+	}else{
+		mcu_sleep_follow_ca7 = 0;
+	}
+
+	if(((GET_BIT_EB(REG_AON_APB_APB_EB0,30) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,4) == 1) ||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,8) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,9) == 1) ||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,10) == 1 ||( mcu_sleep_follow_ca7 == 1))) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,11) == 1)||( mcu_sleep_follow_ca7 == 1)) &&
+		((GET_BIT_EB(REG_AP_AHB_AHB_EB,17) == 1 )||( mcu_sleep_follow_ca7 == 1)) &&
+		(((!((GET_BIT_NUM(REG_AP_AHB_AHB_EB,5,1)==1)&&(dma_busy==1)))||( mcu_sleep_follow_ca7 == 1)))/*ch2*/&&
+		(((!((GET_BIT_NUM(REG_AP_AHB_AHB_EB,5,1)==1)&&(dma_busy==1)))||( mcu_sleep_follow_ca7 == 1)))/*ch3*/&&
+		//((((GET_BIT_EB(REG_AHB_EB,5) == 1) &&( dma_busy == 1 )) == 0 )||( mcu_sleep_follow_ca7 == 1)) &&
+		((mcu_sleep_follow_ca7 == 1)||(ca7_sleep == 1))){
+		mmtx_deep_stop = 1;
+	}else{
+		mmtx_deep_stop = 0;
+	}
+
+	if(mmtx_deep_stop == 1 && mcu_deep_sleep_en == 1){
+		mcu_deep_stop = 1;
+	}else{
+		mcu_deep_stop = 0;
+	}
+
+	printk("deepsleep: cannot check ap_wakeup_nirq val\n");
+	if((peri_stop == 1) && (mcu_deep_stop == 1)){
+		ap_deep_sleep_req = 1;
+		printk("in deep sleep mode\n");
+	}else{
+		if(peri_stop == 0){
+			//printk("*ap_apb_sleep,REG_AP_SYS_FORCE_SLEEP_CFG[0] = 0\n");
+			//printk("*apb_peri_frc_slp REG_AP_SYS_FORCE_SLEEP_CFG[1]= 0\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,1,1) == 1)
+				printk("*iis0_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,2,1) == 1)
+				printk("*iis1_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,3,1) == 1)
+				printk("*iis2_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,4,1) == 1)
+				printk("*iis3_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,8,1) == 1)
+				printk("*i2c0_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,9,1) == 1)
+				printk("*i2c1_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,10,1) == 1)
+				printk("*i2c2_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,11,1) == 1)
+				printk("*i2c3_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,12,1) == 1)
+				printk("*i2c4_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,13,1) == 1)
+				printk("#uart0_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,14,1) == 1)
+				printk("#uart1_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,15,1) == 1)
+				printk("*uart2_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,16,1) == 1)
+				printk("*uart3_eb is on\n");
+			if(GET_BIT_NUM(SPRD_APBREG_BASE,17,1) == 1)
+				printk("*uart4_eb is on\n");
+			if(GET_BIT_NUM(REG_AP_SYS_FORCE_SLEEP_CFG,2,1) == 1)
+				printk("*apb_pcri_frc is on\n");
+		}
+		if(mcu_deep_stop == 0){
+			if(mcu_deep_sleep_en == 0)
+				printk("*mcu_deep_sleep_en = 0\n");
+				if( mcu_deep_sleep_en == 0 )
+					printk("* mcu_deep_sleep_en = 0 \n");
+				if( mmtx_deep_stop == 0 ){
+					printk("* mmtx_deep_stop = 0 \n");
+
+					if ( mcu_sleep_follow_ca7 == 0)
+						printk("@@mcu_sleep_follow_ca7 = 0 mean each driver must turn off by itself @\n");
+					if( GET_BIT_EB(REG_AON_APB_APB_EB0,30) == 0 )
+						printk("** ca7_dap_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,4) == 0 )
+						printk("** usb_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,8) == 0 )
+						printk("** sdio0_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,9) == 0 )
+						printk("** sdio1_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,10) == 0 )
+						printk("** sdio2_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,11) == 0 )
+						printk("** sdio3_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,17) == 0 )
+						printk("** nandc_eb = 0 \n");
+					if( GET_BIT_EB(REG_AP_AHB_AHB_EB,5) == 0 )
+						printk("** dma_eb = 0 \n");
+					if(dma_busy == 1)
+						printk("** dma_busy = 1 \n");
+					if(ca7_sleep == 0){
+						printk("** ca7_sleep==0\n");
+
+						if(ca7standby == 0)
+							printk("*** ca7standby=0 ca7standby_status=0x%x (?=0xfee)\n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+						if((ca7standby == 0) && (__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS)!= 0xfee))
+							printk("ca7standby = 0x%x, if(val == 0xfee)some core not in wfi mode\n",__raw_readl((void *)REG_AP_AHB_CA7_STANDBY_STATUS));
+						//0xfee: standbywfi2 and standbywfi[0] not 1, it correct at this point
+					}
+					if( mcu_sleep_follow_ca7_en == 0)
+						printk("@ mcu_sleep_follow_ca7_en = 0 for_test not effect result@\n");
+
+				}
+				printk("# ap_wakeup_nirq cannot be read");
+		}
+	}
+
+	if( mcu_core_sleep == 1)
+		printk("ERROR!!force A7 into sleep by software. mcu_core_sleep = 1 it's for debug, it should not be 1\n");
+	printk("check end \n");
+}
+
+#endif
+
+

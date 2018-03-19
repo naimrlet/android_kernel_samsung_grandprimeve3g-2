@@ -68,15 +68,12 @@ config PROC_PAGE_MONITOR
 	  /proc/kpagecount, and /proc/kpageflags. Disabling these
           interfaces will reduce the size of the kernel by approximately 4kb.
 
-config PROC_STLOG
-	bool "Enable Storage log"
-	depends on PROC_FS
-	default y
+source "fs/proc/sprd_debug/Kconfig"
+
+
 
 config PROC_AVC
 	bool "support (/proc/avc_msg)"
 	default n
 	help
 	  support logging audit avc message
-
-source "fs/proc/sprd_debug/Kconfig"

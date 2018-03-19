@@ -28,6 +28,24 @@
 #include "lcd_dummy.h"
 #include "dispc.h"
 
+/*add the others h file to support the more GPIO test
+ * mingming apply the macros */
+#if defined(CONFIG_ARCH_SCX35LT8)
+#include "sp9838_pinmap_gpio.h"
+#elif defined(CONFIG_ARCH_SCX20)
+#include "sp7720_pinmap_gpio.h"
+#elif defined(CONFIG_ARCH_SCX30G)
+#include "sp7731_pinmap_gpio.h"
+#elif defined(CONFIG_ARCH_SCX35)
+#include "sp9830_pinmap_gpio.h"
+#else
+#define NO_GPIOTEST_FUNC
+#endif
+
+#ifdef CONFIG_ADIE_SC2713S
+#define BIT_LDO_SDIO_PD		BIT_LDO_SD_PD
+#endif
+
 #define pr_debug printk
 
 #ifdef CONFIG_FB_SCX15
@@ -50,7 +68,7 @@
 
 #define DISPC_EMC_EN_PARENT ("clk_aon_apb")
 
-#ifdef CONFIG_FB_SCX30G
+#if ((defined CONFIG_FB_SCX30G)||(defined CONFIG_FB_SCX35L))
 #define DISPC_PLL_CLK				("clk_dispc0")
 #define DISPC_DBI_CLK				("clk_dispc0_dbi")
 #define DISPC_DPI_CLK				("clk_dispc0_dpi")
@@ -79,8 +97,8 @@ struct autotst_dispc_context {
 	struct clk 		*clk_dispc_dpi;
 	struct clk 		*clk_dispc_dbi;
 	struct clk 		*clk_dispc_emc;
-	uint32_t		fb_addr_v;
-	uint32_t		fb_addr_p;
+	unsigned long		fb_addr_v;
+	unsigned long		fb_addr_p;
 	uint32_t		fb_size;
 	uint32_t		dispc_if;
 	bool			is_inited;
@@ -91,6 +109,8 @@ static struct panel_spec *autotst_panel = NULL;
 
 static uint32_t g_patten_table[PATTEN_COLOR_COUNT] =
 	{0xffff0000, 0xff00ff00, 0xff0000ff, 0xffffff00, 0xff00ffff, 0xffff00ff, 0xffffffff};
+
+unsigned long sprd_adi_base;
 
 #if 0 /*designed for RGB, not used for SHARKL*/
 int autotst_dispc_pin_ctrl(int type)
@@ -128,6 +148,43 @@ int autotst_dispc_pin_ctrl(int type)
 	return 0;
 }
 #endif
+
+int autotst_pin_ctrl(int type, int gpio_num, int gpio_pull)
+{
+	static int pin_table;
+	int i;
+	u32 func;
+	u32 mask;
+#ifndef NO_GPIOTEST_FUNC
+	u32 regs = REG_PIN_U0TXD;
+
+	mask = BIT_LDO_SDIO_PD | BIT_LDO_SIM0_PD | BIT_LDO_SIM1_PD | BIT_LDO_SIM2_PD | BIT_LDO_CAMA_PD |\
+        BIT_LDO_CAMD_PD | BIT_LDO_CAMIO_PD | BIT_LDO_CAMMOT_PD;
+
+	ANA_REG_BIC(ANA_REG_GLB_LDO_PD_CTRL, mask);
+
+	for (i = 0; i < ARRAY_SIZE(pinmap_gpio); ++i) {
+		if( gpio_num == pinmap_gpio[i].num){
+			regs = pinmap_gpio[i].reg;
+			pin_table = pinmap_get(regs);
+			break;
+		}
+	}
+
+	if (type == DISPC_PIN_FUNC3){
+		func = BITS_PIN_DS(1) | BITS_PIN_AF(DISPC_PIN_FUNC3) | BIT_PIN_SLP_AP | gpio_pull;
+	}else {
+		pr_err("The function hasn't been implemented yet\n");
+	}
+
+	if (type == DISPC_PIN_FUNC0){
+		pinmap_set(regs, pin_table);
+	}else{
+		pinmap_set(regs, func);
+	}
+#endif
+	return 0;
+}
 
 /**********************************************/
 /*                      MCU PANEL CONFIG                                */
@@ -969,7 +1026,7 @@ static void draw_patten(uint32_t* buffer, int buffer_w, int buffer_h, int grid_w
 static int dispc_fb_prepare(struct panel_spec *panel)
 {
 	uint32_t fb_size = 0;// should be ABGR888
-	uint32_t *p_pixel = NULL;
+	unsigned long *p_pixel = NULL;
 
 	fb_size = panel->width * panel->height * 4;// should be ABGR888
 

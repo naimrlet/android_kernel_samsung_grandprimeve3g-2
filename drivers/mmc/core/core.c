@@ -51,6 +51,7 @@
 #define ST_LOG(fmt,...)
 #endif
 
+
 /* If the device is not responding */
 #define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
 
@@ -2460,7 +2461,6 @@ void mmc_rescan(struct work_struct *work)
 	}
 
 	ST_LOG("<%s> %s insertion detected",__func__,host->class_dev.kobj.name);
-
 	mmc_claim_host(host);
 	for (i = 0; i < ARRAY_SIZE(freqs); i++) {
 		if (!mmc_rescan_try_freq(host, max(freqs[i], host->f_min))) {

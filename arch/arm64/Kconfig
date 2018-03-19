@@ -179,6 +179,15 @@ config ARCH_SCX35LT8
 	help
 	Support for 64 bits Spreadtrum SharkLT8 based systems.
 
+config ARCH_WHALE
+	select ARCH_SCX35L
+	select ARCH_SCX35
+	select ARM_HAS_SG_CHAIN
+	select NEED_MACH_GPIO_H
+	bool "Spreadtrum WHALE SOC (ARMv8 platform)"
+	help
+	  Support for 64 bits Spreadtrum WHALE based systems.
+
 endchoice
 
 config ARCH_SCX35L
@@ -212,6 +221,11 @@ config ADIE_SC2723
         default n
         help
           Say Y here to support for Spreadtrum a-die sc2723 chip.
+config ADIE_SC2731
+        bool "Spredtrum A-die SC2731 Chip Support"
+        default n
+        help
+          Say Y here to support for Spreadtrum a-die sc2731 chip.
 endmenu
 
 menu "Spreadtrum Board Type"
@@ -263,6 +277,153 @@ config MACH_SP9838AEA_5MOD
          help
          SPX35LT8 5mod board based on sharklt8 serial.
 
+config MACH_JIAOTU_TC
+         bool "jiaotu techain Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 5mod board based on sharklt8 serial.
+
+config MACH_JIAOTU_TC_VOLTE
+         bool "jiaotu techain Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 5mod board based on sharklt8 serial.
+
+config MACH_SP9838AEA_POWER_DEBUG
+         bool "sp9638aea power comsumption debug Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 power comsumption debug board based on sharklt8 serial.
+
+config MACH_SP9838AEA_8CORE_LIGHT_SLEEP
+         bool "sp9638aea 8core light sleep Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 8core light sleep board based on sharklt8 serial.
+
+config MACH_SP9838AEA_FHD
+         bool "sp9638aea fhd Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 fhd board based on sharklt8 serial.
+
+config MACH_SP9838AEA_AUTO_SLT
+         bool "sp9638aea auto slt Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 openphone auto slt board based on sharklt8 serial.
+
+config MACH_SP9838AEA_2342A
+         bool "sp9638aea 2342a Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 2342a board based on sharklt8 serial.
+
+config MACH_SP9838AEA_VOLTE
+         bool "sp9638aea volte Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 volte board based on sharklt8 serial.
+
+config MACH_SP9838AEA_2342A_FHD
+         bool "sp9638aea 2342a fhd Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 2342a fhd board based on sharklt8 serial.
+
+config MACH_SP9838AEA_2723TS
+         bool "sp9638aea 2723ts Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 2723ts board based on sharklt8 serial.
+
+config MACH_SP9838AEA_NO_WCN
+         bool "sp9638aea no wcn Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 no wcn board based on sharklt8 serial.
+
+config MACH_SP9838AEA_SR3593
+         bool "sp9638aea sr3593 Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         This function is config SPX35LT8 sr3593 board based on sharklt8 serial.
+         Detail information is Support 9838AEA-3 Board, using sr3593, other part is
+         same with 9838AEA-2 Board.
+
+config MACH_SP9838AEA_3_VOLTE
+         bool "sp9638aea -3 volte Board based on SR3593"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         This function is config SPX35LT8 sr3593 board based on sharklt8 serial.
+         Detail information is that support 9838AEA-3 Board, using sr3593, other part is
+         same with 9838AEA-2 Board. And the different on software is support volte.
+
 config MACH_SS_SHARKLT8
          bool "SS SHARKLT8 Board"
          depends on ARCH_SCX35
@@ -273,6 +434,17 @@ config MACH_SS_SHARKLT8
          select CLKSRC_OF if OF
          help
          SPX35LT8 5mod board based on sharklt8 serial.
+
+config MACH_SS_SHARKLT8LIGHTSLEEP
+         bool "SS SHARKLT8 LIGHTSLEEP Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_SCX35LT8
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LT8 lightsleep board based on sharklt8 serial.
 
 config MACH_SP9838AEA_FPGA
          bool "sp9638aea fpga Board"
@@ -285,6 +457,27 @@ config MACH_SP9838AEA_FPGA
          help
          SPX35LT8 fpga board based on sharklt8 serial.
 
+config MACH_SPWHALE_5MODEB_VOLTE
+         bool "spwhale 5MODEA Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_WHALE
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LWHALE 5MODEB_VOLTE board based on whale serial.
+
+config MACH_SPWHALE_5MODEB
+         bool "spwhale 5MODEB Board"
+         depends on ARCH_SCX35
+         depends on ARCH_SCX35L
+         depends on ARCH_WHALE
+         default n
+         select COMMON_CLK if OF
+         select CLKSRC_OF if OF
+         help
+         SPX35LWHALE 5MODEB board based on whale serial.
 
 endmenu
 

@@ -1,6 +1,6 @@
 / {
 
-	regulators {
+regulators:regulators {
 		compatible = "sprd,sc2723-regulator";
 		#address-cells = <1>;
 		#size-cells = <1>;
@@ -31,7 +31,7 @@
 			regulator-min-microvolt = <600000>;
 			regulator-max-microvolt = <3125000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;/*kernel hide_offset =  hide-offset - 1000*/
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 			dcdc;
 		};
@@ -45,7 +45,7 @@
 			regulator-min-microvolt = <600000>;
 			regulator-max-microvolt = <3125000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			/* default-on; */
 			dcdc;
 		};
@@ -59,7 +59,7 @@
 			regulator-min-microvolt = <600000>;
 			regulator-max-microvolt = <3125000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 			dcdc;
 		};
@@ -73,7 +73,7 @@
 			regulator-min-microvolt = <600000>;
 			regulator-max-microvolt = <3125000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 			dcdc;
 		};
@@ -86,8 +86,9 @@
 			regulator-min-microvolt = <3125000>;
 			regulator-max-microvolt = <3400000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			dcdc;
+			status = "disabled";
 		};
 
 		vddcon: vddcon {
@@ -99,20 +100,20 @@
 			regulator-min-microvolt = <600000>;
 			regulator-max-microvolt = <3125000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			dcdc;
 		};
 
 		vddrf0: vddrf0 {
 			regulator-name = "vddrf0";
-			reg = <0x40038810 0x100 0x40038818 0xff00 0x400388c0 0x800>; /* pd reg && vol trm reg && otp_sel_reg */
+			reg = <0x40038810 0x100 0x40038818 0x7f00 0x400388c0 0x800>; /* pd reg && vol trm reg && otp_sel_reg */
 			regulator-cal-channel = <0x40038844 0x4 0x15>;
 			regulator-default-microvolt = <1800000>;
 			regulator-step-microvolt = <6250>;
 			regulator-min-microvolt = <1150000>;
-			regulator-max-microvolt = <2750000>;
+			regulator-max-microvolt = <1943000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -125,7 +126,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -138,7 +139,7 @@
 			regulator-min-microvolt = <1150000>;
 			regulator-max-microvolt = <1950000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -151,7 +152,7 @@
 			regulator-min-microvolt = <1150000>;
 			regulator-max-microvolt = <1950000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -164,7 +165,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -177,7 +178,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			/* default-on; */
 		};
 
@@ -190,7 +191,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -203,7 +204,7 @@
 			regulator-min-microvolt = <1150000>;
 			regulator-max-microvolt = <1950000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 			default-on;
 		};
 
@@ -216,7 +217,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddsdcore: vddsdcore {
@@ -228,7 +229,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddsdio: vddsdio {
@@ -240,7 +241,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddsim0: vddsim0 {
@@ -252,7 +253,8 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
+			status = "disabled";
 		};
 
 		vddsim1: vddsim1 {
@@ -264,7 +266,8 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
+			status = "disabled";
 		};
 
 		vddsim2: vddsim2 {
@@ -276,7 +279,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddcama: vddcama {
@@ -288,7 +291,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddcamd: vddcamd {
@@ -300,7 +303,7 @@
 			regulator-min-microvolt = <1150000>;
 			regulator-max-microvolt = <1950000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddcamio: vddcamio {
@@ -312,7 +315,7 @@
 			regulator-min-microvolt = <1150000>;
 			regulator-max-microvolt = <1950000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddcammot: vddcammot {
@@ -324,7 +327,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddusb: vddusb {
@@ -336,7 +339,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddkpled: vddkpled {
@@ -348,7 +351,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 
 		vddvibr: vddvibr {
@@ -360,7 +363,7 @@
 			regulator-min-microvolt = <1200000>;
 			regulator-max-microvolt = <3760000>;
 			regulator-microvolt-offset = <0>;
-			hide-offset = <1000>;
+			hide-offset = <1000>; /*kernel hide_offset =  hide-offset - 1000*/
 		};
 	};
 

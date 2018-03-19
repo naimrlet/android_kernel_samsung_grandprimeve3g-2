@@ -75,7 +75,7 @@ void __weak panic_smp_self_stop(void)
  *
  *	This function never returns.
  */
-#ifdef CONFIG_SEC_DEBUG
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 void sec_debug_panic_message(int en);
 #endif
 void panic(const char *fmt, ...)
@@ -112,11 +112,11 @@ void panic(const char *fmt, ...)
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
-#ifdef CONFIG_SEC_DEBUG
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 	sec_debug_panic_message(0);
 #endif
 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
-#ifdef CONFIG_SEC_DEBUG
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 	sec_debug_panic_message(1);
 #endif
 	print_modules();

@@ -488,11 +488,11 @@ sprd_rotation
 	usb: usb@20200000{
 		compatible  = "sprd,usb";
 		interrupts = <0 55 0x0>;
-		ngpios = <1>;
-		gpios = <&a_eic_gpio 0 0>;
+		vbus-gpios = <&a_eic_gpio 0 0>;
 		reg = <0 0x20200000 0 0x1000>;
 		tune_value = <0x44073e33>;
 		usb-supply = <&vddusb>;
+		phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
@@ -871,14 +871,26 @@ sprd_rotation
 	sprd_sensor {
 		compatible  = "sprd,sprd_sensor";
 		reg = <0 0x60c00000 0 0x100000>;
-		gpios = <&d_gpio_gpio 45 0    /*main reset*/
-			     &d_gpio_gpio 47 0    /*main powerdown*/
-			     &d_gpio_gpio 44 0    /*sub reset*/
-			     &d_gpio_gpio 46 0
-			     &d_gpio_gpio 0 0     /*main core voltage*/
-		         &d_gpio_gpio 0 0
-		         &d_gpio_gpio 0 0
-		         &d_gpio_gpio 0 0>;   /*sub powerdown*/
+		gpios = <&d_gpio_gpio 45 0    /* 0: main reset*/
+			     &d_gpio_gpio 47 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 44 0    /* 2:sub reset*/
+			     &d_gpio_gpio 46 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 0 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 0 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 		clock-names ="clk_mm_i","clk_sensor","clk_ccir","clk_dcam","clk_dcam_mipi";
 		clocks = <&clk_mm>,<&clk_sensor>,<&clk_ccir>,<&clk_dcam>,<&clk_dcam_mipi>;
 	};
@@ -1093,7 +1105,9 @@ sprd_rotation
 		#size-cells = <1>;
 		/* segnr=2 */
 		ranges = <0x1800000 0 0x8ae00000 0x03100000>,
-				<0x20000 0 0x89620000 0x00320000>;
+			 <0x20000 0 0x89620000 0x00320000>,
+                         <0x20d0000 0x8b6d0000 0x40000>,
+                         <0x2110000 0x8b710000 0x60000>;
 		modem@0x1800000 {
 			cproc,name = "modem";
 			reg = <0x1800000 0x31000000>; /* <modem_addr size> */
@@ -1105,6 +1119,14 @@ sprd_rotation
 		dsp@0x300000 {
 			cproc,name = "ldsp";
 			reg = <0x300000 0x1c0000>; /* <dsp_addr size>*/
+		};
+		fixnv@0x20d0000 {
+			cproc,name = "fixnv";
+			reg = <0x20d0000 0x40000>;
+		};
+		runnv@0x2110000 {
+			cproc,name = "runnv";
+			reg = <0x2110000 0x60000>;
 		};
 	};
 	
@@ -1146,21 +1168,21 @@ sprd_rotation
 			reg = <1>;                      /* SYSTEM */
 			reg-names = "ion_heap_system";
 			sprd,ion-heap-type = <0>;       /* SYSTEM */
-			sprd,ion-heap-mem = <0x0 0x0>;
+			sprd,ion-heap-mem = <0x0 0x0 0x0 0x0>;
 		};
 
 		sprd,ion-heap@2 {
 			reg = <2>;                      /* MM */
 			reg-names = "ion_heap_carveout_mm";
 			sprd,ion-heap-type = <0>;       /* carveout mm */
-			sprd,ion-heap-mem = <0x9864F000 0x7100000>;
+			sprd,ion-heap-mem = <0x0 0x9864F000 0x0 0x7100000>;
 		};
 
 		sprd,ion-heap@3 {
 			reg = <3>;                      /* OVERLAY */
 			reg-names = "ion_heap_carveout_overlay";
 			sprd,ion-heap-type = <2>;       /* CARVEOUT */
-			sprd,ion-heap-mem = <0x9FC00000 0x400000>;      /* 480*854*4*2, 1M alignment */
+			sprd,ion-heap-mem = <0x0 0x9FC00000 0x0 0x400000>;      /* 480*854*4*2, 1M alignment */
 		};
 	};
 
@@ -1192,9 +1214,8 @@ sprd_rotation
 		compatible = "sprd,sprd_vsp";
 		reg = <0 0x60900000 0 0xc000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-		clocks = <&clk_mm>, <&clk_vsp>, <&clk_307m2>, <&clk_256m>, <&clk_128m>, <&clk_96m>;
-		clock-parent-info = <2 4>;
+		clock-names = "clk_mm_i", "clk_vsp";
+		clocks = <&clk_mm>, <&clk_vsp>;
 		version = <6>;
 	};
         

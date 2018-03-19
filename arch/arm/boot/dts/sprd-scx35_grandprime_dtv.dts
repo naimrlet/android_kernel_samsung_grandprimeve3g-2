@@ -55,7 +55,12 @@
 
 	rfkill {
 		compatible = "broadcom,rfkill";
-		gpios = <&d_gpio_gpio 231 0>;
+		gpios = <&d_gpio_gpio 47 0>;   /* power */
+	};
+	bluesleep {
+		compatible = "broadcom,bluesleep";
+		bt-wake-gpio = <&d_gpio_gpio 45 0>; /*GPIO_AP2BT_WAKE*/
+		host-wake-gpio = <&d_gpio_gpio 46 0>; /*GPIO_BT2AP_WAKE*/
 	};
 
 
@@ -119,10 +124,11 @@ i2c_gpio7: i2c_gpio@2 {
 		   };
 
 		   gps {
-			   compatible = "lsi,s5n6420";
+			   compatible = "broadcom,bcm47520";
 			   gps-pwr-en = <&d_gpio_gpio 168 0>;	/*GPS_PWON*/
-			   gps-reset = <&d_gpio_gpio 235 0>;	/*GPS_RESET*/
 			   gps-regulator = "vddsdio";
+			   tcxo-regulator = "vddwifipa";         /* tcxo power */
+			   tcxo-regulator-volt = <3300000>;    /* 3.3V */
 		   };
 
 		   sec_thermistor {
@@ -259,8 +265,8 @@ sprd_fgu: sprd_fgu{
 		   sprd_pwm_bl {
 			compatible = "sprd,sprd_pwm_bl";
 			reg = <0x40260000 0xf>;
-			   brightness_max = <255>;
-			   brightness_min = <0>;
+			   brightness_max = <170>;
+			   brightness_min = <12>;
 			   pwm_index = <2>;
 			   gpio_ctrl_pin = <214>;
 			   gpio_active_level = <1>;
@@ -331,8 +337,8 @@ sprd_fgu: sprd_fgu{
 		stm,axis_map_x = <0>;
 		stm,axis_map_y = <1>;
 		stm,axis_map_z = <2>;
-		stm,negate_x = <0>;
-		stm,negate_y = <0>;
+		stm,negate_x = <1>;
+		stm,negate_y = <1>;
 		stm,negate_z = <1>;
 		stm,poll_interval = <100>;
 		stm,min_interval = <2>;
@@ -375,14 +381,26 @@ sprd_fgu: sprd_fgu{
 };
 
 &l_sprd_sensor {
-	gpios = <&d_gpio_gpio 186 0           /*main reset*/
-		&d_gpio_gpio 188 0    /*main power down*/
-		&d_gpio_gpio 238 0    /*sub reset*/
-		&d_gpio_gpio 187 0  /*sub power down*/
-		&d_gpio_gpio 162 0    /*none*/
-		&d_gpio_gpio 0 0    /*none*/
-		&d_gpio_gpio 0 0    /*none*/
-		&d_gpio_gpio 0 0>;  /*none*/
+	gpios = <&d_gpio_gpio 186 0    /* 0: main reset*/
+			     &d_gpio_gpio 0 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 187 0    /* 2:sub reset*/
+			     &d_gpio_gpio 0 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 162 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 162 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 };
 
 &l_ion {
@@ -448,21 +466,21 @@ sprd_fgu: sprd_fgu{
 		nbuttons = <3>;
 		headset_buttons_media {
 			adc_min = <0>;
-			adc_max = <190>;
+			adc_max = <570>;
 			code = <226>;
 			type = <0>;
 		};
 
 		headset_buttons_up {
-			adc_min = <191>;
-			adc_max = <347>;
+			adc_min = <571>;
+			adc_max = <1041>;
 			code = <115>;
 			type = <0>;
 		};
 
 		headset_buttons_down {
-			adc_min = <348>;
-			adc_max =<760>;
+			adc_min = <1042>;
+			adc_max =<2280>;
 			code = <114>;
 			type = <0>;
 		};

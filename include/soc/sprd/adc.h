@@ -79,6 +79,7 @@ struct adc_sample_data {
 
 void sci_adc_init(void);
 void sci_adc_dump_register(void);
+int adc2vbat(int adc_res, int scale);
 
 /*
 * Use this interface to get adc values and you can config adc sample behavior.
@@ -120,7 +121,7 @@ static inline int sci_adc_get_value(unsigned int channel, int scale)
 	if (0 != sci_adc_get_values(&adc)) {
 		printk("sci_adc_get_value, return error\n");
 		sci_adc_dump_register();
-		BUG();
+		return 0;
 	}
 
 	return result[0];

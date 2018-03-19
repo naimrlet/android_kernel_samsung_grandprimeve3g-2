@@ -133,6 +133,7 @@ static int sprd_eic_keys_setup_key(struct sprd_eic_keys_button *button)
         const char *desc = button->desc ? button->desc : "sprd_eic_keys";
         unsigned long irqflags = 0;
         int error = -1;
+        int irq_num;
 
         ENTER;
         if (gpio_is_valid(button->gpio)) {
@@ -149,12 +150,13 @@ static int sprd_eic_keys_setup_key(struct sprd_eic_keys_button *button)
                                 PRINT_INFO("Failed to set debounce for GPIO %d\n", button->gpio);
                 }
 
-                button->irq = gpio_to_irq(button->gpio);
-                if (button->irq < 0) {
-                        error = button->irq;
+                irq_num = gpio_to_irq(button->gpio);
+                if (irq_num < 0) {
+                        error = irq_num;
                         PRINT_ERR("Unable to get irq number for GPIO %d, error %d\n", button->gpio, error);
                         goto fail;
                 }
+                button->irq = irq_num;
         } else {
                 PRINT_ERR("No GPIO specified\n");
                 return -EINVAL;

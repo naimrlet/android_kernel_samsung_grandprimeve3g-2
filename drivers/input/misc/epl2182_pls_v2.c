@@ -140,7 +140,7 @@ static int ps_data_changed;
 static int ls_data_changed;
 static struct i2c_client *this_client = NULL;
 
-//static struct wake_lock g_ps_wlock;
+static struct wake_lock g_ps_wlock;
 struct elan_epl_data *epl_data;
 static epl_raw_data	gRawData;
 static int dual_count;
@@ -149,7 +149,7 @@ static const char ElanPsensorName[] = "proximity";
 static const char ElanALsensorName[] = "lightsensor-level";
 
 static int psensor_mode_suspend = 0;
-
+static u32 lux_rate = 10000;
 #define LOG_TAG				        "[EPL2182] "
 #define LOG_FUN(f)			        printk(KERN_INFO LOG_TAG"%s\n", __FUNCTION__)
 #define LOG_INFO(fmt, args...)		printk(KERN_INFO LOG_TAG fmt, ##args)
@@ -291,12 +291,14 @@ static int elan_sensor_psensor_enable(struct elan_epl_data *epld)
 
         if(gRawData.ps_state!= gRawData.ps_int_state)
         {
-            elan_sensor_I2C_Write(client,REG_9,W_SINGLE_BYTE,0x02,EPL_INT_FRAME_ENABLE);
+			elan_sensor_I2C_Write(client, REG_9, W_SINGLE_BYTE,0x02, EPL_INT_FRAME_ENABLE);
+			LOG_INFO("Frame enbel\n");
         }
         else
         {
-            elan_sensor_I2C_Write(client,REG_9,W_SINGLE_BYTE,0x02,EPL_INT_ACTIVE_LOW);
-        }
+            elan_sensor_I2C_Write(client, REG_9, W_SINGLE_BYTE, 0x02, EPL_INT_ACTIVE_LOW);
+			LOG_INFO("active low\n");
+		}
 
     }
     else
@@ -417,7 +419,9 @@ static void elan_epl_als_rawdata(void)
     elan_sensor_I2C_Read(client);
     gRawData.als_ch1_raw = (gRawData.raw_bytes[1]<<8) | gRawData.raw_bytes[0];
 
-    lux =  (gRawData.als_ch1_raw* LUX_PER_COUNT) / 1000 * 15 / 100;
+    lux =  (gRawData.als_ch1_raw* LUX_PER_COUNT) / 1000;/* X0.44*/
+    if (lux_rate)
+	lux = lux * lux_rate /10000;
     if(lux>20000)
         lux=20000;
 
@@ -466,10 +470,19 @@ static void epl_sensor_irq_do_work(struct work_struct *work)
     struct elan_epl_data *epld = epl_data;
     struct i2c_client *client = epld->client;
     int mode = 0;
+    int i = 0;
     LOG_FUN();
 
-    elan_sensor_I2C_Write(epld->client,REG_7,W_SINGLE_BYTE,0x02,EPL_DATA_LOCK);
-
+	mode = elan_sensor_I2C_Write(epld->client, REG_7, W_SINGLE_BYTE, 0x02, EPL_DATA_LOCK);
+    i = 0;
+	while(mode < 0 && i < 5)
+	{
+		wake_lock_timeout(&g_ps_wlock, msecs_to_jiffies(1000));	/*try*/
+		msleep(100);
+		i++;
+		mode = elan_sensor_I2C_Write(epld->client,REG_7, W_SINGLE_BYTE, 0x02, EPL_DATA_LOCK);
+		LOG_INFO("Repeat=%d, ret=%d\n", i, mode);
+	}
     elan_sensor_I2C_Write(client,REG_13,R_SINGLE_BYTE,0x01,0);
     elan_sensor_I2C_Read(client);
     mode = gRawData.raw_bytes[0]&(3<<4);
@@ -493,9 +506,9 @@ static irqreturn_t elan_sensor_irq_handler(int irqNo, void *handle)
 {
     struct elan_epl_data *epld = (struct elan_epl_data*)handle;
 
+	wake_lock_timeout(&g_ps_wlock, msecs_to_jiffies(1000));	/*try*/
     disable_irq_nosync(epld->irq);
     queue_work(epld->epl_wq, &epl_sensor_irq_work);
-
     return IRQ_HANDLED;
 }
 #endif
@@ -1292,6 +1305,16 @@ static int elan_sensor_probe(struct i2c_client *client,const struct i2c_device_i
 			kfree(pdata);
 			goto exit_irq_gpio_read_fail;
 		}
+		/*lux_rate*/
+		err = of_property_read_u32_array(np,"lux_rate", &lux_rate, 1);
+		if (err) {
+			err = of_property_read_u32_array(np,"luxcorrection", &lux_rate, 1);
+			if (err)
+				lux_rate = 10000;
+		}
+		if (0 == lux_rate)
+			lux_rate = 10000;
+		LOG_INFO("lux_rate=%d\n", lux_rate);
 		client->dev.platform_data = pdata;
 	}
 #endif
@@ -1367,7 +1390,7 @@ static int elan_sensor_probe(struct i2c_client *client,const struct i2c_device_i
         LOG_ERR("fail to initial sensor (%d)\n", err);
         goto err_sensor_setup;
     }
-
+	wake_lock_init(&g_ps_wlock, WAKE_LOCK_SUSPEND, "ps_wakelock"); /*need before irq enable*/
 #if PS_INTERRUPT_MODE
     err = setup_interrupt(epld);
     if (err < 0)
@@ -1385,7 +1408,6 @@ static int elan_sensor_probe(struct i2c_client *client,const struct i2c_device_i
 #endif
 
 #if 0
-    wake_lock_init(&g_ps_wlock, WAKE_LOCK_SUSPEND, "ps_wakelock");
 
     sensor_dev = platform_device_register_simple("elan_alsps", -1, NULL, 0);
     if (IS_ERR(sensor_dev))
@@ -1401,7 +1423,6 @@ static int elan_sensor_probe(struct i2c_client *client,const struct i2c_device_i
         goto err_fail;
     }
 #endif
-
     LOG_INFO("sensor probe success.\n");
 
     return err;
@@ -1416,6 +1437,7 @@ err_psensor_setup:
 err_sensor_setup:
     destroy_workqueue(epld->epl_wq);
     misc_deregister(&elan_ps_device);
+	wake_lock_destroy(&g_ps_wlock);
 //    misc_deregister(&elan_als_device);    //ices add
 err_create_singlethread_workqueue:
 exit_read_chipid_failed:
@@ -1434,6 +1456,7 @@ static int elan_sensor_remove(struct i2c_client *client)
 {
     struct elan_epl_data *epld = i2c_get_clientdata(client);
 
+	wake_lock_destroy(&g_ps_wlock);
     dev_dbg(&client->dev, "%s: enter.\n", __func__);
 
     unregister_early_suspend(&epld->early_suspend);

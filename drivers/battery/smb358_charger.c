@@ -19,10 +19,14 @@
 #include <linux/of_gpio.h>
 
 #ifndef SLOW_CHARGING_CURRENT_STANDARD
+
+#if defined(CONFIG_MACH_HEAT_AIO)
 #define SLOW_CHARGING_CURRENT_STANDARD 400
+#else
+#define SLOW_CHARGING_CURRENT_STANDARD 1000
 #endif
 
-int otg_enable_flag;
+#endif
 
 static int smb358_i2c_write(struct i2c_client *client,
 				int reg, u8 *buf)
@@ -296,7 +300,6 @@ static int smb358_get_charging_health(struct i2c_client *client)
 	u8 data_c = 0;
 	u8 data_d = 0;
 	u8 data_e = 0;
-	u8 data_f = 0;
 
 	smb358_i2c_read(client, SMB358_STATUS_A, &data_a);
 	dev_dbg(&client->dev,
@@ -316,9 +319,6 @@ static int smb358_get_charging_health(struct i2c_client *client)
 	smb358_i2c_read(client, SMB358_INTERRUPT_STATUS_E, &data_e);
 	dev_dbg(&client->dev,
 		"%s : charger interrupt status E(0x%02x)\n", __func__, data_e);
-	smb358_i2c_read(client, SMB358_INTERRUPT_STATUS_F, &data_f);
-	dev_dbg(&client->dev,
-		"%s : charger interrupt status F(0x%02x)\n", __func__, data_f);
 
 	if (data_e & 0x01)
 		health = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
@@ -385,10 +385,8 @@ static u8 smb358_get_input_current_limit_data(
 		data = 0x05;
 	else if (input_current <= 1800)
 		data = 0x06;
-	else if (input_current <= 2000)
-		data = 0x07; /* set input current to 2000mA */
 	else
-		data = 0x08;	/* no input current limit */
+		data = 0x07;	/* set input current to 2000mA */
 
 	return (data << 4);
 }
@@ -454,6 +452,8 @@ static void smb358_enter_suspend(struct i2c_client *client)
 	smb358_set_command(client, SMB358_COMMAND_A, data);
 }
 
+#if 0
+#if (defined(CONFIG_MACH_MILLET3G_EUR) || defined(CONFIG_MACH_MATISSE3G_OPEN) || defined(CONFIG_MACH_BERLUTI3G_EUR))
 static void smb358_aicl_calibrate(struct i2c_client *client)
 {
 
@@ -480,10 +480,10 @@ static void smb358_aicl_calibrate(struct i2c_client *client)
 			data = data | 0x30;
 			smb358_set_command(client,SMB358_INPUT_CURRENTLIMIT, data);
 		}else{
-			/* set 2000mA */
+			/* set 1800mA */
 			ret = smb358_i2c_read(client, SMB358_INPUT_CURRENTLIMIT, &data);
 			data = data & 0x0F;
-			data = data | 0x70;
+			data = data | 0x60;
 			smb358_set_command(client,SMB358_INPUT_CURRENTLIMIT, data);
 		}
 
@@ -491,7 +491,7 @@ static void smb358_aicl_calibrate(struct i2c_client *client)
 		current_final = (data & 0x0F);
 
 		dev_err(&charger->client->dev,
-			"%s: AICL calibration success! input current (%d) -> (%d) ! \n",
+			"%s: AICL calibration success! input current (%dmA) -> (%dmA) ! \n",
 			__func__,current_initial,current_final);
 		return;
 
@@ -515,10 +515,10 @@ static void smb358_aicl_calibrate(struct i2c_client *client)
 					data = data | 0x30;
 					smb358_set_command(client,SMB358_INPUT_CURRENTLIMIT, data);
 				}else{
-				/* set 2000mA */
+				/* set 1800mA */
 					ret = smb358_i2c_read(client, SMB358_INPUT_CURRENTLIMIT, &data);
 					data = data & 0x0F;
-					data = data | 0x70;
+					data = data | 0x60;
 					smb358_set_command(client,SMB358_INPUT_CURRENTLIMIT, data);
 				}
 
@@ -526,7 +526,7 @@ static void smb358_aicl_calibrate(struct i2c_client *client)
 				current_final = (data & 0x0F);
 
 				dev_err(&charger->client->dev,
-					"%s: AICL calibration success! input current (%d) -> (%d) ! \n",
+					"%s: AICL calibration success! input current (%dmA) -> (%dmA) ! \n",
 					__func__,current_initial,current_final);
 				return;
 			}else{
@@ -541,6 +541,8 @@ static void smb358_aicl_calibrate(struct i2c_client *client)
 	return;
 
 }
+#endif
+#endif
 
 static void smb358_check_slow_charging(struct work_struct *work)
 {
@@ -646,10 +648,6 @@ static void smb358_charger_function_control(
 		charger->pdata->charging_current[
 		charger->cable_type].fast_charging_current;
 
-	charger->input_current_limit =
-		charger->pdata->charging_current[
-		charger->cable_type].input_current_limit;
-
 	if (charger->charging_current < 0) {
 		dev_dbg(&client->dev,
 			"%s : OTG is activated. Ignore command!\n", __func__);
@@ -687,14 +685,14 @@ static void smb358_charger_function_control(
 		smb358_set_command(client, SMB358_OTHER_CONTROL_A, 0x01);
 		smb358_set_command(client, SMB358_OTG_TLIM_THERM_CONTROL, 0xF6);
 		smb358_set_command(client, SMB358_LIMIT_CELL_TEMPERATURE_MONITOR, 0xA5);
-		/* smb358_set_command(client, SMB358_STATUS_INTERRUPT, 0x00); */
+		smb358_set_command(client, SMB358_STATUS_INTERRUPT, 0x00);
 		smb358_set_command(client, SMB358_COMMAND_B, 0x00);
 		if (charger->pdata->chg_irq) {
-			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x5F);
-			/* smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x0C); */
+			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x1F);
+			smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x0C);
 		} else {
-			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x4F);
-			/* smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x00); */
+			smb358_set_command(client, SMB358_STAT_TIMERS_CONTROL, 0x0F);
+			smb358_set_command(client, SMB358_FAULT_INTERRUPT, 0x00);
 		}
 
 	} else {
@@ -789,12 +787,6 @@ static void smb358_charger_function_control(
 		if (charger->siop_level < 100) {
 			charger->charging_current =
 				charger->charging_current * charger->siop_level / 100;
-			if (charger->charging_current < charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].fast_charging_current) {
-				charger->charging_current =
-					charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].fast_charging_current;
-			}
 		}
 		dev_info(&client->dev,
 			"%s : fast charging current (%dmA)\n",
@@ -844,25 +836,15 @@ static void smb358_charger_function_control(
 			SMB358_PIN_ENABLE_CONTROL, data);
 
 		/* [STEP - 5] =============================================== */
-		if (charger->siop_level < 100) {
-			charger->input_current_limit =
-				charger->input_current_limit * charger->siop_level / 100;
-			if (charger->input_current_limit < charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].input_current_limit) {
-				charger->input_current_limit =
-					charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].input_current_limit;
-			}
-		}
-		dev_info(&client->dev, "%s : input current (%dmA), siop_input(%dmA)\n",
+		dev_info(&client->dev, "%s : input current (%dmA)\n",
 			__func__, charger->pdata->charging_current
-			[charger->cable_type].input_current_limit,
-			charger->input_current_limit);
+			[charger->cable_type].input_current_limit);
 		/* Input current limit */
 		data = 0x00;
 		data |= smb358_get_input_current_limit_data(
 			charger,
-			charger->input_current_limit);
+			charger->pdata->charging_current
+			[charger->cable_type].input_current_limit);
 		smb358_set_command(client,
 			SMB358_INPUT_CURRENTLIMIT, data);
 
@@ -926,7 +908,7 @@ static void smb358_charger_function_control(
 		 *  Pre-charge Timeout(bit 1:0) - Disable(11)
 		*/
 		smb358_set_command(client,
-			SMB358_STAT_TIMERS_CONTROL, 0x5F);
+			SMB358_STAT_TIMERS_CONTROL, 0x1F);
 
 #if defined(CONFIG_MACH_MATISSELTE_VZW)
 		/* [STEP - 10] =================================================
@@ -1034,7 +1016,6 @@ static void smb358_charger_function_control(
 		/* [STEP - 14] ================================================
 		 * FAULT interrupt - Disabled for non chg_irq, OVP enabled for chg_irq
 		*/
-		/* change chg_irq setting from func_control to chg_init
 		if (charger->pdata->chg_irq) {
 			smb358_set_command(client,
 				SMB358_FAULT_INTERRUPT, 0x0C);
@@ -1042,14 +1023,13 @@ static void smb358_charger_function_control(
 			smb358_set_command(client,
 				SMB358_FAULT_INTERRUPT, 0x00);
 		}
-		*/
+
 		/* [STEP - 15] ================================================
 		 * STATUS interrupt - Clear
 		*/
-		/*
 		smb358_set_command(client,
 			SMB358_STATUS_INTERRUPT, 0x00);
-		*/
+
 		/* [STEP - 16] ================================================
 		 * Volatile write permission(bit 7) - allowed(1)
 		 * Charging Enable(bit 1) - Enabled(1)
@@ -1060,12 +1040,13 @@ static void smb358_charger_function_control(
 
 		schedule_delayed_work(&charger->slow_work, 0);
 	}
-
+#if 0
+#if (defined(CONFIG_MACH_MILLET3G_EUR) || defined(CONFIG_MACH_MATISSE3G_OPEN) || defined(CONFIG_MACH_BERLUTI3G_EUR))
 	/* Allow time for AICL to complete */
-/*
 	msleep(1000);
 	smb358_aicl_calibrate(client);
-*/
+#endif
+#endif
 }
 
 static void smb358_charger_otg_control(
@@ -1076,11 +1057,10 @@ static void smb358_charger_otg_control(
 	if (charger->cable_type ==
 		POWER_SUPPLY_TYPE_BATTERY) {
 		dev_info(&client->dev, "%s : turn off OTG\n", __func__);
-		otg_enable_flag = 0;
+
 		/* disable otg */
 		smb358_clear_reg(client, SMB358_COMMAND_A, 0x10);
 	} else {
-		otg_enable_flag = 1;
 		/* Change "OTG output current limit" to 250mA */
 		smb358_clear_reg(client, SMB358_OTG_TLIM_THERM_CONTROL, 0x0C);
 
@@ -1179,11 +1159,6 @@ bool smb358_hal_chg_init(struct i2c_client *client)
 
 	smb358_volatile_writes(client, SMB358_ENABLE_WRITE);
 
-	smb358_set_command(client,
-				SMB358_FAULT_INTERRUPT, 0x0C);
-	smb358_set_command(client,
-				SMB358_STATUS_INTERRUPT, 0x00);
-
 	/*smb358_test_read(client);*/
 	(void) debugfs_create_file("smb358_regs",
 		S_IRUGO, NULL, (void *)charger, &smb358_debugfs_fops);
@@ -1200,20 +1175,6 @@ bool smb358_hal_chg_resume(struct i2c_client *client)
 {
 	return true;
 }
-
-static u8 smb358_get_float_voltage(struct i2c_client *client)
-{
-	struct sec_charger_info *charger = i2c_get_clientdata(client);
-	u8 data = 0;
-
-	smb358_i2c_read(client, SMB358_FLOAT_VOLTAGE, &data);
-
-	data &= 0x3F;
-	pr_info("%s: battery cv voltage 0x%x\n", __func__, data);
-
-	return data;
-}
-
 
 bool smb358_hal_chg_get_property(struct i2c_client *client,
 			      enum power_supply_property psp,
@@ -1294,11 +1255,6 @@ bool smb358_hal_chg_get_property(struct i2c_client *client,
 			"%s : set-current(%dmA), current now(%dmA)\n",
 			__func__, charger->charging_current, val->intval);
 		break;
-#if defined(CONFIG_BATTERY_SWELLING)
-		case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-			val->intval = smb358_get_float_voltage(client);
-			break;
-#endif
 	default:
 		return false;
 	}
@@ -1310,7 +1266,6 @@ bool smb358_hal_chg_set_property(struct i2c_client *client,
 			      const union power_supply_propval *val)
 {
 	struct sec_charger_info *charger = i2c_get_clientdata(client);
-	u8 data;
 
 	switch (psp) {
 	/* val->intval : type */
@@ -1346,15 +1301,6 @@ bool smb358_hal_chg_set_property(struct i2c_client *client,
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 		smb358_set_charging_current(client, val->intval);
 		break;
-#if defined(CONFIG_BATTERY_SWELLING)
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-		pr_info("%s: float voltage(%d)\n", __func__, val->intval);
-		data = 0x00;
-		charger->pdata->chg_float_voltage = val->intval;
-		data |= smb358_get_float_voltage_data(charger->pdata->chg_float_voltage);
-		smb358_set_command(client, SMB358_FLOAT_VOLTAGE, data);
-		break;
-#endif
 	default:
 		return false;
 	}
@@ -1450,9 +1396,6 @@ static enum power_supply_property smb358_charger_props[] = {
 	POWER_SUPPLY_PROP_CURRENT_AVG,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
-#if defined(CONFIG_BATTERY_SWELLING)
-	POWER_SUPPLY_PROP_VOLTAGE_MAX,
-#endif
 };
 
 static int smb358_chg_get_property(struct power_supply *psy,
@@ -1486,7 +1429,6 @@ static int smb358_chg_get_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_CURRENT_AVG:	/* charging current */
 	/* calculated input current limit value */
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
 		if (!smb358_hal_chg_get_property(charger->client, psp, val))
 			return -EINVAL;
 		break;
@@ -1502,7 +1444,7 @@ static int smb358_chg_set_property(struct power_supply *psy,
 {
 	struct sec_charger_info *charger =
 		container_of(psy, struct sec_charger_info, psy_chg);
-	union power_supply_propval input_value, current_value;
+	union power_supply_propval input_value;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -1554,45 +1496,29 @@ static int smb358_chg_set_property(struct power_supply *psy,
 			/* change val as charging current by SIOP level
 			* do NOT change initial charging current setting
 			*/
-			current_value.intval =
-					charger->pdata->charging_current[
-					charger->cable_type].fast_charging_current * val->intval / 100;
 			input_value.intval =
 					charger->pdata->charging_current[
-					charger->cable_type].input_current_limit * val->intval / 100;
+					charger->cable_type].fast_charging_current * val->intval / 100;
 
 			/* charging current should be over than USB charging current */
 			if (charger->pdata->chg_functions_setting &
 				SEC_CHARGER_MINIMUM_SIOP_CHARGING_CURRENT) {
 				if (input_value.intval > 0 &&
-					current_value.intval <
+					input_value.intval <
 					charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].fast_charging_current) {
-					current_value.intval =
-					charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].fast_charging_current;
+					POWER_SUPPLY_TYPE_USB].fast_charging_current)
 					input_value.intval =
 					charger->pdata->charging_current[
-					POWER_SUPPLY_TYPE_USB].input_current_limit;
-
-				}
+					POWER_SUPPLY_TYPE_USB].fast_charging_current;
 			}
 
 			/* set charging current as new value */
 			if (!smb358_hal_chg_set_property(charger->client,
-				POWER_SUPPLY_PROP_CURRENT_AVG, &current_value))
-				return -EINVAL;
-			if (!smb358_hal_chg_set_property(charger->client,
-				POWER_SUPPLY_PROP_CURRENT_NOW, &input_value))
+				POWER_SUPPLY_PROP_CURRENT_AVG, &input_value))
 				return -EINVAL;
 		}
 		break;
-#if defined(CONFIG_BATTERY_SWELLING)
-	case POWER_SUPPLY_PROP_VOLTAGE_MAX:
-		if (!smb358_hal_chg_set_property(charger->client, psp, val))
-			return -EINVAL;
-		break;
-#endif
+
 	default:
 		return -EINVAL;
 	}
@@ -1608,9 +1534,6 @@ static void smb358_chg_isr_work(struct work_struct *work)
 
 	dev_info(&charger->client->dev,
 		"%s: Charger Interrupt\n", __func__);
-
-	smb358_set_command(charger->client,
-				SMB358_FAULT_INTERRUPT, 0x00);
 
 	psy_do_property("battery", get,
 		POWER_SUPPLY_PROP_CHARGE_NOW, val);
@@ -1646,6 +1569,7 @@ static void smb358_chg_isr_work(struct work_struct *work)
 			dev_err(&charger->client->dev,
 				"%s: Interrupted but Charging\n", __func__);
 			break;
+
 		case POWER_SUPPLY_STATUS_UNKNOWN:
 		default:
 			dev_err(&charger->client->dev,
@@ -1681,7 +1605,7 @@ static void smb358_chg_isr_work(struct work_struct *work)
 			* ovp/uvlo is checked by polling
 			*/
 			psy_do_property("battery", set,
-				POWER_SUPPLY_PROP_HEALTH, val);
+				POWER_SUPPLY_PROP_CHARGE_TYPE, val);
 			break;
 
 		case POWER_SUPPLY_HEALTH_UNSPEC_FAILURE:
@@ -1697,7 +1621,7 @@ static void smb358_chg_isr_work(struct work_struct *work)
 			* ovp/uvlo is checked by polling
 			*/
 			psy_do_property("battery", set,
-				POWER_SUPPLY_PROP_HEALTH, val);
+				POWER_SUPPLY_PROP_CHARGE_TYPE, val);
 			break;
 
 		case POWER_SUPPLY_HEALTH_UNKNOWN:
@@ -1725,9 +1649,6 @@ static void smb358_chg_isr_work(struct work_struct *work)
 				charger->pdata->check_cable_result_callback(val.intval);
 		}
 	}
-
-	smb358_set_command(charger->client,
-				SMB358_FAULT_INTERRUPT, 0x0C);
 }
 
 static irqreturn_t smb358_chg_irq_thread(int irq, void *irq_data)
@@ -1846,14 +1767,6 @@ static int smb358_charger_parse_dt(struct device *dev,
 			pdata->vbus_ctrl_gpio = 0;
 			pr_info("%s vbus_ctrl_gpio read fail\n", __func__);
 		}
-
-		ret = of_get_named_gpio(np, "chgirq-gpio", 0);
-		if (ret > 0) {
-			pdata->chg_irq = gpio_to_irq(ret);
-			pr_info("%s reading chg_int_gpio = %d\n", __func__, ret);
-		} else {
-			pr_info("%s reading chg_int_gpio is empty\n", __func__);
-		}
 #endif
 
 		np = of_find_node_by_name(NULL, "sec-battery");
@@ -1878,6 +1791,14 @@ static int smb358_charger_parse_dt(struct device *dev,
 					&pdata->ovp_uvlo_check_type);
 		if (ret < 0)
 			pr_err("%s: ovp_uvlo_check_type read failed (%d)\n", __func__, ret);
+
+		ret = of_get_named_gpio(np, "battery,chg_int", 0);
+		if (ret > 0) {
+			pdata->chg_irq = gpio_to_irq(ret);
+			pr_info("%s reading chg_int_gpio = %d\n", __func__, ret);
+		} else {
+			pr_info("%s reading chg_int_gpio is empty\n", __func__);
+		}
 
 		ret = of_property_read_u32(np, "battery,chg_irq_attr",
 					(unsigned int *)&pdata->chg_irq_attr);
@@ -1960,8 +1881,6 @@ static int smb358_charger_probe(
 	charger->psy_chg.num_properties	= ARRAY_SIZE(smb358_charger_props);
 	charger->is_slow_charging = false;
 
-	otg_enable_flag = 0;
-
 	if (charger->pdata->chg_gpio_init) {
 		if (!charger->pdata->chg_gpio_init()) {
 			dev_err(&client->dev,
@@ -1992,7 +1911,7 @@ static int smb358_charger_probe(
 
 		ret = request_threaded_irq(charger->pdata->chg_irq,
 				NULL, smb358_chg_irq_thread,
-				charger->pdata->chg_irq_attr | IRQF_ONESHOT,
+				charger->pdata->chg_irq_attr,
 				"charger-irq", charger);
 		if (ret) {
 			dev_err(&client->dev,

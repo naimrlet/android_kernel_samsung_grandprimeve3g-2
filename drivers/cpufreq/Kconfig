@@ -252,6 +252,12 @@ config DVFS_ONLY
 	help
 	  USE DVFS ONLY WHEN SPRDEMAND IS ON DUTY
 
+config SPRD_CPUFREQ_DT_DRIVER
+	bool "USE CPUFREQ DT DRIVER ON bL SOC"
+	default n
+	help
+	  USE CPUFREQ DT DRIVER INSTEAD of cpufreq-scx35.c on bL SOC
+
 config GENERIC_CPUFREQ_CPU0
 	tristate "Generic CPU0 cpufreq driver"
 	depends on HAVE_CLK && REGULATOR && PM_OPP && OF

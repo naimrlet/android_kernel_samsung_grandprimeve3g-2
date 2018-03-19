@@ -64,7 +64,7 @@ static ssize_t disksize_store(struct device *dev,
 		return -EINVAL;
 
 	disksize = PAGE_ALIGN(disksize);
-	meta = zram_meta_alloc(disksize);
+	meta = zram_meta_alloc(zram->disk->first_minor, disksize);
 	down_write(&zram->init_lock);
 	if (zram->init_done) {
 		up_write(&zram->init_lock);
@@ -224,14 +224,14 @@ static ssize_t mem_free_percent(void)
 			meta = zram->meta;
 			if (meta && meta->mem_pool)
 			{
-				val += zs_get_total_pages(meta->mem_pool);
+				val += zs_get_total_pages(meta->mem_pool) << PAGE_SHIFT;
 			}
 		}
 
 		up_read(&zram->init_lock);
 	}
 
-	mem_used_pages = val;
+	mem_used_pages = val >> PAGE_SHIFT;
 
 	pr_debug("ZRAM:totalram_pages:%lu,total_zram_pages:%lu,mem_used_pages:%lu\r\n", totalram_pages, total_zram_pages,mem_used_pages);
 

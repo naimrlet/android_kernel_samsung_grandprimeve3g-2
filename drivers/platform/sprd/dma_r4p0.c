@@ -257,12 +257,7 @@ static int __dma_cfg_check_and_convert(u32 dma_chn,
 	dma_reg->frg_len =
 	    (datawidth << SRC_DATAWIDTH_OFFSET) |
 	    (datawidth << DES_DATAWIDTH_OFFSET) |
-#if 0
-	/*(((datawidth==2)?0x01:(datawidth==1)?0x02:0x00) << SWT_MODE_OFFSET) | */
-	(((datawidth==2)?0x01:0x00) << SWT_MODE_OFFSET) |
-#else
-	    ((cfg->swt_mode) << SWT_MODE_OFFSET) |
-#endif
+	    (0x0 << SWT_MODE_OFFSET) |
 	    (req_mode << REQ_MODE_OFFSET) |
 	    (wrap_mode << ADDR_WRAP_SEL_OFFSET) |
 	    (wrap_en << ADDR_WRAP_EN_OFFSET) |
@@ -881,8 +876,7 @@ void __exit dma_new_exit(void)
 {
 }
 
-subsys_initcall(dma_new_init);
-//module_init(dma_new_init);
+module_init(dma_new_init);
 module_exit(dma_new_exit);
 
 MODULE_LICENSE("GPL");

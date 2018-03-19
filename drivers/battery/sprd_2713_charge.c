@@ -22,14 +22,14 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 
-#include <soc/sprd/hardware.h>
-#include <soc/sprd/sci.h>
-#include <soc/sprd/sci_glb_regs.h>
-#include <soc/sprd/gpio.h>
-#include <soc/sprd/adi.h>
-#include <soc/sprd/adc.h>
-#include <soc/sprd/usb.h>
-#include <soc/sprd/irqs.h>
+#include <mach/hardware.h>
+#include <mach/sci.h>
+#include <mach/sci_glb_regs.h>
+#include <mach/gpio.h>
+#include <mach/adi.h>
+#include <mach/adc.h>
+#include <mach/usb.h>
+#include <mach/irqs.h>
 #include <asm/io.h>
 
 #include "sprd_battery.h"

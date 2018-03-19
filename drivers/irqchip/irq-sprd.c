@@ -41,6 +41,9 @@
 #define IRQ_TO_INTC_BIT(irq)	(1 << ((irq) & 0x1f))
 
 
+#if defined(CONFIG_ARCH_WHALE)
+void __iomem * pmu_wakeup_base = NULL;
+#endif
 
 struct intc {
 	u32 min_int_num;/*global logical number max value in intc*/
@@ -49,11 +52,16 @@ struct intc {
 	void *reg_base;
 };
 
+
 static struct intc intc_desc[] = {
 	{0, 31, 0},
 	{32, 63, 32},
 	{64, 95, 64},
 	{96, 127, 96},
+#if defined(CONFIG_ARCH_WHALE)
+	{128, 159, 128},
+	{160, 191, 160},
+#endif
 };
 
 #if defined(CONFIG_64BIT)
@@ -149,25 +157,17 @@ static struct intc_mux_irq _mux[] = {
 
 static __init void __irq_init(void)
 {
-	//if (soc_is_scx35_v0())
-	//	sci_glb_clr(REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG,BIT_CA7_CORE_AUTO_GATE_EN);
-
-	/*enable all intc*/
-	//sci_glb_set(REG_AP_APB_APB_EB, BIT_INTC0_EB | BIT_INTC1_EB |
-		//	BIT_INTC2_EB | BIT_INTC3_EB);
-//	sci_glb_set(REG_AON_APB_APB_EB0, BIT_INTC_EB);
 #if 0
-	/*disable default for startup*/
-	__raw_writel(~0, (void *)(SPRD_INTC0_BASE + INTC_IRQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC0_BASE + INTC_FIQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC1_BASE + INTC_IRQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC1_BASE + INTC_FIQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC2_BASE + INTC_IRQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC2_BASE + INTC_FIQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC3_BASE + INTC_IRQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INTC3_BASE + INTC_FIQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INT_BASE + INTC_IRQ_DIS));
-	__raw_writel(~0, (void *)(SPRD_INT_BASE + INTC_FIQ_DIS));
+#if defined(CONFIG_ARCH_WHALE)
+	sci_glb_set(REG_AON_APB_APB_EB0, BIT_AON_APB_AP_INTC5_EB |
+		    BIT_AON_APB_AP_INTC4_EB |
+		    BIT_AON_APB_AP_INTC3_EB |
+		    BIT_AON_APB_AP_INTC2_EB |
+		    BIT_AON_APB_AP_INTC1_EB |
+		    BIT_AON_APB_AP_INTC0_EB);
+#else
+	/*nothing to do*/
+#endif
 #endif
 }
 
@@ -252,16 +252,25 @@ static inline void __mux_irq(u32 irq, u32 offset, u32 is_unmask)
 
 static void __irq_mask(struct irq_data *data)
 {
-	unsigned int irq = IRQ_TO_INTC_NR(data->irq);
+	int irq = IRQ_TO_INTC_NR(data->irq);
 	u64 base;
 	u32 bit;
+	u32 val;
 	u32 offset = INTC_IRQ_DIS;
 
 #ifdef CONFIG_SPRD_WATCHDOG_SYS_FIQ
 	if (unlikely(irq == (IRQ_CA7WDG_INT - IRQ_GIC_START)))
 		offset = INTC_FIQ_DIS;
 #endif
+#if defined(CONFIG_ARCH_WHALE)
+	if(irq<0)
+		return;
+	val = __raw_readl((void*)(pmu_wakeup_base + (irq/32)*4));
+	val = val & ~(1 << (irq%32));
+	__raw_writel(val,(void*)(pmu_wakeup_base + (irq/32)*4));
+#else
 	__mux_irq(irq, offset, 0);
+#endif
 
 	if (!__irq_find_base(irq, &base, &bit))
 		__raw_writel(1 << bit, (void *)(base + offset));
@@ -269,17 +278,25 @@ static void __irq_mask(struct irq_data *data)
 
 static void __irq_unmask(struct irq_data *data)
 {
-	unsigned int irq = IRQ_TO_INTC_NR(data->irq);
+	int irq = IRQ_TO_INTC_NR(data->irq);
 	u64 base;
 	u32 bit;
+	u32 val;
 	u32 offset = INTC_IRQ_EN;
 
 #ifdef CONFIG_SPRD_WATCHDOG_SYS_FIQ
 	if (unlikely(irq == (IRQ_CA7WDG_INT - IRQ_GIC_START)))
 		offset = INTC_FIQ_EN;
 #endif
+#if defined(CONFIG_ARCH_WHALE)
+	if(irq<0)
+		return;
+	val = __raw_readl((void*)(pmu_wakeup_base + (irq/32)*4));
+	val = val | (1 << (irq%32));
+	__raw_writel(val,(void*)(pmu_wakeup_base + (irq/32)*4));
+#else
 	__mux_irq(irq, offset, 1);
-
+#endif
 	if (!__irq_find_base(irq, &base, &bit))
 		__raw_writel(1 << bit, (void *)(base + offset));
 }
@@ -289,33 +306,34 @@ int __init sci_of_init(struct device_node *node, struct device_node *parent)
 	unsigned long *addr;
 	int i;
 	u32 val;
-#if 1
+	struct device_node *np;
+	struct resource res;
+
+#if defined(CONFIG_ARCH_WHALE)
+	for (i = 0; i < 6; i++) {
+		addr = of_iomap(node, i);
+		if (addr)
+			intc_desc[i].reg_base = addr;
+	}
+	np = of_find_compatible_node(NULL, NULL, "sprd,pmu_apb");
+	if(!np)
+		pr_err("irq-sprd: get pmu_apb node failed!\n");
+	of_address_to_resource(np, 0, &res);
+	pmu_wakeup_base = ioremap_nocache(res.start + 0x220, 24);
+	printk("pmu_wakeup_base = 0x%lx\n", (u64)pmu_wakeup_base);
+#else
 	for (i = 0; i < 4; i++) {
 		addr = of_iomap(node, i);
 		if (addr)
 			intc_desc[i].reg_base = addr;
 	}
-#endif
+
 	addr = of_iomap(node, 4);
 	for (i = 0; i < ARRAY_SIZE(_mux); i++)
 		_mux[i].intc_base = addr;
-
+#endif
 	gic_arch_extn.irq_mask = __irq_mask;
 	gic_arch_extn.irq_unmask = __irq_unmask;
-
-#if 0
-	/*disable legacy interrupt*/
-#if (LEGACY_FIQ_BIT < 32)
-	__raw_writel(1<<LEGACY_FIQ_BIT, (void *)(CORE_GIC_DIS_VA + GIC_DIST_ENABLE_CLEAR));
-#endif
-	__raw_writel(1<<LEGACY_IRQ_BIT, (void *)(CORE_GIC_DIS_VA + GIC_DIST_ENABLE_CLEAR));
-#endif
-#if 0
-	addr = intc_desc[0].reg_base;
-	val = __raw_readl(addr + INTC_IRQ_EN);
-	val |= 0xf<<2;
-	__raw_writel(val, addr + INTC_IRQ_EN);
-#endif
 
 	__irq_init();
 

@@ -49,6 +49,7 @@
 #include <linux/of_device.h>
 /* FIXME: */
 #include <soc/sprd/arch_lock.h>
+#include <soc/sprd/arch_misc.h>
 
 #ifdef CONFIG_64BIT
 #define SPRD_UIDEFUSE_BASE              SPRD_DEV_P2V(0x40240000)
@@ -64,6 +65,7 @@
 
 static u32 efuse_magic;
 static DEFINE_MUTEX(efuse_mtx);
+
 static void efuse_lock(void)
 {
 	mutex_lock(&efuse_mtx);
@@ -102,6 +104,12 @@ void __efuse_prog_power_on(void)
 	cfg0 = __raw_readl((void *)REG_EFUSE_CFG0);
 	cfg0 &= ~(BIT_EFS_VDDQ_K2_ON | BIT_EFS_VDDQ_K1_ON);
 	cfg0 |= BIT_EFS_VDD_ON;
+#ifdef CONFIG_ARCH_SCX20
+	cfg0 |= BITS_EFS_TYPE(0x2);
+#endif
+	if(soc_is_scx9832a_v0()){
+		cfg0 |= BITS_EFS_TYPE(0x2);
+	}
 	__raw_writel(cfg0, (void *)REG_EFUSE_CFG0);
 	msleep(1);
 
@@ -117,6 +125,12 @@ void __efuse_power_on(void)
 	cfg0 = __raw_readl((void *)REG_EFUSE_CFG0);
 	cfg0 &= ~BIT_EFS_VDDQ_K1_ON;
 	cfg0 |= BIT_EFS_VDD_ON | BIT_EFS_VDDQ_K2_ON;
+#ifdef CONFIG_ARCH_SCX20
+		cfg0 |= BITS_EFS_TYPE(0x2);
+#endif
+	if(soc_is_scx9832a_v0()){
+		cfg0 |= BITS_EFS_TYPE(0x2);
+	}
 	__raw_writel(cfg0, (void *)REG_EFUSE_CFG0);
 	msleep(1);
 }
@@ -276,9 +290,57 @@ static ssize_t efuse_block_dump(struct device *dev,
 	return p - buf;
 }
 
+#if defined(CONFIG_ARCH_SCX20) || defined(CONFIG_ARCH_SCX35LT8)
+static ssize_t efuse_uid_info(struct device *dev,
+						 struct device_attribute *attr, char *buf)
+{
+    u32 block0,block1;
+    u32 x,y,wafer_id;
+    u32 LOTID_0,LOTID_1,LOTID_2,LOTID_3,LOTID_4,LOTID_5;
+    char *p = buf;
+	block0= efuse_read(0);
+	block1= efuse_read(1);
+    y=block1&0x7F;
+    x=(block1>>7)&0x7F;
+    wafer_id=(block1>>14)&0x1F;
+    LOTID_0=(block1>>19)&0x3F;
+    LOTID_1=(block1>>25)&0x3F;
+    LOTID_2=block0&0x3F;
+    LOTID_3=(block0>>6)&0x3F;
+    LOTID_4=(block0>>12)&0x3F;
+    LOTID_5=(block0>>18)&0x3F;
+	p += sprintf(p, "efuse uid dump:\n");
+	p += sprintf(p,"%c%c%c%c%c%c_%d_%d_%d\n",LOTID_5+48,LOTID_4+48,LOTID_3+48,LOTID_2+48,LOTID_1+48,LOTID_0+48,wafer_id,x,y);
+	p += sprintf(p, "\n");
+	return p - buf;
+}
+
+static void efuse_uid(void)
+{
+	u32 block0,block1;
+    u32 x,y,wafer_id;
+    u32 LOTID_0,LOTID_1,LOTID_2,LOTID_3,LOTID_4,LOTID_5;
+	char bufallid[20];
+	block0= efuse_read(0);
+	block1= efuse_read(1);
+    y=block1&0x7F;
+    x=(block1>>7)&0x7F;
+    wafer_id=(block1>>14)&0x1F;
+    LOTID_0=(block1>>19)&0x3F;
+    LOTID_1=(block1>>25)&0x3F;
+    LOTID_2=block0&0x3F;
+    LOTID_3=(block0>>6)&0x3F;
+    LOTID_4=(block0>>12)&0x3F;
+    LOTID_5=(block0>>18)&0x3F;
+	pr_info("uid is %c%c%c%c%c%c_%d_%d_%d\n",LOTID_5+48,LOTID_4+48,LOTID_3+48,LOTID_2+48,LOTID_1+48,LOTID_0+48,wafer_id,x,y);
+}
+static DEVICE_ATTR(uid, S_IRUGO, efuse_uid_info, NULL);
+#endif
 static DEVICE_ATTR(block, S_IRUGO, efuse_block_show, NULL);
 static DEVICE_ATTR(magic, S_IWUSR, NULL, efuse_magic_store);
 static DEVICE_ATTR(dump, S_IRUGO, efuse_block_dump, NULL);
+
+
 
 int __init sprd_efuse_init(void)
 {
@@ -289,10 +351,15 @@ int __init sprd_efuse_init(void)
 			      EFUSE_BLOCK_WIDTH / 8);
 	if (IS_ERR_OR_NULL(dev))
 		return PTR_ERR(dev);
-
+#if defined(CONFIG_ARCH_SCX20) || defined(CONFIG_ARCH_SCX35LT8)
+	efuse_uid();
+#endif
 	ret = device_create_file(dev, &dev_attr_block);
 	ret |= device_create_file(dev, &dev_attr_magic);
 	ret |= device_create_file(dev, &dev_attr_dump);
+#if defined(CONFIG_ARCH_SCX20) || defined(CONFIG_ARCH_SCX35LT8)
+	ret |= device_create_file(dev, &dev_attr_uid);
+#endif
 	if (ret)
 		return ret;
 

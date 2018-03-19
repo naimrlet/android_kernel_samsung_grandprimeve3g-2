@@ -39,6 +39,10 @@
 #include <asm/exception.h>
 #include <asm/system_misc.h>
 
+#ifdef CONFIG_SEC_DEBUG64
+#include <soc/sprd/sec_debug64.h>
+#endif
+
 static const char *handler[]= {
 	"Synchronous Abort",
 	"IRQ",
@@ -199,7 +203,11 @@ static int __die(const char *str, int err, struct thread_info *thread,
 	ret = notify_die(DIE_OOPS, str, regs, err, 0, SIGSEGV);
 	if (ret == NOTIFY_STOP)
 		return ret;
-
+#ifdef CONFIG_SEC_DEBUG64
+	if(!user_mode(regs)){
+		sec_debug_save_context(regs);
+	}
+#endif
 	print_modules();
 	__show_regs(regs);
 	pr_emerg("Process %.*s (pid: %d, stack limit = 0x%p)\n",

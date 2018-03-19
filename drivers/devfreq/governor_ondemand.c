@@ -29,8 +29,11 @@
 /*
 * TODO: add kernel space requests
 */
+#ifdef CONFIG_SPRD_SCX35_DMC_FREQ
 extern void devfreq_min_freq_cnt_reset(unsigned int, unsigned int);
 extern int devfreq_request_ignore(void);
+#endif
+
 static void dfs_req_timer_timeout(unsigned long arg);
 #define REQ_TIMEOUT_DEF (HZ/20);
 static DEFINE_SPINLOCK(dfs_req_lock);
@@ -244,6 +247,7 @@ EXPORT_SYMBOL(dfs_request_bw_timeout);
 *  raise ddr frequency up temporarily
 *  @req_bw, KB
 */
+#ifdef CONFIG_SPRD_SCX35_DMC_FREQ
 void dfs_freq_raise_quirk(unsigned int req_bw)
 {
 	if(req_bw == 0)
@@ -265,7 +269,7 @@ void dfs_freq_raise_quirk(unsigned int req_bw)
 	mutex_unlock(&g_devfreq->lock);
 }
 EXPORT_SYMBOL(dfs_freq_raise_quirk);
-
+#endif
 
 /************ early suspend  *****************/
 

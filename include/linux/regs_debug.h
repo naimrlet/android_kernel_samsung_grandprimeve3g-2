@@ -121,81 +121,21 @@ struct sprd_debug_regs_access{
 		sprd_debug_last_regs_access[cpu_id].time = jiffies;     \
 		sprd_debug_last_regs_access[cpu_id].status = 1;}	\
 		})
-#endif /* CONFIG_64BIT */
-#endif /* CONFIG_SPRD_DEBUG */
+
+#endif
+#endif
 
 #if defined(CONFIG_SEC_DEBUG)
-struct sec_debug_regs_access{
-	unsigned long vaddr;
-	unsigned long stack;
-	unsigned long lr;
-	unsigned long pc;
+struct sec_debug_regs_access {
+	u32 vaddr;
+	u32 value;
+	u32 stack;
+	u32 lr;
+	u32 pc;
 	unsigned long time;
 	unsigned int status;
-	u32 value;
 };
-#ifdef CONFIG_64BIT
-#define sec_debug_regs_read_start(a)	({unsigned long cpu_id, stack, lr, tmp;	\
-		asm volatile(						\
-			"	mrs %3,mpidr_el1\n"	\
-			"	ands %0, %3, #0xf\n"			\
-			"	lsr %3,%3,#8\n"			\
-			"	ands %3, %3, #0xf\n"			\
-			"	lsl %3,%3,#2\n"			\
-			"	add %0,%0,%3\n"			\
-			"	mov %2, sp\n"				\
-			"	mov %1, x30\n"				\
-			: "=&r" (cpu_id), "=&r" (lr), "=&r" (stack), "=&r" (tmp)\
-			:						\
-			: "memory");					\
-		if(sprd_debug_last_regs_access){			\
-		sprd_debug_last_regs_access[cpu_id].value = 0;		\
-		sprd_debug_last_regs_access[cpu_id].vaddr = (unsigned long)a;	\
-		sprd_debug_last_regs_access[cpu_id].stack = stack;	\
-		sprd_debug_last_regs_access[cpu_id].lr = lr;		\
-		sprd_debug_last_regs_access[cpu_id].pc = 0;		\
-		sprd_debug_last_regs_access[cpu_id].status = 1;}	\
-		})
 
-#define sec_debug_regs_write_start(v, a)	({unsigned long cpu_id, stack, lr, tmp;	\
-		asm volatile(						\
-			"	mrs %3,mpidr_el1\n"	\
-			"	ands %0, %3, #0xf\n"			\
-			"	lsr %3,%3,#8\n"			\
-			"	ands %3, %3, #0xf\n"			\
-			"	lsl %3,%3,#2\n"			\
-			"	add %0,%0,%3\n"			\
-			"	mov %2, sp\n"				\
-			"	mov %1, x30\n"				\
-			: "=&r" (cpu_id), "=&r" (lr), "=&r" (stack), "=&r" (tmp)\
-			:						\
-			: "memory");					\
-		if(sprd_debug_last_regs_access){			\
-		sprd_debug_last_regs_access[cpu_id].value = (unsigned long)(v);	\
-		sprd_debug_last_regs_access[cpu_id].vaddr = (unsigned long)(a);	\
-		sprd_debug_last_regs_access[cpu_id].stack = stack;	\
-		sprd_debug_last_regs_access[cpu_id].lr = lr;		\
-		sprd_debug_last_regs_access[cpu_id].pc = 0;		\
-		sprd_debug_last_regs_access[cpu_id].status = 2;}	\
-		})
-
-#define sec_debug_regs_access_done()	({unsigned long cpu_id, lr,tmp;		\
-		asm volatile(						\
-			"	mrs %2,mpidr_el1\n"	\
-			"	ands %0, %2, #0xf\n"			\
-			"	lsr %2,%2,#8\n"			\
-			"	ands %2, %2, #0xf\n"			\
-			"	lsl %2,%2,#2\n"			\
-			"	add %0,%0,%2\n"			\
-			"	mov %1, x30\n"				\
-			: "=&r" (cpu_id), "=&r" (lr), "=&r" (tmp)\
-			:						\
-			: "memory");					\
-		if(sprd_debug_last_regs_access){			\
-		sprd_debug_last_regs_access[cpu_id].time = jiffies;     \
-		sprd_debug_last_regs_access[cpu_id].status = 0;}	\
-		})
-#else
 #define sec_debug_regs_read_start(a)	({u32 cpu_id, stack, lr, pc;	\
 		asm volatile(						\
 			"	mrc	p15, 0, %0, c0, c0, 5\n"	\
@@ -246,7 +186,5 @@ struct sec_debug_regs_access{
 		sec_debug_last_regs_access[cpu_id].time = jiffies;     \
 		sec_debug_last_regs_access[cpu_id].status = 0;	\
 		})
-#endif /* CONFIG_64BIT */
-#endif /* CONFIG_SEC_DEBUG */
-
-#endif /* _REGS_DEBUG_ */
+#endif
+#endif

@@ -98,7 +98,11 @@
 #define SPRD_DISPC_BASE			SPRD_LCDC_BASE
 #define	IRQ_DISPC_INT			IRQ_DISPC0_INT
 
+#if (!defined CONFIG_ARCH_SCX35L64) && (!defined CONFIG_ARCH_SCX35LT8)
 #define REG_AHB_SOFT_RST 			(0x4 + SPRD_AHB_BASE)
+#else
+#define REG_AHB_SOFT_RST 			(0x4 + REGS_AHB_BASE)
+#endif
 
 #define DISPC_CORE_EN			(REG_AP_APB_APB_EB)
 #define BIT_DISPC_CORE_EN			(BIT_AP_CKG_EB)
@@ -115,12 +119,12 @@ enum{
 
 static inline uint32_t dispc_read(uint32_t reg)
 {
-	return sci_glb_read(SPRD_DISPC_BASE + reg, 0xffffffff);
+	return __raw_readl(g_dispc_base_addr+ reg);
 }
 
 static inline void dispc_write(uint32_t value, uint32_t reg)
 {
-	sci_glb_write((SPRD_DISPC_BASE + reg), value, 0xffffffff);
+	__raw_writel(value, (g_dispc_base_addr + reg));
 }
 
 static inline void dispc_set_bits(uint32_t bits, uint32_t reg)

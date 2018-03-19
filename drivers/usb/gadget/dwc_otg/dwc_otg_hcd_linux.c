@@ -57,10 +57,12 @@
 #endif
 #include <linux/platform_device.h>
 #include <linux/irq.h>
+#include <linux/wakelock.h>
 
 #include <linux/usb.h>
 #include <linux/usb/hcd.h>
 #include <linux/usb/gadget.h>
+
 #ifdef CONFIG_USB_EXTERNAL_DETECT
 #include <linux/usb_notifier.h>
 #endif
@@ -81,6 +83,8 @@ static dwc_otg_device_t *_otg_dev = NULL;
 						     ((_bEndpointAddress_ & USB_DIR_IN) != 0) << 4)
 
 static const char dwc_otg_hcd_name[] = "dwc_otg_hcd";
+static struct wake_lock usb_host_wake_lock;
+
 
 /** @name Linux HC Driver API Functions */
 /** @{ */
@@ -388,31 +392,46 @@ static int32_t otg_cable_connect_fun(void *dev)
 }
 #endif
 
+static int start_otg_flag = 0;
+
 void usb_otg_cable_detect_work(void *p)
 {
 	dwc_otg_device_t *otg_dev = p;
-	 struct sprd_usb_platform_data *platform_data =&otg_dev->platform_data;
 	int value = 0;
 	int vbus_irq;
+	
 	vbus_irq = usb_get_vbus_irq();
 	value = usb_get_id_state();
 	if (value){
-		pr_info("usb otg cable detect work plug out\n");
-
-		//otg_cable_disconnect(otg_dev->core_if);
-		charge_pump_set(platform_data->gpio_boost, 0);
-		udc_disable();
-		mdelay(10);//charge pump need time to turn off
-		enable_irq(vbus_irq);
+		if(start_otg_flag ==1){
+			pr_info("usb otg cable detect work plug out\n");
+#ifdef CONFIG_SPRD_EXT_IC_POWER
+			sprd_extic_otg_power(0);    //Turn off ext ic otg func
+#endif
+			wake_unlock(&usb_host_wake_lock);
+			//otg_cable_disconnect(otg_dev->core_if);
+			//charge_pump_set(platform_data->gpio_boost,0);This charge method is implemented by internal chip on ADIE,and that will not be used;
+			udc_disable();
+			mdelay(10);//charge pump need time to turn off
+			enable_irq(vbus_irq);
+			start_otg_flag = 0;
+		}
 	} else {
-		pr_info("usb otg cable detect work plug in\n");
-
-		charge_pump_set(platform_data->gpio_boost, 1);
-		udc_enable();
-		dwc_otg_core_fore_host(otg_dev->core_if );
-		dwc_otg_core_init(otg_dev->core_if);
-		_start(otg_dev->hcd);
-		dwc_otg_enable_global_interrupts(otg_dev->core_if);
+		if(start_otg_flag ==0){
+			pr_info("usb otg cable detect work plug in\n");
+			wake_lock(&usb_host_wake_lock);
+			//charge_pump_set(platform_data->gpio_boost,1);This charge method is implemented by internal chip on ADIE,and that will not be used;
+			dwc_otg_set_param_dma_desc_enable(otg_dev->core_if,0);
+			udc_enable();
+			dwc_otg_core_fore_host(otg_dev->core_if);
+			dwc_otg_core_init(otg_dev->core_if);
+			_start(otg_dev->hcd);
+			dwc_otg_enable_global_interrupts(otg_dev->core_if);
+#ifdef CONFIG_SPRD_EXT_IC_POWER
+			sprd_extic_otg_power(1);	//Turn on ext ic otg func
+#endif
+			start_otg_flag = 1;
+		}
 	}
 
 }
@@ -422,6 +441,7 @@ void usb_otg_cable_detect_event(bool is_otg_cable_in)
 		udc_disable();
 	} else {
 		if(_otg_dev!=NULL){
+			dwc_otg_set_param_dma_desc_enable(_otg_dev->core_if,0);
 			udc_enable();
 			dwc_otg_core_fore_host(_otg_dev->core_if);
 			dwc_otg_core_init(_otg_dev->core_if);
@@ -439,27 +459,21 @@ static irqreturn_t usb_otg_cable_detect_handler(int irq, void *dev)
 	dwc_otg_device_t *otg_dev = dev;
 	int value = 0;
 	int vbus_irq;
-
+	
 	vbus_irq = usb_get_vbus_irq();
 	value = usb_get_id_state();
 	if (value){
 		pr_info("usb otg cable detect plug out\n");
 
 		usb_set_id_irq_type(irq, OTG_CABLE_PLUG_IN);
-#ifdef CONFIG_SPRD_EXT_IC_POWER
-		sprd_extic_otg_power(0);    //Turn off ext ic otg func
-#endif
 	} else {
-		pr_info("usb otg cable detect plug in\n");
+		pr_info("usb otg cable detect plug in\n");		
 		disable_irq(vbus_irq);
 		usb_set_id_irq_type(irq, OTG_CABLE_PLUG_OUT);
-#ifdef CONFIG_SPRD_EXT_IC_POWER
-		sprd_extic_otg_power(1);    //Turn on ext ic otg func
-#endif
 	}
 	/*use DWC workqueue*/
-	DWC_WORKQ_SCHEDULE(otg_dev->core_if->wq_otg, usb_otg_cable_detect_work,
-			   otg_dev, "OTG cable connect state change");
+	DWC_WORKQ_SCHEDULE_DELAYED(otg_dev->core_if->wq_otg, usb_otg_cable_detect_work,
+			   otg_dev, 50, "OTG cable connect state change");
 
 	return IRQ_HANDLED;
 }
@@ -477,6 +491,7 @@ int dwc_otg_start(void *data, bool enable)
 
 	hcd = dwc_otg_hcd_get_priv_data(otg_dev->hcd);
 	if (enable) {
+		dwc_otg_set_param_dma_desc_enable(otg_dev->core_if,0);
 		udc_enable();
 		usb_phy_tune_host();
 		dwc_otg_core_fore_host(otg_dev->core_if);
@@ -495,8 +510,7 @@ int dwc_otg_start(void *data, bool enable)
 	return 0;
 }
 #endif
-static struct device *device_hcd_dwc_otg;
-static u64 dwc_otg_dmamask = DMA_BIT_MASK(32);
+
 /**
  * Initializes the HCD. This function allocates memory for and initializes the
  * static parts of the usb_hcd and dwc_otg_hcd structures. It also registers the
@@ -517,19 +531,6 @@ int hcd_init(
 	int retval = 0;
 
 	DWC_DEBUGPL(DBG_HCD, "DWC OTG HCD INIT\n");
-
-	device_hcd_dwc_otg = &(_dev->dev);
-
-	/* Set device flags indicating whether the HCD supports DMA. */
-	/* HCD.c will judge this flag. */
-	/* and also scsi_lib.c will check this dma_mask. daniel.li */
-	if (dwc_otg_is_dma_enable(otg_dev->core_if)) {
-		_dev->dev.dma_mask = &dwc_otg_dmamask;
-		_dev->dev.coherent_dma_mask = dwc_otg_dmamask;
-	} else {
-		_dev->dev.dma_mask = (void *)0;
-		_dev->dev.coherent_dma_mask = 0;
-	}
 
 	/*
 	 * Allocate memory for the base HCD plus the DWC OTG HCD.
@@ -557,14 +558,14 @@ int hcd_init(
 	((struct wrapper_priv_data *)(hcd->hcd_priv))->dwc_otg_hcd =
 	    dwc_otg_hcd;
 	otg_dev->hcd = dwc_otg_hcd;
+	otg_dev->hcd->otg_dev = otg_dev;
 
 	if (dwc_otg_hcd_init(dwc_otg_hcd, otg_dev->core_if)) {
 		goto error2;
 	}
 
-	otg_dev->hcd->otg_dev = otg_dev;
 	hcd->self.otg_port = dwc_otg_hcd_otg_port(dwc_otg_hcd);
-
+	
 	irq = platform_get_irq(_dev, 0);
 #if 0//need to confirm LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,33) //don't support for LM(with 2.6.20.1 kernel)
 	hcd->self.otg_version = dwc_otg_get_otg_version(otg_dev->core_if);
@@ -575,6 +576,7 @@ int hcd_init(
 	hcd->irq = irq;
 	register_otg_func(dwc_otg_start, NULL, otg_dev);
 #else
+	hcd->self.sg_tablesize = 0;
 	/*
 	 * Finish generic HCD initialization and start the HCD. This function
 	 * allocates the DMA buffer pool, registers the USB bus, requests the
@@ -590,7 +592,6 @@ int hcd_init(
 	setup_timer(&otg_cable_connect_timer,otg_cable_connect_fun,otg_dev);
 	mod_timer(&otg_cable_connect_timer, jiffies + OTG_CABLE_TIMEOUT);
 #endif
-
 #ifndef CONFIG_USB_EXTERNAL_DETECT
 #ifndef CONFIG_MFD_SM5504
 	/*
@@ -612,6 +613,7 @@ int hcd_init(
 #endif
 	//save to global
 	_otg_dev = otg_dev;
+	wake_lock_init(&usb_host_wake_lock, WAKE_LOCK_SUSPEND, "usb_host_work");
 	dwc_otg_hcd_set_priv_data(dwc_otg_hcd, hcd);
 	return 0;
 
@@ -1009,23 +1011,4 @@ int hub_control(struct usb_hcd *hcd,
 
 	return retval;
 }
-
-struct device *get_hcd_device()
-{
-#ifdef CONFIG_ARM64
-if(NULL != device_hcd_dwc_otg)
-	{
-	return device_hcd_dwc_otg;
-	}
-else
-	{
-	gadget_wrapper->gadget.dev.dma_mask = &dwc_otg_dmamask;
-	gadget_wrapper->gadget.dev.coherent_dma_mask = dwc_otg_dmamask;
-	return &(gadget_wrapper->gadget.dev);
-	}
-#else
-    return NULL;
-#endif
-}
-
 #endif				/* DWC_DEVICE_ONLY */

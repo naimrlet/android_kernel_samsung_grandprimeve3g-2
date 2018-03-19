@@ -19,4 +19,5 @@ obj-$(CONFIG_VERSATILE_FPGA_IRQ)	+= irq-versatile-fpga.o
 obj-$(CONFIG_ARCH_VT8500)		+= irq-vt8500.o
 obj-$(CONFIG_ARCH_SCX35L64)		+= irq-sprd.o
 obj-$(CONFIG_ARCH_SCX35LT8)		+= irq-sprd.o
+obj-$(CONFIG_ARCH_WHALE)		+= irq-sprd.o
 

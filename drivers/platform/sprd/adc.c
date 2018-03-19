@@ -31,6 +31,7 @@
 #include <soc/sprd/adc.h>
 
 static void __iomem *io_base;		/* Mapped base address */
+static u32 ana_chip_id;
 
 #define adc_write(val, reg) \
 do { \
@@ -451,6 +452,13 @@ static void sci_adc_enable(void)
 	sci_adi_set(ANA_REG_GLB_ANA_APB_CLK_EN,
 		    BIT_ANA_ADC_EB | BIT_ANA_CLK_AUXADC_EN |
 		    BIT_ANA_CLK_AUXAD_EN);
+#elif defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+	sci_adi_set(ANA_REG_GLB_ARM_MODULE_EN,
+		    BIT_ANA_ADC_EN);
+	sci_adi_set(ANA_REG_GLB_ARM_CLK_EN,
+		    BIT_CLK_AUXADC_EN | BIT_CLK_AUXAD_EN);
+	sci_adi_set(ANA_REG_GLB_XTL_WAIT_CTRL,
+		    BIT_XTL_EN);
 #elif defined(CONFIG_ARCH_SCX35)
 	sci_adi_set(ANA_REG_GLB_ARM_MODULE_EN,
 		    BIT_ANA_ADC_EN);
@@ -478,7 +486,7 @@ EXPORT_SYMBOL(sci_adc_dump_register);
 
 void sci_adc_init(void)
 {
-	io_base = (void __iomem *)REGS_ADC_BASE;
+	io_base = (void __iomem *)ANA_ADC_BASE;
 
 #ifndef CONFIG_OF
 	sprd_adc_dev_register();
@@ -487,6 +495,9 @@ void sci_adc_init(void)
 	adc_enable_irq(0);
 	adc_clear_irq();
 	sci_adc_enable();
+	ana_chip_id = ((u32)sci_adi_read(ANA_REG_GLB_CHIP_ID_HIGH) << 16) |
+				((u32)sci_adi_read(ANA_REG_GLB_CHIP_ID_LOW) & 0xFFFF);
+	printk("the adie chip id is 0x%x\n",ana_chip_id);
 	if (cal_type == SPRDBAT_AUXADC_CAL_NO) {
 		if (!adc_cali_fuse_proc())
 			cal_type = SPRDBAT_AUXADC_CAL_CHIP;
@@ -578,6 +589,101 @@ static int sci_adc_ratio(int channel, int scale, int mux)
 	case ADC_CHANNEL_USBDP:		//DP from terminal
 	case ADC_CHANNEL_USBDM:		//DM from terminal
 		return RATIO(1, 3);
+
+	default:
+		return RATIO(1, 1);
+	}
+	return RATIO(1, 1);
+}
+
+void sci_adc_get_vol_ratio(unsigned int channel_id, int scale, unsigned int *div_numerators,
+			   unsigned int *div_denominators)
+{
+	unsigned int ratio = sci_adc_ratio(channel_id, scale, 0);
+	*div_numerators = ratio >> 16;
+	*div_denominators = ratio << 16 >> 16;
+}
+
+unsigned int sci_adc_get_ratio(unsigned int channel_id, int scale, int mux)
+{
+	unsigned int ratio = (unsigned int)sci_adc_ratio(channel_id, scale, mux);
+
+	return ratio;
+}
+#elif defined(CONFIG_ADIE_SC2731)
+#define RATIO(_n_, _d_) (_n_ << 16 | _d_)
+static int sci_adc_ratio(int channel, int scale, int mux)
+{
+	switch (channel) {
+	case ADC_CHANNEL_0:
+		return RATIO(1, 1);
+	case ADC_CHANNEL_1:
+	case ADC_CHANNEL_2:
+	case ADC_CHANNEL_3:
+	case ADC_CHANNEL_PROG:
+		return (scale ? RATIO(400, 1025) : RATIO(1, 1));
+	case ADC_CHANNEL_VBAT:		//Vbat
+	//case ADC_CHANNEL_ISENSE:
+		return RATIO(7, 29);
+	case ADC_CHANNEL_VCHGSEN:
+		if(ana_chip_id == 0x2731a000){
+			printk("this is 0x2731a000\n");
+			return RATIO(900, 68);  //aa
+		}else{
+			return RATIO(900, 375); //ab
+		}
+	case ADC_CHANNEL_VCHGBG:
+	case ADC_CHANNEL_TPYD:
+		return (scale ? RATIO(100, 125) : RATIO(1, 1));
+	case ADC_CHANNEL_DCDCCORE:  //dcdc core/arm/mem/gen/rf/con/wpa
+		mux = mux >> 12;
+		switch (mux) {
+		case 1: //dcdcarm //arm0
+		case 2: //dcdccore //arm1
+			return (scale ? RATIO(4, 5) : RATIO(1, 1));
+		case 3: //dcdcmem
+			return (scale ? RATIO(3, 5) : RATIO(3, 4));
+		case 4: //dcdcgen
+			return (scale ? RATIO(49, 125) : RATIO(49, 100));
+		case 5: //dcdcrf
+			return (scale ? RATIO(9, 20) : RATIO(9, 16));
+		case 6: //dcdccon
+			return (scale ? RATIO(4, 5) : RATIO(1, 1));
+		case 7: //dcdwpa
+			return (scale ? RATIO(36, 170) : RATIO(9, 34));
+		case 8: //dcdgpu
+			return (scale ? RATIO(4, 5) : RATIO(1, 1));
+		default:
+		return RATIO(1, 1);
+		}
+	case ADC_CHANNEL_VBATBK:	//SDAVDD 19
+		return RATIO(1, 3);
+	case ADC_CHANNEL_HEADMIC:    //20
+		mux = mux >> 4;
+		switch (mux) {
+		case 1: //HEADMIC_IN
+		case 2: //GND_DET
+		case 3: //HPL
+		case 4: //HEADSET_L_INT
+			return (scale ? RATIO(1, 3) : RATIO(1, 1));
+		case 5: //VDDVB
+		case 6: //VDDAO
+		case 7: //VDDPA
+		case 8: //CPVDD
+		case 9: //MICBIAS
+		case 10: //AUXMICBIAS
+		case 11: //HEADMICBIAS
+			return (scale ? RATIO(1, 12) : RATIO(1, 4));
+		default:
+		return RATIO(1, 1);
+		}
+	case ADC_CHANNEL_LDO0:		//dcdc supply LDO, vdd18/vddcamd/vddcamio/vddrf0/vddgen1/vddgen0
+	case ADC_CHANNEL_LDO1:		//VbatD Domain LDO, vdd25/vddcama/vddsim2/vddsim1/vddsim0
+	case ADC_CHANNEL_LDO2:		//VbatA Domain LDO,  vddwifipa/vddcammot/vddemmccore/vdddcxo/vddsdcore/vdd28
+		return RATIO(9, 25);
+	case ADC_CHANNEL_USBDP:		//DP from terminal
+	case ADC_CHANNEL_USBDM:		//DM from terminal
+		return RATIO(1, 1);
 
 	default:
 		return RATIO(1, 1);
@@ -827,7 +933,7 @@ int sci_adc_get_values(struct adc_sample_data *adc)
 		udelay(50);
 	}
 
-	if (!cnt) {
+	if (cnt == -1){
 		ret = -1;
 		WARN_ON(1);
 		goto Exit;
@@ -864,6 +970,8 @@ static int __average(int a[], int N)
 
 static int sci_adc_set_current(u8 enable, int isen)
 {
+#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+#else
 	if(enable) {
 		/* BITS_AUXAD_CURRENT_IBS = (isen * 100 / 125 -1) */
 		isen = (isen * 100 / 125 -1);
@@ -874,7 +982,7 @@ static int sci_adc_set_current(u8 enable, int isen)
 	} else {
 		sci_adi_clr(ANA_REG_GLB_AUXAD_CTL, BIT_AUXAD_CURRENTSEN_EN);
 	}
-
+#endif
 	return 0;
 }
 
@@ -978,7 +1086,7 @@ static int __init adc_cali_proc(char *str)
 __setup("adc_cal", adc_cali_proc);
 
 
-static int adc2vbat(int adc_res, int scale)
+int adc2vbat(int adc_res, int scale)
 {
 	int t = 0;
 

@@ -63,9 +63,10 @@
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <linux/device.h>
-
+#include <linux/notifier.h>
 
 #include <asm/io.h>
+#include <asm/current.h>
 # include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
 #include <linux/gpio.h>
@@ -98,7 +99,9 @@ static struct gadget_wrapper {
 	 */
 	struct workqueue_struct *cable2pc_wq;
 	struct workqueue_struct *detect_wq;
+	struct workqueue_struct *reinit_wq;
 	struct work_struct detect_work;
+	struct work_struct reinit_work;
 	struct delayed_work cable2pc;
 
 	struct switch_dev sdev;
@@ -110,44 +113,41 @@ static struct gadget_wrapper {
 } *gadget_wrapper;
 
 static struct wake_lock usb_wake_lock;
-static u64 dwc_otg_pcd_dmamask = DMA_BIT_MASK(32);
 
+
+static BLOCKING_NOTIFIER_HEAD(usb_chain_head);
 static DEFINE_MUTEX(udc_lock);
-
-#define USB_SETUP_TIMEOUT_RESTART
 
 #define CABLE_TIMEOUT		(HZ*15)
 
 /* Display the contents of the buffer */
 extern void dump_msg(const u8 * buf, unsigned int length);
 
-#if 0
-/**
- * Get the dwc_otg_pcd_ep_t* from usb_ep* pointer - NULL in case
- * if the endpoint is not found
- */
-static struct dwc_otg_pcd_ep *ep_from_handle(dwc_otg_pcd_t * pcd, void *handle)
-{
-	int i;
-	if (pcd->ep0.priv == handle) {
-		return &pcd->ep0;
-	}
-
-	for (i = 0; i < MAX_EPS_CHANNELS - 1; i++) {
-		if (pcd->in_ep[i].priv == handle)
-			return &pcd->in_ep[i];
-		if (pcd->out_ep[i].priv == handle)
-			return &pcd->out_ep[i];
-	}
-
-	return NULL;
-}
-#endif
 extern int in_calibration(void);
 extern void dwc_otg_pcd_stop(dwc_otg_pcd_t *pcd);
 static void dwc_otg_clear_all_int(dwc_otg_core_if_t *core_if);
-static struct timer_list reinit_USB_timer;
+static struct timer_list reinit_usb_timer;
 static int factory_mode = false;
+static int start_usb_flag = 0;
+
+int register_usb_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&usb_chain_head, nb);
+}
+EXPORT_SYMBOL_GPL(register_usb_notifier);
+
+int unregister_usb_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&usb_chain_head, nb);
+}
+EXPORT_SYMBOL_GPL(unregister_usb_notifier);
+
+static int usb_notifier_call_chain(unsigned long val)
+{
+	return (blocking_notifier_call_chain(&usb_chain_head, val, NULL)
+		== NOTIFY_BAD) ? -EINVAL : 0;
+}
+
 static int __init factory_start(char *str)
 {
         if(str)
@@ -161,13 +161,53 @@ int in_factory_mode(void)
 {
 	return (factory_mode == true);
 }
-#ifdef USB_SETUP_TIMEOUT_RESTART
-static struct timer_list setup_transfer_timer;
-static  int suspend_count = 0;
-static  int setup_transfer_timer_start = 0;
-void dwc_udc_startup(void);
-void dwc_udc_shutdown(void);
 
+#if 0 //Block this code because of chapter9 fail issue.
+static void usb_reinit_works(void)
+{
+	struct gadget_wrapper *d;
+
+	d = gadget_wrapper;
+
+	DWC_PRINTF("reinit start ...\n");
+	dwc_otg_disable_global_interrupts(GET_CORE_IF(d->pcd));
+	dwc_otg_clear_all_int(GET_CORE_IF(d->pcd));
+	dwc_otg_pcd_stop(d->pcd);
+	udc_disable();
+	mdelay(200);
+	udc_enable();
+	dwc_otg_core_init(GET_CORE_IF(d->pcd));
+	dwc_otg_enable_global_interrupts(GET_CORE_IF(d->pcd));
+	dwc_otg_core_dev_init(GET_CORE_IF(d->pcd));
+}
+static void reinit_usb_timer_fun(unsigned long para)
+{
+	struct gadget_wrapper *d;
+
+	d = gadget_wrapper;
+	queue_work(d->reinit_wq, &d->reinit_work);
+	del_timer(&reinit_usb_timer);
+}
+void _reinit_usb_later(dwc_otg_pcd_t *pcd)
+{
+	dctl_data_t	dctl = {.d32=0};
+	dwc_otg_dev_if_t *dev_if;
+
+	if (pcd->reinit_flag == 0)
+		return;
+
+	dev_if = pcd->core_if->dev_if;
+	dctl.d32 = DWC_READ_REG32(&dev_if->dev_global_regs->dctl);
+	dctl.b.sftdiscon = 1;
+	DWC_WRITE_REG32(&dev_if->dev_global_regs->dctl, dctl.d32);
+
+	DWC_PRINTF("call reinit USB controller...\n");
+
+	mod_timer(&reinit_usb_timer, jiffies + 3*HZ);
+}
+#endif
+
+#if 1  //160104 add below codes for disable mtp function.
 int dwc_peripheral_start(void *data, bool enable);
 
 static int vbus_session(struct usb_gadget *gadget, bool is_active)
@@ -175,47 +215,20 @@ static int vbus_session(struct usb_gadget *gadget, bool is_active)
 	dwc_peripheral_start(NULL, is_active);
 	return 0;
 }
+#endif
 
-static void monitor_setup_transfer(unsigned long para)
-{
-	dwc_otg_pcd_t *pcd;
-	int	in_ep_ctrl=0;
-	int     in_ep_tsiz=0;
-	dwc_otg_core_if_t *core_if;
-	dwc_otg_dev_if_t *dev_if;
+static struct timer_list setup_transfer_timer;
+static  int setup_transfer_timer_start = 0;
 
-	pcd = (dwc_otg_pcd_t *)para;
-
-	if(pcd==NULL)
-		return;
-	core_if = GET_CORE_IF(pcd);
-	dev_if = core_if->dev_if;
-	if(pcd->ep0state == EP0_DISCONNECT)
-		return;
-	in_ep_ctrl = dwc_read_reg32(&dev_if->in_ep_regs[0]->diepctl);
-	in_ep_tsiz = dwc_read_reg32(&dev_if->in_ep_regs[0]->dieptsiz);
-	if((in_ep_ctrl & 0x80000000) && (in_ep_tsiz & 0x80000))
-		suspend_count++;
-	else
-		suspend_count=0;
-	if(suspend_count > 5){
-		pr_info("Reset USB Controller...");
-		dwc_udc_shutdown();
-		mdelay(500);
-		dwc_udc_startup();
-	}
-}
 static void setup_transfer_timer_fun(unsigned long para)
 {
-	monitor_setup_transfer((unsigned long)gadget_wrapper->pcd);
-	if(gadget_wrapper->pcd->ep0state != EP0_DISCONNECT)
-		mod_timer(&setup_transfer_timer, jiffies + HZ);
-	else {
+	if (gadget_wrapper->pcd->reinit_flag) {
 		setup_transfer_timer_start = 0;
-		del_timer(&setup_transfer_timer);
+#if 0 //Block this code because of chapter9 fail issue.
+		_reinit_usb_later(gadget_wrapper->pcd);
+#endif
 	}
 }
-#endif
 /* USB Endpoint Operations */
 /*
  * The following sections briefly describe the behavior of the Gadget
@@ -330,6 +343,7 @@ static struct usb_request *dwc_otg_pcd_alloc_request(struct usb_ep *ep,
 	}
 	memset(usb_req, 0, sizeof(*usb_req));
 	usb_req->dma = DWC_DMA_ADDR_INVALID;
+	INIT_LIST_HEAD (&usb_req->list);
 
 	return usb_req;
 }
@@ -402,7 +416,11 @@ static int ep_queue(struct usb_ep *usb_ep, struct usb_request *usb_req,
 
 	usb_req->status = -EINPROGRESS;
 	usb_req->actual = 0;
-
+	if (pcd->ep0state == EP0_DISCONNECT) {
+		DWC_PRINTF("%s EP0_DISCONNECT(%d): ep_queue %s 0x%p\n",
+			current->comm, current->pid, usb_ep->name, usb_ep);
+		return -ESHUTDOWN;
+	}
 	retval = dwc_otg_pcd_ep_queue(pcd, usb_ep, usb_req->buf, usb_req->dma/*dma_addr*/,
 				      usb_req->length, usb_req->zero, usb_req->num_sgs,
 				      usb_req->sg, usb_req, gfp_flags == GFP_ATOMIC ? 1 : 0);
@@ -431,6 +449,10 @@ static int ep_dequeue(struct usb_ep *usb_ep, struct usb_request *usb_req)
 	    gadget_wrapper->gadget.speed == USB_SPEED_UNKNOWN) {
 		DWC_WARN("bogus device state\n");
 		return -ESHUTDOWN;
+	}
+	if (gadget_wrapper->pcd->ep0state == EP0_DISCONNECT) {
+		DWC_PRINTF("%s EP0_DISCONNECT(%d): ep_dequeue %s 0x%p\n",
+			current->comm, current->pid, usb_ep->name, usb_ep);
 	}
 	if (dwc_otg_pcd_ep_dequeue(gadget_wrapper->pcd, usb_ep, usb_req)) {
 		return -EINVAL;
@@ -693,7 +715,6 @@ static int pullup(struct usb_gadget *gadget, int is_on)
 {
 	struct gadget_wrapper *d;
 	int action = is_on;
-
 	if (gadget == 0)
 		return -ENODEV;
 	else
@@ -704,7 +725,6 @@ static int pullup(struct usb_gadget *gadget, int is_on)
 	if(!usb_get_id_state())
 		return 0;
 #endif
-
 #ifdef CONFIG_USB_EXTERNAL_DETECT
 	if (!d->enabled || !d->vbus)
 	{
@@ -719,6 +739,7 @@ static int pullup(struct usb_gadget *gadget, int is_on)
 	}
 	mutex_unlock(&udc_lock);
 #else
+		
 	if (!d->enabled || !d->vbus)
 		action = 0;
 
@@ -749,7 +770,9 @@ static const struct usb_gadget_ops dwc_otg_pcd_ops = {
 	.lpm_support = test_lpm_enabled,
 #endif
 	.pullup	= pullup,
+#if 1  //160104 add below codes for disable mtp function.
 	.vbus_session = vbus_session,
+#endif
 	// current versions must always be self-powered
 	.udc_start = dwc_usb_gadget_start,
 	.udc_stop = dwc_usb_gadget_stop,
@@ -758,12 +781,11 @@ static const struct usb_gadget_ops dwc_otg_pcd_ops = {
 static int _setup(dwc_otg_pcd_t * pcd, uint8_t * bytes)
 {
 	int retval = -DWC_E_NOT_SUPPORTED;
-#ifdef USB_SETUP_TIMEOUT_RESTART
-	if(setup_transfer_timer_start == 0){
+
+	if (pcd->reinit_flag == 1 && setup_transfer_timer_start == 0) {
 		setup_transfer_timer_start = 1;
-		mod_timer(&setup_transfer_timer, jiffies + HZ);
+		mod_timer(&setup_transfer_timer, jiffies + HZ/2);
 	}
-#endif
 	if (gadget_wrapper->driver && gadget_wrapper->driver->setup) {
 		retval = gadget_wrapper->driver->setup(&gadget_wrapper->gadget,
 				(struct usb_ctrlrequest
@@ -847,6 +869,11 @@ static int _complete(dwc_otg_pcd_t * pcd, void *ep_handle,
 		default:
 			req->status = status;
 
+		}
+		if (pcd->ep0.priv == ep_handle && pcd->reinit_flag == 1) {
+			pcd->reinit_flag = 3;
+			setup_transfer_timer_start = 0;
+			del_timer(&setup_transfer_timer);
 		}
 		req->actual = actual;
 		DWC_SPINUNLOCK(pcd->lock);
@@ -1088,7 +1115,6 @@ static struct gadget_wrapper *alloc_wrapper(
 	static char pcd_name[] = "dwc_otg";
 	dwc_otg_device_t *otg_dev = platform_get_drvdata(_dev);
 	struct gadget_wrapper *d;
-	int retval;
 
 	d = dwc_alloc(sizeof(*d));
 	if (d == NULL) {
@@ -1149,6 +1175,7 @@ static void __udc_startup(void)
 	pr_info("USB:startup udc\n");
 	if (!d->udc_startup) {
 		wake_lock(&usb_wake_lock);
+
 		udc_enable();
 		dwc_otg_core_init(GET_CORE_IF(d->pcd));
 		dwc_otg_enable_global_interrupts(GET_CORE_IF(d->pcd));
@@ -1234,28 +1261,6 @@ void udc_phy_up(void)
 
 	//dwc_otg_dev_soft_connect(GET_CORE_IF(d->pcd));
 }
-static struct usb_hotplug_callback *hotplug_cb;
-static void hotplug_callback(int event, int usb_cable)
-{
-	if (unlikely(!hotplug_cb || !hotplug_cb->plugin))
-		pr_warning("%s, hotplug call back is not registered\n",
-			__func__);
-	switch (event) {
-	case VBUS_PLUG_IN:
-		if (hotplug_cb && hotplug_cb->plugin)
-			hotplug_cb->plugin(usb_cable, hotplug_cb->data);
-		break;
-	case VBUS_PLUG_OUT:
-		if (hotplug_cb && hotplug_cb->plugout)
-			hotplug_cb->plugout(usb_cable, hotplug_cb->data);
-		break;
-	default:
-		pr_warning("hotplug envent error %d\n", event);
-		break;
-	}
-	return;
-}
-
 
 static int cable_is_usb(void)
 {
@@ -1294,17 +1299,23 @@ static void usb_detect_works(struct work_struct *work)
 
 	mutex_lock(&udc_lock);
 	if (plug_in){
-		pr_info("usb detect plug in,vbus pull up\n");
-		hotplug_callback(VBUS_PLUG_IN, 0);
-		if(get_usb_first_enable_store_flag()){
-			queue_delayed_work(d->cable2pc_wq, &d->cable2pc,CABLE_TIMEOUT);
-			__udc_startup();
+		if (start_usb_flag == 0) {
+			pr_info("usb detect plug in,vbus pull up\n");
+			usb_notifier_call_chain(USB_CABLE_PLUG_IN);
+			if (get_usb_first_enable_store_flag()) {
+				queue_delayed_work(d->cable2pc_wq, &d->cable2pc, CABLE_TIMEOUT);
+				__udc_startup();
+			}
+			start_usb_flag = 1;
 		}
 	} else {
-		pr_info("usb detect plug out,vbus pull down\n");
-		cancel_delayed_work_sync(&d->cable2pc);
-		__udc_shutdown();
-		hotplug_callback(VBUS_PLUG_OUT, cable_is_usb());
+		if (start_usb_flag == 1) {
+			pr_info("usb detect plug out,vbus pull down\n");
+			cancel_delayed_work_sync(&d->cable2pc);
+			__udc_shutdown();
+			usb_notifier_call_chain(USB_CABLE_PLUG_OUT);
+			start_usb_flag = 0;
+		}
 	}
 	mutex_unlock(&udc_lock);
 	switch_set_state(&d->sdev, !!plug_in);
@@ -1416,7 +1427,6 @@ int dwc_peripheral_start(void *data, bool enable)
 	d = gadget_wrapper;
 
 	pr_info("usb: %s d->vbus=%d, enable=%d\n", __func__, d->vbus, enable);
-
 	mutex_lock(&udc_lock);
 	d->vbus = enable;
 	if ( !d->softconnect )
@@ -1428,6 +1438,9 @@ int dwc_peripheral_start(void *data, bool enable)
 
 	if(enable) {
 		wake_lock(&usb_wake_lock);
+#ifndef CONFIG_SEC_FACTORY
+		dwc_otg_set_param_dma_desc_enable(GET_CORE_IF(d->pcd),1);
+#endif
 		udc_enable();
 		dwc_otg_core_init(GET_CORE_IF(d->pcd));
 		dwc_otg_enable_global_interrupts(GET_CORE_IF(d->pcd));
@@ -1445,6 +1458,7 @@ int dwc_peripheral_start(void *data, bool enable)
 	return 0;
 }
 
+
 /**
  * This function initialized the PCD portion of the driver.
  *
@@ -1460,19 +1474,12 @@ int pcd_init(
 	int plug_irq;
 
 	DWC_DEBUGPL(DBG_PCDV, "%s(%p)\n", __func__, _dev);
+	
 
-	device_dwc_otg = &(_dev->dev);
-	if (dwc_otg_is_dma_enable(otg_dev->core_if)) {
-		_dev->dev.dma_mask = &dwc_otg_pcd_dmamask;
-		_dev->dev.coherent_dma_mask = dwc_otg_pcd_dmamask;
-	} else {
-		_dev->dev.dma_mask = (void *)0;
-		_dev->dev.coherent_dma_mask = 0;
-	}
 
 	wake_lock_init(&usb_wake_lock, WAKE_LOCK_SUSPEND, "usb_work");
 //	wake_lock(&usb_wake_lock);
-	otg_dev->pcd = dwc_otg_pcd_init(otg_dev->core_if);
+	dwc_otg_pcd_init(otg_dev);
 
 	if (!otg_dev->pcd) {
 		DWC_ERROR("dwc_otg_pcd_init failed\n");
@@ -1503,52 +1510,51 @@ int pcd_init(
 	/*
 	 * initialize a timer for checking cable type.
 	 */
-#ifdef USB_SETUP_TIMEOUT_RESTART
-	{
-		setup_timer(&setup_transfer_timer,
-			setup_transfer_timer_fun,
-			(unsigned long)gadget_wrapper);
-		setup_transfer_timer_start = 0;
-	}
+	setup_timer(&setup_transfer_timer,
+		setup_transfer_timer_fun,
+		(unsigned long)gadget_wrapper);
+	setup_transfer_timer_start = 0;
+#if 0 // Block this code because of chapter9 fail issue.
+	setup_timer(&reinit_usb_timer, reinit_usb_timer_fun,
+		(unsigned long) gadget_wrapper);
 #endif
+
 	INIT_DELAYED_WORK(&gadget_wrapper->cable2pc, cable2pc_detect_works);
-	gadget_wrapper->cable2pc_wq = create_singlethread_workqueue("usb 2 pc wq");
+	gadget_wrapper->cable2pc_wq =
+		create_singlethread_workqueue("USB2pcWq");
 
 #ifdef CONFIG_USB_EXTERNAL_DETECT
 	register_otg_func(NULL, dwc_peripheral_start, otg_dev);
 #else
-
 	/*
 	 * setup usb cable detect interupt
 	 */
+
 #ifndef CONFIG_MFD_SM5504
-	{
-		plug_irq = usb_alloc_vbus_irq(pdata->gpio_chgdet);
-		if (plug_irq < 0) {
-			pr_warning("cannot alloc vbus irq\n");
-			return -EBUSY;
-		}
-		usb_set_vbus_irq_type(plug_irq, VBUS_PLUG_IN);
-		#ifdef CONFIG_SC_FPGA
-		gadget_wrapper->vbus = 1;
-		#else
-		gadget_wrapper->vbus = usb_get_vbus_state();
-		#endif
-		pr_info("now usb vbus is :%d\n", gadget_wrapper->vbus);
-		retval = request_irq(plug_irq, usb_detect_handler, IRQF_SHARED | IRQF_NO_SUSPEND,
-				"usb detect", otg_dev->pcd);
-#ifndef CONFIG_MUIC_CABLE_DETECT
-		disable_irq(plug_irq);
-#endif
+	plug_irq = usb_alloc_vbus_irq(pdata->gpio_chgdet);
+	if (plug_irq < 0) {
+		pr_warning("cannot alloc vbus irq\n");
+		return -EBUSY;
 	}
-	//gadget_wrapper->vbus = 1;//used when debug in FPGA, which doesn't have vbus operation
+	usb_set_vbus_irq_type(plug_irq, VBUS_PLUG_IN);
+
+	gadget_wrapper->vbus = usb_get_vbus_state();
+
+	pr_info("now usb vbus is :%d\n", gadget_wrapper->vbus);
+	retval = request_irq(plug_irq, usb_detect_handler, IRQF_SHARED | IRQF_NO_SUSPEND,
+			"usb detect", otg_dev->pcd);
+#ifdef CONFIG_MUIC_CABLE_DETECT
+	disable_irq(plug_irq);
+#endif
 #endif
 	spin_lock_init(&gadget_wrapper->lock);
-#ifdef CONFIG_SC_FPGA
-	gadget_wrapper->vbus = 1;
-#endif
+
 	INIT_WORK(&gadget_wrapper->detect_work, usb_detect_works);
-	gadget_wrapper->detect_wq = create_singlethread_workqueue("usb detect wq");
+	gadget_wrapper->detect_wq =
+		create_singlethread_workqueue("USBDetectWq");
+	INIT_WORK(&gadget_wrapper->reinit_work, usb_reinit_works);
+	gadget_wrapper->reinit_wq =
+		create_singlethread_workqueue("USBReinitWq");
 #endif
 	/*
 	 * register a switch device for sending pnp message,
@@ -1607,6 +1613,7 @@ struct platform_device *_dev
 	dwc_otg_pcd_remove(pcd);
 	destroy_workqueue(gadget_wrapper->detect_wq);
 	destroy_workqueue(gadget_wrapper->cable2pc_wq);
+	destroy_workqueue(gadget_wrapper->reinit_wq);
 	wake_lock_destroy(&usb_wake_lock);
 	switch_dev_unregister(&gadget_wrapper->sdev);
 	free_wrapper(gadget_wrapper);
@@ -1625,7 +1632,6 @@ struct platform_device *_dev
  */
 static int dwc_usb_gadget_start(struct usb_gadget *gadget, struct usb_gadget_driver *driver)
 {
-	int retval;
 
 	DWC_DEBUGPL(DBG_PCD, "registering gadget driver '%s'\n",
 			driver->driver.name);
@@ -1676,42 +1682,6 @@ static int dwc_usb_gadget_stop(struct usb_gadget *gadget, struct usb_gadget_driv
 	DWC_DEBUGPL(DBG_ANY, "unregistered driver '%s'\n", driver->driver.name);
 	return 0;
 }
-
-int usb_register_hotplug_callback(struct usb_hotplug_callback *cb)
-{
-	int ret = 0;
-	int plug_irq = usb_get_vbus_irq();
-	if (cb){
-		hotplug_cb = cb;
-		enable_irq(plug_irq);
-	} else {
-		pr_warning("%s, error\n", __func__);
-		ret = -EINVAL;
-	}
-	return ret;
-}
-EXPORT_SYMBOL(usb_register_hotplug_callback);
-
-struct device *get_gadget_wrapper_device()
-{
-#ifdef CONFIG_ARM64
-if(NULL != device_dwc_otg)
-	{
-	return device_dwc_otg;
-	}
-else
-	{
-	gadget_wrapper->gadget.dev.dma_mask = &dwc_otg_pcd_dmamask;
-	gadget_wrapper->gadget.dev.coherent_dma_mask = dwc_otg_pcd_dmamask;
-	return &(gadget_wrapper->gadget.dev);
-	}
-#else
-    return NULL;
-#endif
-}
-
-EXPORT_SYMBOL(get_gadget_wrapper_device);
-
 
 #endif				/* DWC_HOST_ONLY */
 

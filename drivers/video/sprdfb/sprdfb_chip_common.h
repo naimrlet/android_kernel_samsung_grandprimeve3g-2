@@ -33,6 +33,8 @@
 #include "sprdfb_chip_8830.h"
 #elif defined(CONFIG_FB_SCX15)
 #include "sprdfb_chip_7715.h"
+#elif defined(CONFIG_FB_SC9001)
+#include "sprdfb_chip_9001.h"
 #else
 #error "Unknown architecture specification"
 #endif
@@ -48,7 +50,11 @@ void dispc_dpi_clk_set(unsigned int clk_src, unsigned int clk_div);
 
 void dsi_enable(void);
 void dsi_disable(void);
-
+#ifdef CONFIG_FB_SC9001
+int disp_domain_power_ctrl(int enable);
+void dispc_early_configs(void);
+void dispc_disable_configs(void);
+#endif
 u32 dispc_glb_read(unsigned long reg);
 
 void dispc_print_clk(void);

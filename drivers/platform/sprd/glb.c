@@ -41,11 +41,6 @@ static int __is_glb(unsigned long reg)
 {
 #if	defined (CONFIG_ARCH_SCX35)
 	return 0;
-	return rounddown(reg, SZ_64K) == rounddown(REGS_GLB_BASE, SZ_64K) ||
-	    rounddown(reg, SZ_64K) == rounddown(REGS_AHB_BASE, SZ_64K) ||
-	    rounddown(reg, SZ_64K) == rounddown(REGS_AP_APB_BASE, SZ_64K) ||
-	    rounddown(reg, SZ_64K) == rounddown(REGS_PMU_APB_BASE, SZ_64K);
-
 #else
 	return rounddown(reg, SZ_64K) == rounddown(REGS_GLB_BASE, SZ_64K) ||
 	    rounddown(reg, SZ_64K) == rounddown(REGS_AHB_BASE, SZ_64K);

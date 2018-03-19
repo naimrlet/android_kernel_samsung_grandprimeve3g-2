@@ -14,6 +14,9 @@
 #include <linux/bitops.h>
 #include <linux/hardirq.h> /* for in_interrupt() */
 #include <linux/hugetlb_inline.h>
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+#include <linux/sched.h>
+#endif
 
 /*
  * Bits in mapping->flags.  The lower __GFP_BITS_SHIFT bits are the page
@@ -404,6 +407,12 @@ extern int wait_on_page_bit_killable(struct page *page, int bit_nr);
 
 static inline int wait_on_page_locked_killable(struct page *page)
 {
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	if (PageLocked(page) && (page->mapping && !((unsigned long)page->mapping & 0x1))){
+		current->lock_on_page = page;
+		current->lock_on_buffer = NULL;
+	}
+#endif
 	if (PageLocked(page))
 		return wait_on_page_bit_killable(page, PG_locked);
 	return 0;
@@ -418,6 +427,12 @@ static inline int wait_on_page_locked_killable(struct page *page)
  */
 static inline void wait_on_page_locked(struct page *page)
 {
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	if (PageLocked(page) && (page->mapping && !((unsigned long)page->mapping & 0x1))){
+		current->lock_on_page = page;
+		current->lock_on_buffer = NULL;
+	}
+#endif
 	if (PageLocked(page))
 		wait_on_page_bit(page, PG_locked);
 }

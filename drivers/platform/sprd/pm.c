@@ -20,7 +20,7 @@ extern void sc_pm_init(void);
 #include <asm/irqflags.h>
 #include <soc/sprd/pm_debug.h>
 #include <soc/sprd/globalregs.h>
-#if defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8)
+#if defined(CONFIG_ARCH_SCX35L64) || defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
 #include <soc/sprd/sprd_persistent_clock.h>
 #endif
 

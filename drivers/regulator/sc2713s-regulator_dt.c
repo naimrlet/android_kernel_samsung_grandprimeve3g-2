@@ -1187,6 +1187,7 @@ static int sci_regulator_parse_dt(struct platform_device *pdev,
 	desc->desc.id = (atomic_inc_return(&idx) - 1);
 	desc->desc.type = REGULATOR_VOLTAGE;
 	desc->desc.owner = THIS_MODULE;
+	desc->desc.continuous_voltage_range = true;
 
 	supply[0].dev_name = NULL;
 	supply[0].supply = np->name;
@@ -1326,7 +1327,7 @@ static int sci_regulator_register_dt(struct platform_device *pdev)
 
 	debug("regulators desc list 0x%p, count %d, sci_regulator_desc size %d\n", sci_desc, regu_cnt, sizeof(struct sci_regulator_desc));
 
-	for_each_child_of_node(dev_np, child_np) {
+	for_each_available_child_of_node(dev_np, child_np) {
 		if(0 == strcmp(child_np->name, "dummy")) /* skip dummy node */
 			continue;
 
@@ -1360,6 +1361,9 @@ static int sci_regulator_register_dt(struct platform_device *pdev)
 		if (!IS_ERR_OR_NULL(rdev)) {
 			rdev->reg_data = rdev;
 			sci_desc->data.rdev = rdev;
+			if(rdev->desc->ops->is_enabled(rdev)){
+			     rdev->use_count = 1;
+			}
 			__init_trimming(rdev);
 			rdev_init_debugfs(rdev);
 		}

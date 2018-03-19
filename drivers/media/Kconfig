@@ -18,7 +18,7 @@ comment "Multimedia core support"
 #
 # Multimedia support - automatically enable V4L2 and DVB core
 #
-
+source "drivers/media/sprd_gspn/Kconfig"
 source "drivers/media/sprd_gsp/Kconfig"
 config VIDEO_DCAM_SPRD
 	tristate "SPRD DCAM driver"
@@ -209,8 +209,7 @@ source "drivers/media/i2c/Kconfig"
 source "drivers/media/tuners/Kconfig"
 source "drivers/media/dvb-frontends/Kconfig"
 
-# MTV drivers
-#
-source "drivers/media/mtv/Kconfig"
-
 endif # MEDIA_SUPPORT
+
+#spreadtrum's FM radio based on SR2331 chip
+source "drivers/media/radio/sprd2331/Kconfig"

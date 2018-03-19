@@ -78,6 +78,7 @@
 #define HWRST_STATUS_CFTREBOOT		(0x90)
 #define HWRST_STATUS_AUTODLOADER	(0xa0)
 #define HWRST_STATUS_IQMODE			(0xb0)
+#define HWRST_STATUS_SPRDISK		(0xc0)
 
 void sprd_set_reboot_mode(const char *cmd);
 void sprd_turnon_watchdog(unsigned int ms);

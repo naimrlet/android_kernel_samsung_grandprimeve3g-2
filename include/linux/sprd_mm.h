@@ -68,6 +68,8 @@
 		__raw_writel((_tmp | ((m) & (v))), ((IO_PTR)(a))); \
 	} while(0)
 
+
+
 #define MM_ERROR_STR                                      "Error L %d, %s, %s \n"
 #define MM_ERROR_ARGS                                     __LINE__,__FILE__,__FUNCTION__
 #define MM_RTN_IF_ERR(rtn)   \
@@ -89,6 +91,7 @@
 	#define MM_TRACE(format,...)   pr_debug(format,...)
 #endif
 
+
 #ifdef CONFIG_SC_FPGA
 #define CONFIG_SC_FPGA_PIN
 #define CONFIG_SC_FPGA_CLK
@@ -107,6 +110,13 @@
 #endif
 #endif
 
+#ifdef  CONFIG_ARCH_WHALE
+#define REG_PMU_APB_PD_MM_TOP_CFG   REG_PMU_APB_PD_CAM_SYS_CFG
+#define BIT_PD_MM_TOP_FORCE_SHUTDOWN   (BIT_PMU_APB_PD_CAM_SYS_FORCE_SHUTDOWN|BIT_PMU_APB_PD_CAM_SYS_AUTO_SHUTDOWN_EN)
+#define BIT_MM_EB  BIT_AON_APB_CAM_EB
+
+#define REG_PMU_APB_CP_SOFT_RST     REG_PMU_APB_SYS_SOFT_RST
+#endif
 
 int32_t clk_mm_i_eb(struct device_node *dn, uint32_t enable);
 

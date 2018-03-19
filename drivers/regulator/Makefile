@@ -74,6 +74,7 @@ obj-$(CONFIG_REGULATOR_WM8400) += wm8400-regulator.o
 obj-$(CONFIG_REGULATOR_WM8994) += wm8994-regulator.o
 obj-$(CONFIG_REGULATOR_SPRD) += sprd-regulator.o
 obj-$(CONFIG_REGULATOR_SC2713) += sc2713-regulator.o
+obj-$(CONFIG_REGULATOR_SC2731) += sc2731-regulator_dt.o
 ifeq ($(CONFIG_OF), y)
 obj-$(CONFIG_REGULATOR_SC2713S) += sc2713s-regulator_dt.o
 else

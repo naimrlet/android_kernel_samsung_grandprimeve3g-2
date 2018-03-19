@@ -57,10 +57,11 @@
 #include        <linux/earlysuspend.h>
 #endif
 
-#include        <linux/i2c/lis3dh.h>
+#include <linux/i2c/lis3dh.h>
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 #include <linux/of_gpio.h>
+#include <linux/compat.h>
 
 #define	INTERRUPT_MANAGEMENT 1
 
@@ -751,6 +752,8 @@ static int lis3dh_acc_disable(struct lis3dh_acc_data *acc)
 static int lis3dh_acc_misc_open(struct inode *inode, struct file *file)
 {
 	int err;
+
+       printk("  %s :\n",__func__);
 	err = nonseekable_open(inode, file);
 	if (err < 0)
 		return err;
@@ -760,8 +763,8 @@ static int lis3dh_acc_misc_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static long lis3dh_acc_misc_ioctl(struct file *file, unsigned int cmd,
-				unsigned long arg)
+static long lis3dh_acc_misc_ioctl_handler(struct file *file, unsigned int cmd,
+				unsigned long  arg,int compat_mode)
 {
 	void __user *argp = (void __user *)arg;
 	u8 buf[4];
@@ -773,6 +776,8 @@ static long lis3dh_acc_misc_ioctl(struct file *file, unsigned int cmd,
 	int xyz[3] = { 0 };
 	struct lis3dh_acc_data *acc = file->private_data;
 
+       printk(" %s :ioctl cmd %d,compat_mode=%d\n",__func__, _IOC_NR(cmd),compat_mode);
+//    WARN_ON(1);
 	switch (cmd) {
 	case LIS3DH_ACC_IOCTL_GET_DELAY:
 		interval = acc->pdata->poll_interval;
@@ -786,9 +791,8 @@ static long lis3dh_acc_misc_ioctl(struct file *file, unsigned int cmd,
 		if (interval < 0 || interval > 1000)
 			return -EINVAL;
 
-		acc->pdata->poll_interval = max(interval,
-						acc->pdata->min_interval);
-		err = lis3dh_acc_update_odr(acc, acc->pdata->poll_interval);
+		acc->pdata->poll_interval = max(interval,acc->pdata->min_interval); // max the frequecy of g sensor
+		err = lis3dh_acc_update_odr(acc, 2);
 		/* TODO: if update fails poll is still set */
 		if (err < 0)
 			return err;
@@ -1095,10 +1099,25 @@ static long lis3dh_acc_misc_ioctl(struct file *file, unsigned int cmd,
 	return 0;
 }
 
+static long lis3dh_acc_misc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return lis3dh_acc_misc_ioctl_handler(file, cmd, (void __user *)arg, 0);
+}
+
+#ifdef CONFIG_COMPAT
+static long lis3dh_acc_misc_ioctl_compat(struct file *file,
+				unsigned int cmd, unsigned long arg)
+{
+	return lis3dh_acc_misc_ioctl_handler(file, cmd, compat_ptr(arg), 1);
+}
+#endif
 static const struct file_operations lis3dh_acc_misc_fops = {
 	.owner = THIS_MODULE,
 	.open = lis3dh_acc_misc_open,
 	.unlocked_ioctl = lis3dh_acc_misc_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = lis3dh_acc_misc_ioctl_compat,
+#endif
 };
 
 static struct miscdevice lis3dh_acc_misc_device = {
@@ -1380,8 +1399,16 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 	pr_debug("%s: %s has set irq2 to irq: %d\n",
 	       LIS3DH_ACC_DEV_NAME, __func__, acc->irq2);
 
-	gpio_request(GSENSOR_GINT1_GPI, "GSENSOR_INT1");
-	gpio_request(GSENSOR_GINT2_GPI, "GSENSOR_INT2");
+	err = gpio_request(GSENSOR_GINT1_GPI, "GSENSOR_INT1");
+	if (err) {
+		dev_err(&client->dev, "request GSENSOR_GINT1_GPI failed: %d\n", err);
+		goto err_mutexunlockfreedata;
+	}
+	err = gpio_request(GSENSOR_GINT2_GPI, "GSENSOR_INT2");
+	if (err) {
+		dev_err(&client->dev, "request GSENSOR_GINT2_GPI failed: %d\n", err);
+		goto err_mutexunlockfreedata;
+	}
 	acc->irq1 = 0; /* gpio_to_irq(GSENSOR_GINT1_GPI); */
 	acc->irq2 = 0; /* gpio_to_irq(GSENSOR_GINT2_GPI); */
 
@@ -1531,6 +1558,8 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 	lis3dh_acc_misc_data = acc;
 
 	err = misc_register(&lis3dh_acc_misc_device);
+
+	printk("yuebao %s err=%d\n",__func__,err);
 	if (err < 0) {
 		dev_err(&client->dev,
 			"misc LIS3DH_ACC_DEV_NAME register failed\n");

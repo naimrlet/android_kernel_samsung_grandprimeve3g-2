@@ -16,6 +16,9 @@
 
 struct spipe_init_data {
 	char			*name;
+#ifdef CONFIG_SIPC_V2
+	char			*sipc_name;
+#endif
 	uint8_t			dst;
 	uint8_t			channel;
 	uint32_t		ringnr;

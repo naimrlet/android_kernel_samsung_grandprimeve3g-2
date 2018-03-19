@@ -296,7 +296,7 @@ static int sprd_pcm_open(struct snd_pcm_substream *substream)
 		runtime->hw.periods_max =
 		    SPRD_AUDIO_DMA_NODE_SIZE / DMA_LINKLIST_CFG_NODE_SIZE;
 		runtime->hw.buffer_bytes_max =
-		    SPRD_IRAM_ALL_SIZE - (2 * SPRD_AUDIO_DMA_NODE_SIZE);
+		    SPRD_IRAM_ALL_SIZE - (2 * SPRD_AUDIO_DMA_NODE_SIZE) - 0x10;
 		rtd->buffer_in_iram = 1;
 		rtd->dma_cfg_virt[0] = s_iram_remap_base + runtime->hw.buffer_bytes_max;
 		rtd->dma_cfg_phy[0] = SPRD_IRAM_ALL_PHYS + runtime->hw.buffer_bytes_max;
@@ -612,7 +612,7 @@ static int sprd_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	do {
 		for (i = 0; i < used_chan_count; i++) {
-			(dma_config_ptr[i]+j)->datawidth = 1;
+			(dma_config_ptr[i]+j)->datawidth = dma_data->desc.datawidth;
 			if (sprd_is_i2s(srtd->cpu_dai)) {
 				if (substream->stream ==
 				    SNDRV_PCM_STREAM_PLAYBACK) {
@@ -631,7 +631,12 @@ static int sprd_pcm_hw_params(struct snd_pcm_substream *substream,
 			(dma_config_ptr[i]+j)->block_len = period / used_chan_count;
 			(dma_config_ptr[i]+j)->transcation_len = 0;
 			(dma_config_ptr[i]+j)->req_mode = FRAG_REQ_MODE;
-			(dma_config_ptr[i]+j)->irq_mode= BLK_DONE;
+			if (params->flags & SNDRV_PCM_HW_PARAMS_NO_PERIOD_WAKEUP) {
+				(dma_config_ptr[i]+j)->irq_mode= NO_INT;
+			}
+			else {
+				(dma_config_ptr[i]+j)->irq_mode= BLK_DONE;
+			}
 
 			if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 				(dma_config_ptr[i]+j)->src_step = dma_data->desc.src_step;
@@ -1010,7 +1015,7 @@ static void sprd_pcm_free_dma_buffers(struct snd_pcm *pcm)
 			sprd_buffer_iram_restore();
 		else
 #endif
-			dma_alloc_coherent(pcm->card->dev, buf->bytes,
+			dma_free_coherent(pcm->card->dev, buf->bytes,
 					      buf->area, buf->addr);
 		buf->area = NULL;
 		if (buf == save_p_buf) {

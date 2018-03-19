@@ -538,13 +538,24 @@ int check_tsp_channel(void *dev_data, int width, int height)
 	struct ist30xx_data *data = (struct ist30xx_data *)dev_data;
 	struct sec_factory *sec = (struct sec_factory *)&data->sec;
 
-	if ((sec->cmd_param[0] < 0) || (sec->cmd_param[0] >= width) ||
-	    (sec->cmd_param[1] < 0) || (sec->cmd_param[1] >= height)) {
-		tsp_info("%s: parameter error: %u,%u\n",
-			 __func__, sec->cmd_param[0], sec->cmd_param[1]);
+	if (data->tsp_info.dir.swap_xy) {
+		if ((sec->cmd_param[0] < 0) || (sec->cmd_param[0] >= height) ||
+		    (sec->cmd_param[1] < 0) || (sec->cmd_param[1] >= width)) {
+			tsp_info("%s: parameter error: %u,%u\n",
+				__func__, sec->cmd_param[0], sec->cmd_param[1]);
+		} else {
+			node = sec->cmd_param[1] + sec->cmd_param[0] * width;
+			tsp_info("%s: node = %d\n", __func__, node);
+		}
 	} else {
-		node = sec->cmd_param[0] + sec->cmd_param[1] * width;
-		tsp_info("%s: node = %d\n", __func__, node);
+		if ((sec->cmd_param[0] < 0) || (sec->cmd_param[0] >= width) ||
+		    (sec->cmd_param[1] < 0) || (sec->cmd_param[1] >= height)) {
+			tsp_info("%s: parameter error: %u,%u\n",
+				__func__, sec->cmd_param[0], sec->cmd_param[1]);
+		} else {
+			node = sec->cmd_param[0] + sec->cmd_param[1] * width;
+			tsp_info("%s: node = %d\n", __func__, node);
+		}
 	}
 
 	return node;
@@ -1426,7 +1437,7 @@ int sec_touch_sysfs(struct ist30xx_data *data)
 	struct ist30xx_platform_data *pdata = data->pdata;
 
 	/* /sys/class/sec/sec_touchscreen */
-	sec_touchscreen = device_create(sec_class, NULL, 1, data,
+	sec_touchscreen = device_create(sec_class, NULL, (dev_t)&sec_touchscreen, data,
 					"sec_touchscreen");
 	if (IS_ERR(sec_touchscreen)) {
 		tsp_err("Failed to create device (%s)!\n", "sec_touchscreen");
@@ -1438,20 +1449,22 @@ int sec_touch_sysfs(struct ist30xx_data *data)
 		goto err_sec_touchscreen_attr;
 	}
 
-	/* /sys/class/sec/sec_touchkey */
-	sec_touchkey = device_create(sec_class, NULL, 2, data, "sec_touchkey");
-	if (IS_ERR(sec_touchkey)) {
-		tsp_err("Failed to create device (%s)!\n", "sec_touchkey");
-		goto err_sec_touchkey;
-	}
-	/* /sys/class/sec/sec_touchkey/... */
-	if (sysfs_create_group(&sec_touchkey->kobj, &sec_tkey_attr_group)) {
-		tsp_err("Failed to create sysfs group(%s)!\n", "sec_touchkey");
-		goto err_sec_touchkey_attr;
+	if (!pdata->tkey) {
+		/* /sys/class/sec/sec_touchkey */
+		sec_touchkey = device_create(sec_class, NULL, (dev_t)&sec_touchkey, data, "sec_touchkey");
+		if (IS_ERR(sec_touchkey)) {
+			tsp_err("Failed to create device (%s)!\n", "sec_touchkey");
+			goto err_sec_touchkey;
+		}
+		/* /sys/class/sec/sec_touchkey/... */
+		if (sysfs_create_group(&sec_touchkey->kobj, &sec_tkey_attr_group)) {
+			tsp_err("Failed to create sysfs group(%s)!\n", "sec_touchkey");
+			goto err_sec_touchkey_attr;
+		}
 	}
 
 	/* /sys/class/sec/tsp */
-	sec_fac_dev = device_create(sec_class, NULL, 3, data, "tsp");
+	sec_fac_dev = device_create(sec_class, NULL, (dev_t)&sec_fac_dev, data, "tsp");
 	if (IS_ERR(sec_fac_dev)) {
 		tsp_err("Failed to create device (%s)!\n", "tsp");
 		goto err_sec_fac_dev;
@@ -1463,7 +1476,7 @@ int sec_touch_sysfs(struct ist30xx_data *data)
 	}
 
 	/* /sys/class/sec/tsp/input/ */
-	sec_pretest_dev = device_create(sec_class, sec_fac_dev, 4, data, "input");
+	sec_pretest_dev = device_create(sec_class, sec_fac_dev, (dev_t)&sec_pretest_dev, data, "input");
 	if (IS_ERR(sec_pretest_dev)) {
 		tsp_err("Failed to create device (%s)!\n", "tsp");
 		goto err_sec_pretest_dev;
@@ -1479,16 +1492,18 @@ int sec_touch_sysfs(struct ist30xx_data *data)
 	return 0;
 
 err_sec_pretest_dev_attr:
-	device_destroy(sec_class, 4);
+	device_destroy(sec_class, sec_pretest_dev->devt);
 err_sec_pretest_dev:
 err_sec_fac_dev_attr:
-	device_destroy(sec_class, 3);
+	device_destroy(sec_class, sec_fac_dev->devt);
 err_sec_fac_dev:
 err_sec_touchkey_attr:
-	device_destroy(sec_class, 2);
+	if (!pdata->tkey) {
+		device_destroy(sec_class, sec_touchkey->devt);
+	}
 err_sec_touchkey:
 err_sec_touchscreen_attr:
-	device_destroy(sec_class, 1);
+	device_destroy(sec_class, sec_touchscreen->devt);
 err_sec_touchscreen:
 
 	return -ENODEV;

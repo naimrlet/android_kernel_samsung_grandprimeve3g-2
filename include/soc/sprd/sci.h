@@ -15,6 +15,8 @@
 #ifndef __SPRD_SCI_H__
 #define __SPRD_SCI_H__
 
+#include <linux/types.h>
+
 /**
  * sci_glb_read - read value from d-die global register
  * @reg: global register address

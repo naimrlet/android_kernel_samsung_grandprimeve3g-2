@@ -1,0 +1,2 @@
+kernel/drivers/mmc/host/sprd/v_30/sdhost_v30.ko
+kernel/drivers/mmc/host/sprd/v_30/sdhost_debugfs_v30.ko

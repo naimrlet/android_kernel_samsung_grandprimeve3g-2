@@ -401,6 +401,7 @@ pipe_read(struct kiocb *iocb, const struct iovec *_iov,
 			void *addr;
 			size_t chars = buf->len, remaining;
 			int error, atomic;
+			int offset;
 
 			if (chars > total_len)
 				chars = total_len;
@@ -414,6 +415,7 @@ pipe_read(struct kiocb *iocb, const struct iovec *_iov,
 
 			atomic = !iov_fault_in_pages_write(iov, chars);
 			remaining = chars;
+			offset = buf->offset;
 redo:
 			addr = ops->map(pipe, buf, atomic);
 			error = pipe_iov_copy_to_user(iov, addr, &buf->offset,
@@ -825,7 +827,11 @@ void free_pipe_info(struct pipe_inode_info *pipe)
 			buf->ops->release(pipe, buf);
 	}
 	if (pipe->tmp_page)
+#ifndef CONFIG_SPRD_PAGERECORDER
 		__free_page(pipe->tmp_page);
+#else
+		__free_page_nopagedebug(pipe->tmp_page);
+#endif
 	kfree(pipe->bufs);
 	kfree(pipe);
 }

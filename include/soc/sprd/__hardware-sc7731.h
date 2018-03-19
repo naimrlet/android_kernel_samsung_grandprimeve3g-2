@@ -125,7 +125,7 @@ extern unsigned long sprd_adi_phys;
 #define ANA_PIN_BASE			(SPRD_ADISLAVE_BASE + 0x180 )
 #define ANA_THM_BASE			(SPRD_ADISLAVE_BASE + 0x280 )
 #define ADC_BASE				(SPRD_ADISLAVE_BASE + 0x300 )
-#define ANA_CTL_INT_BASE		(SPRD_ADISLAVE_BASE + 0x380 )
+#define ANA_INTC_BASE		(SPRD_ADISLAVE_BASE + 0x380 )
 #define ANA_BTLC_INT_BASE		(SPRD_ADISLAVE_BASE + 0x3c0 )
 #define ANA_AUDIFA_INT_BASE		(SPRD_ADISLAVE_BASE + 0x400 )
 #define ANA_GPIO_INT_BASE		(SPRD_ADISLAVE_BASE + 0x480 )
@@ -213,7 +213,11 @@ extern unsigned long sprd_adi_phys;
 #if defined(CONFIG_MODEM_W_MEMCUT)
 #define CPW_TOTAL_SIZE		(SZ_1M * 28)
 #elif defined CONFIG_ARCH_SCX30G
+#if defined CONFIG_ARCH_SCX30G3
+#define CPW_TOTAL_SIZE          (SZ_1M * 29)
+#else
 #define CPW_TOTAL_SIZE		(SZ_1M * 27)
+#endif
 #else
 #define CPW_TOTAL_SIZE		(SZ_1M * 33)
 #endif
@@ -231,17 +235,6 @@ extern unsigned long sprd_adi_phys;
 #define WCN_RING_ADDR		(WCN_START_ADDR + WCN_TOTAL_SIZE - SZ_4K)
 #define WCN_RING_SIZE			(SZ_4K)
 #define WCN_SMEM_SIZE		(SZ_512K + SZ_256K)
-#endif
-
-
-#ifdef CONFIG_SEC_DEBUG
-/* we have to consider io remap area to whether io memory ares is overlap or not
- * we have to set up device io map to not overlap
- */
-#define SPRD_SECDEBUG_BASE         SCI_IOMAP(0x460000)
-#define SPRD_SECDEBUG_PHYS         0x50003000
-#define SPRD_SECDEBUG_SIZE         (SZ_4K)
-#define SEC_DEBUG_MAGIC_BASE_VA    (SPRD_SECDEBUG_BASE)
 #endif
 
 #endif

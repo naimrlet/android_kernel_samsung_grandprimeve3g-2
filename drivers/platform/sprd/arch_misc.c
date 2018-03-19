@@ -220,6 +220,20 @@ void __init sc_init_chip_id(void)
 		chip_id = 0;
 		printk(KERN_WARNING"Chip id is wrong!\n");
 	}		
+#elif defined(CONFIG_ARCH_WHALE)
+	chip_id = __raw_readl((void *)REG_AON_APB_CHIP_ID0);
+	if (chip_id == 0x65000000) {
+		chip_id = __raw_readl((void *)REG_AON_APB_CHIP_ID1);
+		if (chip_id == 0x5768616c) {
+			chip_id = 0x9001;
+		} else {
+			chip_id = 0;
+			printk(KERN_WARNING"Chip id is wrong!\n");
+		}
+	} else {
+		chip_id = 0;
+		printk(KERN_WARNING"Chip id is wrong!\n");
+	}
 #elif defined(CONFIG_ARCH_SCX35)
 	chip_id = __raw_readl((void *)REG_AON_APB_CHIP_ID);
 	if (chip_id == 0)

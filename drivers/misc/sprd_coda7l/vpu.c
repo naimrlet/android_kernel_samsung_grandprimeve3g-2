@@ -45,6 +45,7 @@
 #include <linux/clk-provider.h>
 #include <linux/wakelock.h>
 
+#include <soc/sprd/arch_misc.h>
 #include <soc/sprd/sci.h>
 #include <soc/sprd/sci_glb_regs.h>
 
@@ -74,9 +75,9 @@
 /* if this driver knows the dedicated video memory address */
 //#define VPU_SUPPORT_RESERVED_VIDEO_MEMORY
 
-#define VPU_PLATFORM_DEVICE_NAME "vdec"
-#define VPU_CLK_NAME "vcodec"
-#define VPU_DEV_NAME "vpu"
+//#define VPU_PLATFORM_DEVICE_NAME "vdec"
+//#define VPU_CLK_NAME "vcodec"
+//#define VPU_DEV_NAME "vpu"
 
 #define __SPRD_MM_TIMEOUT            (1000)
 
@@ -114,15 +115,9 @@ typedef struct vpu_drv_context_t {
 
     struct semaphore deint_mutex;
 
-    struct clk *clk_coda7_axi;
-    struct clk *clk_coda7_cc;
-    struct clk *clk_coda7_apb;
+    struct clk *vpu_clk[VPU_CLK_NUM];
+    struct clk *vpu_clk_parent[VPU_CLK_NUM][VPU_CLK_LEVEL_NUM];
 
-    struct clk *clk_parent_axi;
-    struct clk *clk_parent_cc;
-    struct clk *clk_parent_apb;
-
-    struct clk *clk_parent;
     struct clk *clk_mm_i;
 
     unsigned int irq;
@@ -246,28 +241,9 @@ struct clock_name_map_t {
     char *name;
 };
 
-static struct clock_name_map_t clock_coda7l_axi_map[] = {
-    {192000000,"clk_192m"},
-    {153600000,"clk_153m6"},
-    {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
-};
+static struct clock_name_map_t clock_name_map[VPU_CLK_NUM][VPU_CLK_LEVEL_NUM];
 
-static struct clock_name_map_t clock_coda7l_cc_map[] = {
-    {192000000,"clk_192m"},
-    {153600000,"clk_153m6"},
-    {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
-};
-
-static struct clock_name_map_t clock_coda7l_apb_map[] = {
-    {128000000,"clk_128m"},
-    {96000000,"clk_96m"},
-    {76800000,"clk_76m8"},
-    {26000000,"ext_26m"}
-};
-
-static int max_freq_level = ARRAY_SIZE(clock_coda7l_axi_map);
+static int max_freq_level = VPU_CLK_LEVEL_NUM;
 
 static char *vpu_get_clk_src_name(unsigned int freq_level, struct clock_name_map_t clk_map[])
 {
@@ -474,13 +450,8 @@ static irqreturn_t vpu_irq_handler(int irq, void *dev_id)
 static int vpu_open(struct inode *inode, struct file *filp)
 {
     int ret = 0;
+
     wake_lock(&vpu_wakelock);
-
-    spin_lock(&s_vpu_lock);
-    s_vpu_drv_context.open_count++;
-    filp->private_data = (void *)(&s_vpu_drv_context);
-    spin_unlock(&s_vpu_lock);
-
     if(vpu_power_on()) {
         vpu_loge("[VPUDRV] vpu_power_on failed\n");
         wake_unlock(&vpu_wakelock);
@@ -497,6 +468,11 @@ static int vpu_open(struct inode *inode, struct file *filp)
 #if defined(CONFIG_SPRD_IOMMU)
     sprd_iommu_module_enable(IOMMU_MM);
 #endif
+
+    spin_lock(&s_vpu_lock);
+    s_vpu_drv_context.open_count++;
+    filp->private_data = (void *)(&s_vpu_drv_context);
+    spin_unlock(&s_vpu_lock);
 
     vpu_logi("[VPUDRV] vpu_open done, open_count = %d\n", s_vpu_drv_context.open_count);
 
@@ -975,10 +951,11 @@ static const struct of_device_id  of_match_table_coda7l[] = {
 static int vpu_parse_dt(struct device *dev)
 {
     struct device_node *np = dev->of_node;
+    struct device_node *vpu_clk_np = NULL;
+    char *vpu_clk_node_name = NULL;
     struct resource res;
-    u32 clock_parent_info[2];
-    u32 power_regs_info[4];
-    int i, ret;
+    unsigned int power_regs_info[4];
+    int i, j, ret, clk_count = 0;
 
     ret = of_address_to_resource(np, 0, &res);
     if(ret < 0) {
@@ -998,39 +975,40 @@ static int vpu_parse_dt(struct device *dev)
     printk(KERN_INFO "vpu_parse_dt ,  irq = %d, SPRD_VPP_PHYS = %p, SPRD_VPP_BASE = %p\n",
            s_vpu_drv_context.irq, (void*)s_vpu_reg_phy_addr, (void*)s_vpu_reg_virt_addr);
 
-    ret = of_property_read_u32_array(np, "clock-parent-info", clock_parent_info, 2);
-    if(0 != ret) {
-        printk(KERN_ERR "vpu: read clock-parent-info fail (%d)\n", ret);
-        return -EINVAL;
-    }
+    for (j = 0; j < VPU_CLK_NUM; j++) {
+        vpu_clk_node_name = of_clk_get_parent_name(np, j+1); //This position is based on related dts file
+        s_vpu_drv_context.vpu_clk[j] = of_clk_get_by_name(np, vpu_clk_node_name);
+        if (IS_ERR(s_vpu_drv_context.vpu_clk[j]) || (!s_vpu_drv_context.vpu_clk[j])) {
+            printk(KERN_ERR "###: Failed : can't get clock [%s}!\n", vpu_clk_node_name);
+            return -EINVAL;
+        }
 
-    max_freq_level = clock_parent_info[1];
-    if (max_freq_level > 4) {
-        printk(KERN_ERR "vpu: max_freq_level is invalid\n");
-        return -EINVAL;
-    }
+        vpu_clk_np = of_find_node_by_name(NULL, vpu_clk_node_name);
+        if (!vpu_clk_np) {
+            printk(KERN_ERR "failed to get vpu clk device node\n");
+            return -EINVAL;
+        }
 
-    for (i = 0; i < max_freq_level; i++) {
-        struct clk *clk_parent;
-        char *name_parent;
-        unsigned long frequency;
+        clk_count = of_clk_get_parent_count(vpu_clk_np);
+        if(clk_count != VPU_CLK_LEVEL_NUM) {
+            printk(KERN_ERR "failed to get vpu clock count\n");
+            return -EINVAL;
+        }
 
-        name_parent = of_clk_get_parent_name(np,  i+clock_parent_info[0]);
-        clk_parent = clk_get(NULL, name_parent);
-        frequency = clk_get_rate(clk_parent);
+        for(i = 0; i < clk_count; i++) {
+            struct clk *clk_parent;
+            char *name_parent;
+            unsigned long frequency;
 
-        clock_coda7l_axi_map[i].name = name_parent;
-        clock_coda7l_axi_map[i].freq = frequency;
+            name_parent = of_clk_get_parent_name(vpu_clk_np,  i);
+            clk_parent = clk_get(NULL, name_parent);
+            frequency = clk_get_rate(clk_parent);
+            printk(KERN_INFO "vpu: clock_name_map[%d] = (%d, %s)\n", i, frequency, name_parent);
 
-        clock_coda7l_cc_map[i].name = name_parent;
-        clock_coda7l_cc_map[i].freq = frequency;
-
-        name_parent = of_clk_get_parent_name(np,  i+clock_parent_info[0]+clock_parent_info[1]);
-        clk_parent = clk_get(NULL, name_parent);
-        frequency = clk_get_rate(clk_parent);
-
-        clock_coda7l_apb_map[i].name = name_parent;
-        clock_coda7l_apb_map[i].freq = frequency;
+            clock_name_map[j][i].name = name_parent;
+            clock_name_map[j][i].freq = frequency;
+            s_vpu_drv_context.vpu_clk_parent[j][i] = clk_parent;
+        }
     }
 
     ret = of_property_read_u32_array(np, "power-regs-info", power_regs_info, 4);
@@ -1050,10 +1028,8 @@ static int vpu_parse_dt(struct device *dev)
     return 0;
 }
 #else
-static int  vpu_parse_dt(
-    struct device *dev)
+static int  vpu_parse_dt(struct device *dev)
 {
-    //vsp_hw_dev.irq = IRQ_VSP_INT;
     return 0;
 }
 #endif
@@ -1068,6 +1044,10 @@ static int vpu_probe(struct platform_device *pdev)
 
     vpu_logi("[VPUDRV] vpu_probe\n");
 
+    if (soc_is_scx9832a_v0()){
+        return -EINVAL;
+    }
+
 #ifdef CONFIG_OF
     if (pdev->dev.of_node) {
         ret = vpu_parse_dt(&pdev->dev);
@@ -1080,12 +1060,7 @@ static int vpu_probe(struct platform_device *pdev)
 
     s_vpu_drv_context.freq_div = DEFAULT_FREQ_DIV;
     s_vpu_drv_context.clk_mm_i= NULL;
-    s_vpu_drv_context.clk_parent_axi= NULL;
-    s_vpu_drv_context.clk_parent_cc= NULL;
-    s_vpu_drv_context.clk_parent_apb= NULL;
-    s_vpu_drv_context.clk_coda7_apb= NULL;
-    s_vpu_drv_context.clk_coda7_axi= NULL;
-    s_vpu_drv_context.clk_coda7_cc= NULL;
+    s_vpu_drv_context.open_count = 0;
 
     ret = misc_register(&vpu_dev);
     if (ret) {
@@ -1095,14 +1070,7 @@ static int vpu_probe(struct platform_device *pdev)
     }
 
 #ifdef VPU_SUPPORT_ISR
-    /*if (pdev)
-        res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-    if (res) {// if platform driver is implemented
-        s_vpu_irq = res->start;
-        vpu_logi("[VPUDRV] : vpu irq number get from platform driver irq=0x%x\n", s_vpu_irq);
-    } else {
-        vpu_logi("[VPUDRV] : vpu irq number get from defined value irq=0x%x\n", s_vpu_irq);
-    }*/
+
     s_vpu_irq = s_vpu_drv_context.irq;
 
     err = request_irq(s_vpu_irq, vpu_irq_handler, IRQF_SHARED, "VPU_CODEC_IRQ", (void *)(&s_vpu_drv_context));
@@ -1238,7 +1206,11 @@ static int __init vpu_init(void)
     res = platform_driver_register(&vpu_driver);
     res = vpu_probe(NULL);
 #endif
-    vpu_power_shutdown();
+
+    if (!soc_is_scx9832a_v0()){
+        vpu_power_shutdown();
+    }
+
     vpu_logd("end vpu_init result=0x%x\n", res);
 
     return res;
@@ -1311,28 +1283,18 @@ int vpu_hw_reset(void)
 
 static int vpu_clk_free(vpu_drv_context_t* vpu_context)
 {
-    if (vpu_context->clk_coda7_apb) {
-        clk_disable(vpu_context->clk_coda7_apb);
+    int i;
+
+    for(i = 0; i < VPU_CLK_NUM; i++) {
+        if(vpu_context->vpu_clk[i]) {
+            clk_disable(vpu_context->vpu_clk[i]);
+        }
     }
 
-    if (vpu_context->clk_coda7_axi) {
-        clk_disable(vpu_context->clk_coda7_axi);
-    }
-
-    if (vpu_context->clk_coda7_cc) {
-        clk_disable(vpu_context->clk_coda7_cc);
-    }
-
-    if (vpu_context->clk_coda7_apb) {
-        clk_unprepare(vpu_context->clk_coda7_apb);
-    }
-
-    if (vpu_context->clk_coda7_axi) {
-        clk_unprepare(vpu_context->clk_coda7_axi);
-    }
-
-    if (vpu_context->clk_coda7_cc) {
-        clk_unprepare(vpu_context->clk_coda7_cc);
+    for(i = 0; i < VPU_CLK_NUM; i++) {
+        if(vpu_context->vpu_clk[i]) {
+            clk_unprepare(vpu_context->vpu_clk[i]);
+        }
     }
 
     if (vpu_context->clk_mm_i) {
@@ -1342,115 +1304,41 @@ static int vpu_clk_free(vpu_drv_context_t* vpu_context)
     return 0;
 }
 
-static int vpu_set_parent_for_coda7l_clk()
+static int set_vpu_parent_clk(unsigned int level)
 {
-    struct clk *clk_parent;
-    char *name_parent;
-    int ret =0;
+    int i, j, ret;
+    struct clk* vpu_clk;
+    struct clk* vpu_parent_clk;
 
-    name_parent = vpu_get_clk_src_name(3, clock_coda7l_axi_map);
-    clk_parent = clk_get(NULL, name_parent);
-    printk(KERN_ERR "clock[%s]: get parent in probe[%s] by clk_get()!\n", "clk_coda7_axi", name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_axi", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_axi= clk_parent;
+    if (level > VPU_CLK_LEVEL_NUM) {
+        printk(KERN_ERR "vpu parent clk level error: [%d]", level);
+        return -EINVAL;
     }
 
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_axi, s_vpu_drv_context.clk_parent_axi);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_axi");
-        ret = -EINVAL;
+    for(j = 0; j < VPU_CLK_NUM; j++) {
+        vpu_clk = s_vpu_drv_context.vpu_clk[j];
+        vpu_parent_clk = s_vpu_drv_context.vpu_clk_parent[j][level];
+
+        if (!(vpu_clk && vpu_parent_clk)) {
+            printk(KERN_ERR "can not get vpu clk info: [%d]", j);
+            return -EINVAL;
+        }
+
+        ret = clk_set_parent(vpu_clk, vpu_parent_clk);
+        if (ret) {
+            printk(KERN_ERR "vpu clk[%d] set parent failed", j);
+            return -EINVAL;
+        }
+
+        printk("vpu_freq %d Hz\n",  (int)clk_get_rate(vpu_clk));
     }
 
-    name_parent = vpu_get_clk_src_name(s_vpu_drv_context.freq_div, clock_coda7l_axi_map);
-    clk_parent = clk_get(NULL, name_parent);
-    printk(KERN_ERR "clock[%s]: get parent in probe[%s] by clk_get()!\n", "clk_coda7_axi", name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_axi", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_axi= clk_parent;
-    }
-
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_axi, s_vpu_drv_context.clk_parent_axi);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_axi");
-        ret = -EINVAL;
-    }
-
-    printk(KERN_ERR "vpu parent clock name %s, freq: %dHz\n", name_parent, (int)clk_get_rate(s_vpu_drv_context.clk_coda7_axi));
-
-    name_parent = vpu_get_clk_src_name(3, clock_coda7l_cc_map);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_cc", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_cc= clk_parent;
-    }
-
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_cc, s_vpu_drv_context.clk_parent_cc);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_cc");
-        ret = -EINVAL;
-    }
-
-    name_parent = vpu_get_clk_src_name(s_vpu_drv_context.freq_div, clock_coda7l_cc_map);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_cc", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_cc= clk_parent;
-    }
-
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_cc, s_vpu_drv_context.clk_parent_cc);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_cc");
-        ret = -EINVAL;
-    }
-
-    printk(KERN_ERR "vpu parent clock name %s, freq: %dHz\n", name_parent, (int)clk_get_rate(s_vpu_drv_context.clk_coda7_cc));
-
-    name_parent = vpu_get_clk_src_name(3, clock_coda7l_apb_map);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_apb", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_apb= clk_parent;
-    }
-
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_apb, s_vpu_drv_context.clk_parent_apb);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_apb");
-        ret = -EINVAL;
-    }
-
-    name_parent = vpu_get_clk_src_name(s_vpu_drv_context.freq_div, clock_coda7l_apb_map);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_coda7_apb", name_parent);
-        ret = -EINVAL;
-    } else {
-        s_vpu_drv_context.clk_parent_apb= clk_parent;
-    }
-
-    ret = clk_set_parent(s_vpu_drv_context.clk_coda7_apb, s_vpu_drv_context.clk_parent_apb);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_coda7_apb");
-        ret = -EINVAL;
-    }
-
-    printk(KERN_ERR "vpu parent clock name %s, freq: %dHz\n", name_parent, (int)clk_get_rate(s_vpu_drv_context.clk_coda7_apb));
-
-    return ret;
+    return 0;
 }
+
 static int vpu_set_mm_clk(void)
 {
-    int ret =0;
+    int i, ret =0;
     struct clk *clk_mm_i;
     struct clk *clk_coda7_axi;
     struct clk *clk_coda7_cc;
@@ -1466,9 +1354,7 @@ static int vpu_set_mm_clk(void)
 #endif
 
     if (IS_ERR(clk_mm_i) || (!clk_mm_i)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
-               "clk_mm_i");
-        printk(KERN_ERR "###: clk_mm_i =  %p\n", clk_mm_i);
+        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n", "clk_mm_i");
         ret = -EINVAL;
         goto errout;
     } else {
@@ -1482,76 +1368,33 @@ static int vpu_set_mm_clk(void)
     }
 #endif
 
-//Config for clk_coda7_axi
-#ifdef CONFIG_OF
-    clk_coda7_axi = of_clk_get_by_name(s_vpu_drv_context.dev_np, "clk_coda7_axi");
-#else
-    clk_coda7_axi = clk_get(NULL, "clk_coda7_axi");
-#endif
+    for (i = 0; i < VPU_CLK_NUM; i++) {
+        if (s_vpu_drv_context.vpu_clk[i] == NULL) {
+            printk(KERN_ERR "###: failed to get vpu clk[%d]\n", i);
+            ret = -EINVAL;
+            goto errout;
+        }
 
-    if (IS_ERR(clk_coda7_axi) || (!clk_coda7_axi)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n", "clk_coda7_axi");
-        printk(KERN_ERR "###: clk_coda7_axi =  %p\n", clk_coda7_axi);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        s_vpu_drv_context.clk_coda7_axi = clk_coda7_axi;
+        ret = clk_prepare_enable(s_vpu_drv_context.vpu_clk[i]);
+        if (ret) {
+            printk(KERN_ERR "###: clk_coda7_axi: clk_enable() failed!\n");
+            ret = -EINVAL;
+            goto errout;
+        }
     }
 
-    ret = clk_prepare_enable(s_vpu_drv_context.clk_coda7_axi);
-    if (ret) {
-        printk(KERN_ERR "###: clk_coda7_axi: clk_enable() failed!\n");
-        return ret;
-    }
-
-//Config for clk_coda7_cc
-#ifdef CONFIG_OF
-    clk_coda7_cc = of_clk_get_by_name(s_vpu_drv_context.dev_np, "clk_coda7_cc");
-#else
-    clk_coda7_cc = clk_get(NULL, "clk_coda7_cc");
-#endif
-
-    if (IS_ERR(clk_coda7_cc) || (!clk_coda7_cc)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n", "clk_coda7_cc");
-        printk(KERN_ERR "###: clk_coda7_cc =  %p\n", clk_coda7_cc);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        s_vpu_drv_context.clk_coda7_cc = clk_coda7_cc;
-    }
-
-    ret = clk_prepare_enable(s_vpu_drv_context.clk_coda7_cc);
-    if (ret) {
-        printk(KERN_ERR "###: clk_coda7_cc: clk_enable() failed!\n");
-        return ret;
-    }
-
-//Config for clk_coda7_apb
-#ifdef CONFIG_OF
-    clk_coda7_apb = of_clk_get_by_name(s_vpu_drv_context.dev_np, "clk_coda7_apb");
-#else
-    clk_coda7_apb = clk_get(NULL, "clk_coda7_apb");
-#endif
-
-    if (IS_ERR(clk_coda7_apb) || (!clk_coda7_apb)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n", "clk_coda7_cc");
-        printk(KERN_ERR "###: clk_coda7_cc =  %p\n", clk_coda7_apb);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        s_vpu_drv_context.clk_coda7_apb = clk_coda7_apb;
-    }
-
-    ret = clk_prepare_enable(s_vpu_drv_context.clk_coda7_apb);
-    if (ret) {
-        printk(KERN_ERR "###: clk_coda7_apb: clk_enable() failed!\n");
-        return ret;
-    }
-
-    ret = vpu_set_parent_for_coda7l_clk();
+    ret = set_vpu_parent_clk(DEFAULT_FREQ_DIV);
     if(ret) {
         printk(KERN_ERR "###:vpu set parent failed!\n");
-        return ret;
+        ret = -EINVAL;
+        goto errout;
+    }
+
+    ret = set_vpu_parent_clk(VPU_CLK_LEVEL_NUM-1);
+    if(ret) {
+        printk(KERN_ERR "###:vpu set parent failed!\n");
+        ret = -EINVAL;
+        goto errout;
     }
 
     return 0;
@@ -1565,7 +1408,7 @@ errout:
 
 struct clk *vpu_clk_get(struct device *dev)
 {
-    return clk_get(dev, VPU_CLK_NAME);
+    //return clk_get(dev, VPU_CLK_NAME);
 }
 void vpu_clk_put(struct clk *clk)
 {
@@ -1612,3 +1455,5 @@ void vpu_clk_disable(struct clk *clk)
     }
 #endif
 }
+
+

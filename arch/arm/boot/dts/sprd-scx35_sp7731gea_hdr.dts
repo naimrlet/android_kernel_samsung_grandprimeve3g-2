@@ -17,12 +17,6 @@
 /* memory reserved for CPWCN modem */
 /memreserve/ 0x8a800000 0x201000;/*Offset:168M, SIZE:2M+4k*/
 
-/* memory reserved for fb */
-/memreserve/ 0x9ED74000 0xA8C000; /* 480*854*4*3, 4K alignment, for display size*/
-
-/* memory reserved for ION */
-/memreserve/ 0x9F800000 0x800000; /* 480*854*4*2, 8K alignment, for display size*/
-
 /include/ "skeleton.dtsi"
 /include/ "scx30g-clocks.dtsi"
 /include/ "scx30g-regulators.dtsi"
@@ -38,14 +32,27 @@
 	interrupt-parent = <&gic>;
 
 	chosen {
-		bootargs = "loglevel=1 console=ttyS1,115200n8 init=/init root=/dev/ram0 rw";
+		bootargs = "loglevel=1 console=ttyS1,115200n8 init=/init root=/dev/ram0 rw androidboot.hardware=sp7731g_1h10";
 		linux,initrd-start = <0x85500000>;
 		linux,initrd-end   = <0x855a3212>;
 	};
 
-	memory {
+	memory: memory {
 		device_type = "memory";
 		reg = <0x80000000 0x40000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		fb_reserved: fb_mem{
+			reg = <0x9ED74000 0xA8C000>;/*fb*/
+		};
+		overlay_reserved: gsp{
+			reg = <0x9f800000 0x800000>;/*overlay*/
+		};
 	};
 
 	aliases {
@@ -239,13 +246,27 @@
                         adc_threshold_4pole_detect = <3100>;
                         irq_threshold_buttont = <1>;
                         voltage_headmicbias = <3000000>;
-                        nbuttons = <1>;
-                        headset_buttons {
-                                adc_min = <0>;
-                                adc_max = <170>;
-                                code = <226>;
-                                type = <0>;
-                        };
+			nbuttons = <3>;
+			headset_buttons_media {
+				adc_min = <0>;
+				adc_max = <159>;
+				code = <226>;
+				type = <0>;
+			};
+
+			headset_buttons_up {
+				adc_min = <160>;
+				adc_max = <319>;
+				code = <115>;
+				type = <0>;
+			};
+
+			headset_buttons_down {
+				adc_min = <320>;
+				adc_max =<700>;
+				code = <114>;
+				type = <0>;
+			};
                  };
                  keyboard_backlight {
                         compatible = "sprd,keyboard-backlight";
@@ -318,9 +339,8 @@
                  compatible = "sprd,sprd_vsp";
                  reg = <0x60900000 0xc000>;
                  interrupts = <0 43 0x0>;
-                 clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-                 clocks = <&clk_mm>, <&clk_vsp>, <&clk_256m>, <&clk_192m>, <&clk_128m>, <&clk_76m8>;
-		 clock-parent-info = <2 4>;
+                 clock-names = "clk_mm_i", "clk_vsp", "clk_mm_axi";
+                 clocks = <&clk_mm>, <&clk_vsp>, <&clk_mm_axi>;
 		 version = <2>;
          };
         sprd_jpg {
@@ -375,8 +395,9 @@
 		lis3dh_acc@18{
 			compatible = "ST,lis3dh_acc";
 			reg = <0x18>;
+			gpios = <&d_gpio_gpio 215 0>;
 			poll_interval = <10>;
-			min_interval = <10>;
+			min_interval = <1>;
 			g_range = <0>;
 			axis_map_x = <1>;
 			axis_map_y = <0>;
@@ -389,6 +410,11 @@
 			compatible = "LITEON,ltr_558als";
 			reg = <0x23>;
 			gpios = <&d_gpio_gpio 216 0>;
+			/*low sensitve(def):1500,250,220,1800,1600,1; have no sensitve=<> as def.
+			High sensitve:1000,40,35,1200,1000,48 */
+			sensitive = <1500 250 220
+					1800 1600 2>;
+			luxcorrection=<30000>;/*3*/
 		};
 	 };
 	 i2c3: i2c@70800000{
@@ -414,14 +440,26 @@
 	 sprd_sensor {
 		 compatible  = "sprd,sprd_sensor";
 		 reg = <0x60c00000 0x1000>;
-		 gpios = <&d_gpio_gpio 186 0   /*main reset*/
-		        &d_gpio_gpio 187 0     /*main power down*/
-		        &d_gpio_gpio 186 0     /*sub reset*/
-		        &d_gpio_gpio 188 0     /*sub power down*/
-		        &d_gpio_gpio 0 0       /*main core voltage*/
-		        &d_gpio_gpio 0 0
-		        &d_gpio_gpio 0 0
-		        &d_gpio_gpio 0 0>;
+		 gpios = <&d_gpio_gpio 186 0    /* 0: main reset*/
+			     &d_gpio_gpio 187 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 186 0    /* 2:sub reset*/
+			     &d_gpio_gpio 188 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 0 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 0 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 		 clock-names ="clk_mm_i","clk_sensor","clk_ccir","clk_dcam","clk_dcam_mipi";
 		 clocks = <&clk_mm>, <&clk_sensor>,<&clk_ccir>, <&clk_dcam>, <&clk_dcam_mipi>;
 		 };
@@ -537,6 +575,15 @@
 		sprd,size-txbuf = <0x0800>; /* 2*1024 */
 	};
 
+        dual_sim_plug-cpw {
+		compatible = "sprd,dual_sim_plug";
+		sprd,name = "dual_sim_plug_w";
+		sprd,dst = <2>;
+		sprd,channel = <23>;
+		sprd,sim1_gpio = <19>;
+		sprd,sim2_gpio = <18>;
+	};
+
 	seth0-cpw {
 		compatible = "sprd,seth";
 		sprd,name = "seth_w0";
@@ -578,7 +625,9 @@
 		#size-cells = <1>;
 		/* segnr=2 */
 		ranges = <0x300000 0x88300000 0x00800000>,
-				<0x20000 0x88020000 0x00220000>;
+			 <0x20000 0x88020000 0x00220000>,
+                         <0x240000 0x88240000 0x40000>,
+                         <0x280000 0x88280000 0x60000>;
 		modem@0x300000 {
 			cproc,name = "modem";
 			reg = <0x300000 0x00800000>; /* <modem_addr size> */
@@ -586,6 +635,14 @@
 		dsp@0x20000 {
 			cproc,name = "dsp";
 			reg = <0x20000 0x00220000>; /* <dsp_addr size>*/
+		};
+		fixnv@0x240000 {
+			cproc,name = "fixnv";
+			reg = <0x240000 0x40000>;
+		};
+		runnv@0x280000 {
+			cproc,name = "runnv";
+			reg = <0x280000 0x60000>;
 		};
 	};
 
@@ -615,7 +672,7 @@
 		sprd,name = "spipe_wcn";
 		sprd,dst = <3>;
 		sprd,channel = <4>;
-		sprd,ringnr = <12>;
+		sprd,ringnr = <13>;
 		sprd,size-rxbuf = <0x1000>; /* 4*1024 */
 		sprd,size-txbuf = <0x1000>; /* 4*1024 */
         };
@@ -682,6 +739,7 @@
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_emmc>, <&clk_384m>;
 			base_clk = <384000000>;
+			bus-width = <8>;
 			caps = <0xC00F8D47>;
 			caps2 = <0x202>;
 			pm_caps = <0x4>;
@@ -702,6 +760,7 @@
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_sdio0>, <&clk_384m>;
 			base_clk = <384000000>;
+			bus-width = <4>;
 			caps = <0xC0000407>;
 			caps2 = <0x200>;
 			pm_caps = <0x4>;
@@ -723,6 +782,7 @@
 			ocr_avail = <0x00360080>;
 			clocks = <&clk_sdio1>, <&clk_96m>;
 			base_clk = <96000000>;
+			bus-width = <4>;
 			caps = <0xC00FA407>;
 			caps2 = <0x0>;
 			pm_caps = <0x5>;
@@ -735,24 +795,64 @@
 	 usb: usb@20200000{
 		 compatible  = "sprd,usb";
 		 interrupts = <0 55 0x0>;
-		ngpios = <2>;
-		gpios = <&a_eic_gpio 0 0>,<&d_gpio_gpio 72 0>;
+		 vbus-gpios = <&a_eic_gpio 0 0>;
+		 id-gpios = <&d_gpio_gpio 72 0>;
 		 reg = <0x20200000 0x1000>;
 		 tune_value = <0x44073e33>;
-                 usb-supply = <&vddusb>;
+		 usb-supply = <&vddusb>;
+		 phy-type = "usb20_synops_phy";
 		 #address-cells = <1>;
 		 #size-cells = <0>;
 	 };
-	sprd_thermal {
-		compatible = "sprd,sprd-thermal";
+	sprd_thermal: thermal@402F0000{
+		compatible = "sprd,ddie-thermal";
+                interrupts = <0 26 0x0>;
+                reg = <0x402f0000 0x1000>;
+		sensor_arm {
 		id = <0>;
-		interrupts = <0 26 0x0>;
-		reg = <0x402f0000 0x1000>;
-		trip_points_active = <65 69 95 110>;
-		trip_points_lowoff = <0 57 61 80>;
-		trip_points_critical = <110>;
-		trip_num = <5>;
-	};
+		temp-inteval=<0>;
+		thermal-name = "sprd_arm_thm";
+		trip0-temp-active = <31000>;
+		trip0-type = "active";
+		trip0-temp-lowoff = <0>;
+		trip0-cdev-num = <1>;
+		trip0-cdev-name0 = "thermal-cpufreq-0";
+	        trip1-temp-active = <56000>;
+		trip1-type = "active";
+		trip1-temp-lowoff = <29000>;
+                trip1-cdev-num = <1>;
+		trip1-cdev-name0 = "thermal-cpufreq-0";
+		trip2-temp-active = <60000>;
+		trip2-type = "active";
+		trip2-temp-lowoff = <46000>;
+                trip2-cdev-num = <1>;
+		trip2-cdev-name0 = "thermal-cpufreq-0";
+                trip3-temp-active = <90000>;
+		trip3-type = "active";
+		trip3-temp-lowoff = <50000>;
+                trip3-cdev-num = <1>;
+		trip3-cdev-name0 = "thermal-cpufreq-0";
+		trip4-temp-active = <110000>;
+		trip4-type = "critical";
+		trip4-temp-lowoff = <80000>;
+                trip4-cdev-num = <1>;
+		trip4-cdev-name0 = "thermal-cpufreq-0";
+                trip-points-critical = <119000>;
+		trip-num = <6>;
+		};
+		sensor_gpu {
+		id = <1>;
+		thermal-name = "sprd_gpu_thm";
+		temp-inteval=<0>;
+		trip0-temp-active = <110000>;
+		trip0-type = "active";
+		trip0-temp-lowoff = <90000>;
+		trip0-cdev-num = <1>;
+		trip0-cdev-name0 = "thermal-cpufreq-0";
+		trip-points-critical = <110000>;
+		trip-num = <2>;
+		};
+	 };
 	sprd_cpu_cooling{
 		compatible = "sprd,sprd-cpu-cooling";
 		id = <0>;
@@ -808,18 +908,33 @@
 		interrupts = <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>;
 		interrupt-names = "IRQGP", "IRQGPMMU", "IRQPP0", "IRQPPMMU0", "IRQPP1", "IRQPPMMU1", "IRQPMU";
 
-		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6>,<&clk_208m>,<&clk_256m>,<&clk_312m>,<&clk_384m>,<&clk_460m8>;
-		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6","clk_208m","clk_256m","clk_312m","clk_384m","clk_460m8";
+		pmu_domain_config = <0x1000 0x1000 0x1000 0x0 0x0 0x0 0x0 0x0 0x0 0x1000 0x0 0x0>;
+		pmu_switch_delay = <0xffff>;
+
+		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6_gpu_gate>,<&clk_208m_gpu_gate>,<&clk_256m_gpu_gate>,<&clk_312m_gpu_gate>,<&clk_384m_gpu_gate>,<&clk_460m8_gpu_gate>,<&clk_300m_gpu_gate>;
+		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6_gpu_gate","clk_208m_gpu_gate","clk_256m_gpu_gate","clk_312m_gpu_gate","clk_384m_gpu_gate","clk_460m8_gpu_gate","clk_300m_gpu_gate";
 
 		freq-list-len = <4>;
 		freq-lists = <153600 2 1>, <256000 4 1>, <384000 6 1>, <460800 7 1>;
 		freq-default = <1>;
-		freq-9 = <2>;
-		freq-8 = <1>;
-		freq-7 = <0>;
+		freq-9 = <3>;
+		freq-8 = <3>;
+		freq-7 = <1>;
 		freq-5 = <0>;
 		freq-range-max = <3>;
 		freq-range-min = <1>;
+
+		freq-list-len-overclk = <5>;
+		freq-lists-overclk = <153600 2 1>, <256000 4 1>, <384000 6 1>, <460800 7 1>, <512000 5 1>;
+		freq-default-overclk = <1>;
+		freq-9-overclk = <4>;
+		freq-8-overclk = <4>;
+		freq-7-overclk = <1>;
+		freq-5-overclk = <0>;
+		freq-range-max-overclk = <4>;
+		freq-range-min-overclk = <0>;
+		freq-clk-nb = <4>;
+		freq-clk-nb-prev = <3>;
 	};
          ion {
 		 compatible = "sprd,ion-sprd";
@@ -844,9 +959,19 @@
                        reg = <3>;                      /* OVERLAY */
                        reg-names = "ion_heap_carveout_overlay";
                        sprd,ion-heap-type = <2>;       /* CARVEOUT */
-                       sprd,ion-heap-mem = <0x9F800000 0x800000>;/* 480*854*4*2, 8K alignment, for display size*/
+                       sprd,ion-heap-reserved = <1>; /*This attribute use to indicate use reserved_memory node*/
+                       sprd,ion-heap-mem = <&overlay_reserved>;/* 480*854*4*2, 8K alignment, for display size*/
+                 };
+
+                 sprd,ion-heap@4 {
+                       reg = <4>;                      /* FB */
+                       reg-names = "ion_heap_carveout_fb";
+                       sprd,ion-heap-type = <2>;       /* CARVEOUT */
+                       sprd,ion-heap-reserved = <1>; /*This attribute use to indicate use reserved_memory node*/
+                       sprd,ion-heap-mem = <&fb_reserved>;
                  };
          };
+
          sprd_iommu0:sprd_iommu@21400000 {
                  compatible  = "sprd,sprd_iommu";//gsp
                  func-name = "sprd_iommu_gsp";
@@ -865,8 +990,8 @@
                        <0x60f00000 0x20000>,     //pgt
                        <0x60f20000 0x2000>;      //ctrl_reg
                  reg_name = "iova","pgt","ctrl_reg";
-                 clock-names = "clk_mmu","clk_mm_i";
-                 clocks = <&clk_mmu>,<&clk_mm>;
+                 clock-names = "clk_mmu","clk_mm_i","clk_mm_axi";
+                 clocks = <&clk_mmu>,<&clk_mm>,<&clk_mm_axi>;
                  status = "ok";
          };
 
@@ -1001,16 +1126,45 @@
 		};
 	};
 	sprd_bm {
-                 compatible = "sprd,sprd_bm";
-                 reg = <0x30040000 0xA0000>,
-                       <0x20E00000 0x300000>;
-                 interrupts = <0 86 0x0>;
+		compatible = "sprd,sprd_bm";
+		reg = <0x30040000 0xA0000>,
+				<0x20E00000 0x300000>;
+		interrupts = <0 86 0x0>;
+		sprd,bm_status = <1>;
+		sprd,bm_count = <10 10>;
+		sprd,mm_chn = <0 1>;
+		sprd,gpu_chn = <1 1>;
+		sprd,disp_chn = <2 1>;
+		sprd,cpu_chn = <3 1>;
+		sprd,cp0_dsp_chn = <4 1>;
+		sprd,cp0_arm1_chn = <5 1>;
+		sprd,cp0_arm0_chn = <6 1>;
+		sprd,ap_chn = <7 1>;
+		sprd,zip_chn = <8 1>;
+		sprd,cp2_chn = <9 1>;
+		sprd,ap_cpu_chn = <0 0>;
+		sprd,ap_dap_chn = <0 1>;
+		sprd,ap_dma_w_chn = <1 0>;
+		sprd,ap_dma_r_chn = <1 1>;
+		sprd,ap_sdio_0_chn = <1 2>;
+		sprd,ap_sdio_1_chn = <1 3>;
+		sprd,ap_emmc_chn = <2 0>;
+		sprd,ap_sdio_2_chn = <2 1>;
+		sprd,ap_nfc_chn = <2 2>;
+		sprd,ap_usb_chn = <2 3>;
 	};
 	wdt@40290000 {
 		compatible = "sprd,sprd-wdt";
 		reg = <0x40290000 0x1000>,
 			<0x40320000 0x1000>;
 		interrupts = <0 124 0x0>;
+	};
+	sprd_sysdump {
+		compatible = "sprd,sysdump";
+		magic-addr = < 0x85500000  0x100000>;
+		ram = &memory;
+		modem = <0x88000000 0x1b00000>;/* e.g. cpw modem*/
+		iomem = <0x40290000 0x1000>;/* e.g. wdt*/
 	};
 };
 

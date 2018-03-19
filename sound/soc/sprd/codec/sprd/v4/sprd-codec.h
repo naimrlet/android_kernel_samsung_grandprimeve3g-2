@@ -130,6 +130,8 @@
 #define HEADMICBIAS_EN		(7)
 #define HEADMIC_SLEEP_EN	(6)
 
+#define GND_PLGPD_EN        (4)
+
 /* ANA_PMU1 */
 #define BG_EN			(15)
 #define BG_IBIAS_EN		(14)
@@ -249,6 +251,8 @@
 #define EAR_EN			    (5)
 #define AOL_EN			    (4)
 #define AOR_EN			    (3)
+#define CLASS_D_SPD_MASK    (0x3)
+#define CLASS_D_SPD         (10)
 
 /* ANA_CDC3 */
 #define CG_REF_EN       (15)
@@ -280,6 +284,9 @@
 #define PA_SS_32K_EN    (5)
 #define PA_SS_T         (2)
 #define PA_SS_T_MASK    (0x7)
+#define PA_SS_T_PN	(1) /* P/N short each other */
+#define PA_SS_T_GND	(2) /* P/N short GND */
+#define PA_SS_T_VBAT	(4) /* P/N short VBAT */
 #define DRV_STOP_EN		(1)
 
 /* ANA_CDC5 */
@@ -477,6 +484,7 @@
 /* ANA_HDT2 */
 
 /* ANA_STS0 */
+#define OTP_FLAG		    (15)
 #define HP_POP_FLG		    (7)////////////CHECK
 #define HP_POP_FLG_MASK		(0x3)
 #define HP_POP_FLG_NEAR_CMP	(3)

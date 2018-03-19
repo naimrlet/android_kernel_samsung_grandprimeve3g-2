@@ -76,6 +76,10 @@ struct sprd_2351_data{
 
 extern void rf2351_gpio_ctrl_power_enable(int flag);
 int rf2351_vddwpa_ctrl_power_enable(int flag);
+#ifdef CONFIG_ARCH_SCX30G
+int sprd_switch_cp2_clk(int cam_status);
+int get_cp2_state(void);
+#endif
 extern int sprd_get_rf2351_ops(struct sprd_2351_interface **rf2351_ops);
 extern int sprd_put_rf2351_ops(struct sprd_2351_interface **rf2351_ops);
 void sprd_sr2351_gpio_ctrl_power_register(int gpio_num);

@@ -47,6 +47,17 @@ static unsigned char FT5316_FW[] = {
 #include "Ft5x16_720P_Ver0x23_test_app.h"
 };
 
+#define CONFIG_TOUCHSCREEN_FIRMWARE_UPGRADE
+static unsigned char LIANCHUANG_FW[] = {
+#include "lianchuang_Ver0x39__20151130_app.h"
+};
+
+#ifdef CONFIG_MACH_SPWHALE_5MODEB
+static unsigned char SPWHALE_FW[] = {
+#include "FT5336_TD-LTE9620_Ver0x11_20140311_app.h"
+};
+#endif
+
 static unsigned char FT_FW_NULL[] = {
 };
 
@@ -428,17 +439,19 @@ int fts_ctpm_update_project_setting(struct i2c_client *client)
 	return 0;
 }
 
+
 int fts_ctpm_auto_upgrade(struct i2c_client *client)
 {
 	u8 uc_host_fm_ver = FT_REG_FW_VER;
 	u8 uc_tp_fm_ver;
-	int i_ret;
+    int i_ret;
 	unsigned char uc_reg_value;
 
 	fts_read_reg(client, FT5X0X_REG_CIPHER, &uc_reg_value);
 	printk("[FTS] read chip id is %x\n",uc_reg_value);
 #ifdef CONFIG_TOUCHSCREEN_FIRMWARE_UPGRADE
 /*the chip id of FT6306 is 0x06*/
+    /*
 	if (uc_reg_value == 0x06)
 	{
 		CTPM_FW = FT6306_FW;
@@ -449,6 +462,32 @@ int fts_ctpm_auto_upgrade(struct i2c_client *client)
 		CTPM_FW = FT5316_FW;
 		fw_size = sizeof(FT5316_FW);
 	}
+    */
+#ifdef CONFIG_MACH_SP9838AEA_2342A
+    /* for sharklt8 upgrade */
+    if (uc_reg_value == 0x14)
+    {
+        CTPM_FW = LIANCHUANG_FW;
+        fw_size = sizeof(LIANCHUANG_FW);
+        /* sharklt8 use 0x39 firmware */
+    }
+#endif
+
+#ifdef CONFIG_MACH_SPWHALE_5MODEA
+    if (uc_reg_value == 0x14) {
+        CTPM_FW = SPWHALE_FW;
+        fw_size = sizeof(SPWHALE_FW);
+        /* spwhale use 0x11 firmware */
+    }
+#endif
+
+#ifdef CONFIG_MACH_SPWHALE_5MODEB
+    if (uc_reg_value == 0x14) {
+        CTPM_FW = SPWHALE_FW;
+        fw_size = sizeof(SPWHALE_FW);
+        /* spwhale use 0x11 firmware */
+    }
+#endif
 #endif
 	fts_read_reg(client, FT_REG_FW_VER, &uc_tp_fm_ver);
 	uc_host_fm_ver = fts_ctpm_get_i_file_ver();
@@ -468,7 +507,7 @@ int fts_ctpm_auto_upgrade(struct i2c_client *client)
 	if (/*the firmware in touch panel maybe corrupted */
 		uc_tp_fm_ver == FT_REG_FW_VER ||
 		/*the firmware in host flash is new, need upgrade */
-	     uc_tp_fm_ver < uc_host_fm_ver
+	     uc_tp_fm_ver != uc_host_fm_ver
 	    ) {
 		msleep(100);
 		dev_dbg(&client->dev, "[FTS] uc_tp_fm_ver = 0x%x, uc_host_fm_ver = 0x%x\n",

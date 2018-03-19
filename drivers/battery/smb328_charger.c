@@ -21,15 +21,10 @@
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
 
-#include <linux/usb_notify.h>
-
 #if defined(SIOP_CHARGING_CURRENT_LIMIT_FEATURE)
 #define SIOP_CHARGING_LIMIT_CURRENT 800
 static bool is_siop_limited;
 #endif
-
-extern int soc_val;
-int otg_enable_flag;
 
 static enum power_supply_property sec_charger_props[] = {
 	POWER_SUPPLY_PROP_STATUS,
@@ -123,38 +118,14 @@ static void smb328_read_regs(struct i2c_client *client, char *str)
 		sprintf(str+strlen(str), "0x%x, ", data);
 	}
 }
-static void smb328_charger_otg_control(struct sec_charger_info *charger,
-			int enable);
-
-static int smb328_otg_over_current_status(struct i2c_client *client)
-{
-	struct sec_charger_info *charger = i2c_get_clientdata(client);
-	u8 irq_c, stat_c = 0;
-
-#ifdef CONFIG_USB_NOTIFY_LAYER
-	struct otg_notify *o_notify = get_otg_notify();
-#endif
-
-	smb328_i2c_read(client, SMB328_INTERRUPT_STATUS_C, &irq_c);
-	pr_info("%s : Charging status C(0x%02x)\n", __func__, stat_c);
-	if ((charger->cable_type == POWER_SUPPLY_TYPE_OTG) &&
-		(irq_c & 0x40)) {
-		pr_info("%s: otg overcurrent limit\n", __func__);
-#ifdef CONFIG_USB_NOTIFY_LAYER
-		send_otg_notify(o_notify, NOTIFY_EVENT_OVERCURRENT, 0);
-#endif
-		smb328_charger_otg_control(charger, 0);
-	}
-}
 
 static int smb328_get_charging_status(struct i2c_client *client)
 {
-	struct sec_charger_info *charger = i2c_get_clientdata(client);
 	int status = POWER_SUPPLY_STATUS_UNKNOWN;
 	u8 stat_c = 0;
 
 	smb328_i2c_read(client, SMB328_BATTERY_CHARGING_STATUS_C, &stat_c);
-	pr_info("%s : Charging status C(0x%02x)\n", __func__, stat_c);
+	pr_debug("%s : Charging status C(0x%02x)\n", __func__, stat_c);
 
 	/* At least one charge cycle terminated,
 	 * Charge current < Termination Current
@@ -162,10 +133,6 @@ static int smb328_get_charging_status(struct i2c_client *client)
 	if (stat_c & 0xc0) {
 		/* top-off by full charging */
 		status = POWER_SUPPLY_STATUS_FULL;
-		if (soc_val < 94) {
-			pr_info("%s : SPRD FG IC error : %d)\n", __func__, soc_val);
-			charger->pdata->recharge_condition_vcell = 4250;
-		}
 		return status;
 	}
 
@@ -237,6 +204,8 @@ static u8 smb328_set_float_voltage(struct i2c_client *client, int float_voltage)
 {
 	u8 reg_data, float_data;
 
+	float_voltage = 4350;
+
 	if (float_voltage < 3460)
 		float_data = 0;
 	else if (float_voltage <= 4340)
@@ -251,8 +220,6 @@ static u8 smb328_set_float_voltage(struct i2c_client *client, int float_voltage)
 	reg_data |= float_data << CFG_FLOAT_VOLTAGE_SHIFT;
 
 	smb328_i2c_write(client, SMB328_FLOAT_VOLTAGE, &reg_data);
-
-	pr_info("%s: float_voltage : %d\n", __func__, float_voltage);
 
 	return reg_data;
 }
@@ -326,7 +293,6 @@ static u8 smb328_set_fast_charging_current(struct i2c_client *client,
 static void smb328_charger_function_control(struct sec_charger_info *charger)
 {
 	u8 reg_data, charge_mode;
-	union power_supply_propval chg_stat;
 
 	smb328_set_writable(charger->client, 1);
 	reg_data = 0x6E;
@@ -338,12 +304,7 @@ static void smb328_charger_function_control(struct sec_charger_info *charger)
 	smb328_i2c_write(charger->client,
 			SMB328_INTERRUPT_SIGNAL_SELECTION, &reg_data);
 
-	psy_do_property("battery", get,
-				POWER_SUPPLY_PROP_STATUS, chg_stat);
-
-	if (((charger->cable_type == POWER_SUPPLY_TYPE_BATTERY) &&
-		(chg_stat.intval != POWER_SUPPLY_STATUS_DISCHARGING)) ||
-		(charger->cable_type == POWER_SUPPLY_TYPE_OTG)) {
+	if (charger->cable_type == POWER_SUPPLY_TYPE_BATTERY) {
 		/* turn off charger */
 		smb328_set_charge_enable(charger->client, 0);
 	} else {
@@ -371,31 +332,18 @@ static void smb328_charger_function_control(struct sec_charger_info *charger)
 		smb328_set_termination_current_limit(charger->client,
 			charger->pdata->charging_current[charger->
 			cable_type].full_check_current_1st);
-#if defined(CONFIG_MACH_GOYAVEWIFI) || defined(CONFIG_MACH_GOYAVE3G)
-		if ((charger->pdata->siop_level < 100) &&
-			(charger->cable_type != POWER_SUPPLY_TYPE_USB)) {
-			smb328_set_input_current_limit(charger->client,
-			charger->pdata->charging_current
-                        [charger->cable_type].input_current_limit * charger->pdata->siop_level/100);
-		} else {
-			smb328_set_input_current_limit(charger->client,
-			charger->pdata->charging_current
-                        [charger->cable_type].input_current_limit);
-		}
-#else
+
 		smb328_set_input_current_limit(charger->client,
 			charger->pdata->charging_current
                         [charger->cable_type].input_current_limit);
-#endif
+
 		smb328_set_fast_charging_current(charger->client,
 			charger->pdata->charging_current
 			[charger->cable_type].fast_charging_current);
 
 		/* SET USB5/1, AC/USB Mode */
 		charge_mode = (charger->cable_type == POWER_SUPPLY_TYPE_MAINS) ||
-					(charger->cable_type == POWER_SUPPLY_TYPE_UARTOFF) ||
-					(charger->cable_type == POWER_SUPPLY_TYPE_MISC) ||
-					(charger->cable_type == POWER_SUPPLY_TYPE_UNKNOWN) ?
+					(charger->cable_type == POWER_SUPPLY_TYPE_UARTOFF) ?
 					0x3 : 0x2;
 		smb328_i2c_read(charger->client, SMB328_COMMAND, &reg_data);
 		reg_data &= ~0x0C;
@@ -460,21 +408,16 @@ static void smb328_charger_otg_control(struct sec_charger_info *charger,
 {
 	u8 reg_data;
 
-	smb328_i2c_read(charger->client, SMB328_COMMAND, &reg_data);
-	if (enable) {
-		otg_enable_flag = 1;
-		reg_data |= 0x02;
-	} else {
-		otg_enable_flag = 0;
-		reg_data &= ~0x02;
-	}
+	smb328_i2c_read(charger->client, SMB328_OTG_POWER_AND_LDO, &reg_data);
+
+	if (!enable)
+		reg_data |= CFG_OTG_ENABLE;
+	else
+		reg_data &= ~CFG_OTG_ENABLE;
 
 	smb328_set_writable(charger->client, 1);
-	smb328_i2c_write(charger->client, SMB328_COMMAND, &reg_data);
+	smb328_i2c_write(charger->client, SMB328_OTG_POWER_AND_LDO, &reg_data);
 	smb328_set_writable(charger->client, 0);
-
-	smb328_i2c_read(charger->client, SMB328_COMMAND, &reg_data);
-	pr_info("%s : otg control!!(%d)(0x%02x)\n", __func__, enable, reg_data);
 }
 
 static void smb328_irq_enable(struct i2c_client *client)
@@ -547,18 +490,10 @@ static const struct file_operations smb328_debugfs_fops = {
 
 static bool smb328_chg_init(struct sec_charger_info *charger)
 {
-	u8 reg_data;
-
 	smb328_irq_disable(charger->client);
 
 	(void) debugfs_create_file("smb328-regs",
 		S_IRUGO, NULL, (void *)charger, &smb328_debugfs_fops);
-
-	smb328_i2c_read(charger->client, SMB328_OTG_POWER_AND_LDO, &reg_data);
-	reg_data &= (~0x18);
-	smb328_set_writable(charger->client, 1);
-	smb328_i2c_write(charger->client, SMB328_OTG_POWER_AND_LDO, &reg_data);
-	smb328_set_writable(charger->client, 0);
 
 	return true;
 }
@@ -653,23 +588,14 @@ static int sec_chg_set_property(struct power_supply *psy,
 		break;
 	/* val->intval : type */
 	case POWER_SUPPLY_PROP_ONLINE:
-		charger->cable_type = val->intval;
-		smb328_charger_function_control(charger);
-
-		if (val->intval == POWER_SUPPLY_TYPE_OTG) {
+		if (charger->charging_current < 0)
 			smb328_charger_otg_control(charger, 1);
-			smb328_otg_over_current_status(charger->client);
-		} else if (val->intval == POWER_SUPPLY_TYPE_BATTERY) {
-			smb328_charger_otg_control(charger, 0);
-		}
-		break;
-	case POWER_SUPPLY_PROP_OTG_OVERCURRENT:
-		smb328_otg_over_current_status(charger->client);
-		break;
-	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
-		if (charger->pdata->siop_level != val->intval) {
-			charger->pdata->siop_level = val->intval;
+		else if (charger->charging_current > 0) {
 			smb328_charger_function_control(charger);
+			smb328_charger_otg_control(charger, 1);
+		 } else {
+			smb328_charger_function_control(charger);
+			smb328_charger_otg_control(charger, 0);
 		}
 		break;
 	default:
@@ -690,7 +616,7 @@ static int smb328_charger_parse_dt(struct device *dev,
         if (np == NULL) {
                 pr_err("%s np NULL\n", __func__);
         } else {
-                ret = of_property_read_u32(np, "chg-float-voltage",
+                ret = of_property_read_u32(np, "chg_float_voltage",
                                            &pdata->chg_float_voltage);
         }
 
@@ -749,8 +675,6 @@ static int smb328_charger_probe(struct i2c_client *client,
 	struct sec_charger_info *charger;
 	int ret = 0;
 
-	otg_enable_flag = 0;
-
 	dev_info(&client->dev,
 			"%s: SEC Charger Driver Loading\n", __func__);
 
@@ -789,8 +713,6 @@ static int smb328_charger_probe(struct i2c_client *client,
 	charger->psy_chg.set_property	= sec_chg_set_property;
 	charger->psy_chg.properties	= sec_charger_props;
 	charger->psy_chg.num_properties	= ARRAY_SIZE(sec_charger_props);
-
-	charger->pdata->siop_level = 100;
 
 	if (charger->pdata->chg_gpio_init) {
 		if (!charger->pdata->chg_gpio_init()) {

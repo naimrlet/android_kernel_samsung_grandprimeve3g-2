@@ -43,8 +43,8 @@
 #include <linux/iio/trigger.h>
 #include <linux/iio/trigger_consumer.h>
 
-#include <linux/sensor/sensors_core.h>
-#include <linux/sensor/gp2a002.h>
+#include <sensors_core.h>
+#include <gp2a002.h>
 
 #define REGS_PROX		0x0 /* Read  Only */
 #define REGS_GAIN		0x1 /* Write Only */
@@ -163,7 +163,7 @@ int gp2a_i2c_read(struct i2c_client *client, u8 reg, u8 *val)
 		}
 	}
 
-	pr_err("[SENSOR] %s, i2c transfer error ret = %d\n", __func__, err);
+	SENSOR_ERR("i2c transfer error ret = %d\n", err);
 
 	return err;
 }
@@ -193,7 +193,7 @@ int gp2a_i2c_write(struct i2c_client *client, u8 reg, u8 val)
 			return 0;
 	}
 
-	pr_err("[SENSOR] %s, i2c transfer error ret= %d\n", __func__, err);
+	SENSOR_ERR("i2c transfer error ret= %d\n", err);
 
 	return err;
 }
@@ -202,33 +202,31 @@ static int gp2a_leda_onoff(struct gp2a_platform_data *pdata,
 	struct device *dev, int power)
 {
 #if defined(CONFIG_SENSORS_LEDA_EN_GPIO)
-	pr_info("[SENSOR] %s %s\n", __func__, (power) ? "on" : "off");
+	SENSOR_INFO("%s\n", (power) ? "on" : "off");
 
 	gpio_set_value(pdata->power_en, power);
 #else
 	int ret;
 	struct regulator *gp2a_leda;
 
-	pr_info("[SENSOR] %s %s\n", __func__, (power) ? "on" : "off");
+	SENSOR_INFO("%s\n", (power) ? "on" : "off");
 
 	gp2a_leda = devm_regulator_get(dev, "gp2a-leda");
 	if (IS_ERR(gp2a_leda)) {
-		pr_err("[SENSOR]: %s - cannot get gp2a_leda\n", __func__);
+		SENSOR_ERR("cannot get gp2a_leda\n");
 		return -ENOMEM;
 	}
 
 	if (power) {
 		ret = regulator_enable(gp2a_leda);
 		if (ret) {
-			pr_err("[SENSOR] %s: enable gp2a_leda failed (%d)\n",
-				__func__, ret);
+			SENSOR_ERR("enable gp2a_leda failed (%d)\n", ret);
 			return ret;
 		}
 	} else {
 		ret = regulator_disable(gp2a_leda);
 		if (ret) {
-			pr_err("[SENSOR] %s: disable gp2a_leda failed (%d)\n",
-				__func__, ret);
+			SENSOR_ERR("disable gp2a_leda failed (%d)\n", ret);
 			return ret;
 		}
 	}
@@ -243,7 +241,7 @@ static int gp2a_leda_onoff(struct gp2a_platform_data *pdata,
 static int gp2a_power_onoff(struct gp2a_data *gp2a, int power)
 {
 	u8 value;
-	pr_info("[SENSOR] %s, status(%d)\n", __func__, power);
+	SENSOR_INFO("status(%d)\n", power);
 
 	if (power) {
 		gp2a_leda_onoff(gp2a->pdata, &gp2a->i2c_client->dev, power);
@@ -311,12 +309,11 @@ static int gp2a_cal_mode_read_file(struct gp2a_data *gp2a)
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
 
-	cal_mode_filp = filp_open(OFFSET_FILE_PATH, O_RDONLY, 0666);
+	cal_mode_filp = filp_open(OFFSET_FILE_PATH, O_RDONLY, 0);
 	if (IS_ERR(cal_mode_filp)) {
 		err = PTR_ERR(cal_mode_filp);
 		if (err != -ENOENT)
-			pr_err("[SENSOR] %s, Can't open cal_mode file\n",
-				__func__);
+			SENSOR_ERR("Can't open cal_mode file\n");
 		set_fs(old_fs);
 		return err;
 	}
@@ -325,8 +322,7 @@ static int gp2a_cal_mode_read_file(struct gp2a_data *gp2a)
 		(char *)&gp2a->cal_mode,
 		sizeof(u8), &cal_mode_filp->f_pos);
 	if (err != sizeof(u8)) {
-		pr_err("[SENSOR] %s, Can't read the cal_mode from file\n",
-			__func__);
+		SENSOR_ERR("Can't read the cal_mode from file\n");
 		filp_close(cal_mode_filp, current->files);
 		set_fs(old_fs);
 		return -EIO;
@@ -348,21 +344,19 @@ static int gp2a_cal_mode_save_file(char mode)
 	set_fs(KERNEL_DS);
 
 	cal_mode_filp = filp_open(OFFSET_FILE_PATH,
-		O_CREAT | O_TRUNC | O_WRONLY, 0666);
+		O_CREAT | O_TRUNC | O_WRONLY, 0660);
 	if (IS_ERR(cal_mode_filp)) {
-		pr_err("[SENSOR] %s, Can't open cal_mode file\n",
-			__func__);
+		SENSOR_ERR("Can't open cal_mode file\n");
 		set_fs(old_fs);
 		err = PTR_ERR(cal_mode_filp);
-		pr_err("[SENSOR] %s, err = %d\n", __func__, err);
+		SENSOR_ERR("err = %d\n", err);
 		return err;
 	}
 
 	err = cal_mode_filp->f_op->write(cal_mode_filp,
 		(char *)&mode, sizeof(u8), &cal_mode_filp->f_pos);
 	if (err != sizeof(u8)) {
-		pr_err("[SENSOR] %s, Can't read the cal_mode from file\n",
-			__func__);
+		SENSOR_ERR("Can't read the cal_mode from file\n");
 		err = -EIO;
 	}
 
@@ -399,7 +393,7 @@ static ssize_t prox_cal_write(struct device *dev,
 		gp2a->nondetect = PROX_NONDETECT;
 		gp2a->detect = PROX_DETECT;
 	} else {
-		pr_err("[SENSOR] %s, invalid value %d\n", __func__, *buf);
+		SENSOR_ERR("invalid value %d\n", *buf);
 		return -EINVAL;
 	}
 
@@ -411,7 +405,7 @@ static ssize_t prox_cal_write(struct device *dev,
 
 	err = gp2a_cal_mode_save_file(gp2a->cal_mode);
 	if (err < 0) {
-		pr_err("[SENSOR] %s, prox_cal_write() failed\n", __func__);
+		SENSOR_ERR("prox_cal_write() failed\n");
 		return err;
 	}
 
@@ -439,11 +433,11 @@ static int gp2a_regulator_onoff(struct device *dev, bool onoff)
 	struct regulator *gp2a_vdd;
 	int ret;
 
-	pr_info("[SENSOR] %s %s\n", __func__, (onoff) ? "on" : "off");
+	SENSOR_INFO("%s\n", (onoff) ? "on" : "off");
 
 	gp2a_vdd = devm_regulator_get(dev, "gp2a-vdd");
 	if (IS_ERR(gp2a_vdd)) {
-		pr_err("[SENSOR]: %s - cannot get gp2a_vdd\n", __func__);
+		SENSOR_ERR("cannot get gp2a_vdd\n");
 		return -ENOMEM;
 	}
 
@@ -452,15 +446,13 @@ static int gp2a_regulator_onoff(struct device *dev, bool onoff)
 	if (onoff) {
 		ret = regulator_enable(gp2a_vdd);
 		if (ret) {
-			pr_err("[SENSOR] %s: enable vdd failed (%d)\n",
-				__func__, ret);
+			SENSOR_ERR("enable vdd failed (%d)\n", ret);
 			return ret;
 		}
 	} else {
 		ret = regulator_disable(gp2a_vdd);
 		if (ret) {
-			pr_err("[SENSOR] %s: disable vdd failed (%d)\n",
-				__func__, ret);
+			SENSOR_ERR("disable vdd failed (%d)\n", ret);
 			return ret;
 		}
 	}
@@ -497,26 +489,24 @@ static ssize_t proximity_enable_store(struct device *dev,
 
 	err = kstrtoint(buf, 10, &value);
 	if (err) {
-		pr_err("[SENSOR] %s, kstrtoint failed.", __func__);
+		SENSOR_ERR("kstrtoint failed.");
 		return -EINVAL;
 	}
 	if (value != 0 && value != 1) {
-		pr_err("[SENSOR] %s, wrong value(%d)\n", __func__, value);
+		SENSOR_ERR("wrong value(%d)\n", value);
 		return -EINVAL;
 	}
 
 	mutex_lock(&gp2a->power_lock);
 
 	if (gp2a->power_state != value) {
-		pr_info("[SENSOR] %s, enable(%d)\n", __func__, value);
+		SENSOR_INFO("enable(%d)\n", value);
 		if (value) {
 			err = gp2a_cal_mode_read_file(gp2a);
 			if (err < 0 && err != -ENOENT)
-				pr_err("[SENSOR] %s, cal_mode read fail\n",
-					__func__);
+				SENSOR_ERR("cal_mode read fail\n");
 
-			pr_info("[SENSOR] %s, mode(%d)\n", __func__,
-				gp2a->cal_mode);
+			SENSOR_INFO("mode(%d)\n", gp2a->cal_mode);
 			if (gp2a->cal_mode == 2) {
 				gp2a->nondetect = PROX_NONDETECT_MODE2;
 				gp2a->detect = PROX_DETECT_MODE2;
@@ -548,7 +538,7 @@ static ssize_t proximity_enable_store(struct device *dev,
 			gp2a->power_state = value;
 		}
 	} else {
-		pr_err("[SENSOR] %s, wrong cmd for enable\n", __func__);
+		SENSOR_ERR("wrong cmd for enable\n");
 	}
 
 	mutex_unlock(&gp2a->power_lock);
@@ -591,7 +581,7 @@ static int gp2a_read_raw(struct iio_dev *indio_dev,
 		*val = data->val_state;
 		break;
 	default:
-		pr_err("[SENSOR] %s, invalied channel\n", __func__);
+		SENSOR_ERR("invalied channel\n");
 		return ret;
 	}
 
@@ -603,19 +593,17 @@ static int gp2a_postenable(struct iio_dev *indio_dev)
 {
 	int ret=0;
 	struct gp2a_data *gp2a = iio_priv(indio_dev);
-	pr_info("[gp2a]in func %s will enable the sensor\n",__func__);
+	SENSOR_INFO("enable the sensor\n");
 	mutex_lock(&gp2a->power_lock);
 
 	if (gp2a->power_state != ON) {
-		pr_info("[SENOSR] %s, enable(%d)\n", __func__, ON);
+		SENSOR_INFO("enable(%d)\n", ON);
 		if (ON) {
 			ret = gp2a_cal_mode_read_file(gp2a);
 			if (ret < 0 && ret != -ENOENT)
-				pr_err("[SENOSR] %s, cal_mode read fail\n",
-					__func__);
+				SENSOR_ERR("cal_mode read fail\n");
 
-			pr_info("[SENOSR] %s, mode(%d)\n", __func__,
-				gp2a->cal_mode);
+			SENSOR_INFO("mode(%d)\n", gp2a->cal_mode);
 			if (gp2a->cal_mode == 2) {
 				gp2a->nondetect = PROX_NONDETECT_MODE2;
 				gp2a->detect = PROX_DETECT_MODE2;
@@ -646,7 +634,7 @@ static int gp2a_postenable(struct iio_dev *indio_dev)
 static int gp2a_predisable(struct iio_dev *indio_dev)
 {
 	struct gp2a_data *gp2a = iio_priv(indio_dev);
-	pr_info("[gp2a]in func %s will cancel the work\n",__func__);
+	SENSOR_INFO("cancel the work\n");
 
 	mutex_lock(&gp2a->power_lock);
 	if(gp2a->power_state != OFF){
@@ -665,12 +653,12 @@ static int gp2a_data_rdy_trigger_set_state(struct iio_trigger *trig,
 	bool state)
 {
 	struct iio_dev *indio_dev = iio_trigger_get_drvdata(trig);
-	pr_info("[gp2a]in func %s will enable the sensor\n",__func__);
+	SENSOR_INFO("enable the sensor\n");
 	if(state)
 		gp2a_postenable(indio_dev);
 	else
 		gp2a_predisable(indio_dev);
-	pr_info("[gp2a]in func %s will enable the sensor\n",__func__);
+	SENSOR_INFO("enable the sensor\n");
 	return 0;
 }
 
@@ -711,7 +699,7 @@ static int gp2a_probe_buffer(struct iio_dev *indio_dev)
 				  gp2a_channels,
 				  ARRAY_SIZE(gp2a_channels));
 	if (ret) {
-		pr_err("[gp2a]failed to initialize the ring\n");
+		SENSOR_ERR("failed to initialize the ring\n");
 	}
 	return 0;
 }
@@ -808,7 +796,7 @@ static void gp2a_prox_work_func(struct work_struct *work)
 	}
 	gp2a_i2c_write(gp2a->i2c_client, REGS_HYS, value);
 
-	pr_info("[SENSOR] %s, %d\n", __func__, gp2a->val_state);
+	SENSOR_INFO("%d\n", gp2a->val_state);
 
 #if defined(CONFIG_SENSORS_IIO)
 	spin_lock_irqsave(&gp2a->spin_lock, flags);
@@ -827,7 +815,7 @@ static void gp2a_prox_work_func(struct work_struct *work)
 irqreturn_t gp2a_irq_handler(int irq, void *data)
 {
 	struct gp2a_data *gp2a = data;
-	pr_info("[SENSOR] %s, %d\n", __func__, irq);
+	SENSOR_INFO("%d\n", irq);
 
 	schedule_work((struct work_struct *)&gp2a->work_prox);
 	wake_lock_timeout(&gp2a->prx_wake_lock, 3*HZ);
@@ -843,15 +831,13 @@ static int gp2a_setup_irq(struct gp2a_data *gp2a)
 
 	ret = gpio_request(pdata->p_out, "gpio_proximity_out");
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, gpio %d request failed (%d)\n",
-			__func__, pdata->p_out, ret);
+		SENSOR_ERR("gpio %d request failed (%d)\n", pdata->p_out, ret);
 		return ret;
 	}
 
 	ret = gpio_direction_input(pdata->p_out);
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, failed gpio %d as input (%d)\n",
-			__func__, pdata->p_out, ret);
+		SENSOR_ERR("failed gpio %d as input (%d)\n", pdata->p_out, ret);
 		goto err_gpio_direction_input;
 	}
 
@@ -863,13 +849,13 @@ static int gp2a_setup_irq(struct gp2a_data *gp2a)
 		IRQF_TRIGGER_FALLING | IRQF_ONESHOT | IRQF_NO_SUSPEND,
 		"proximity_int", gp2a);
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, request_irq(%d) failed for gpio %d (%d)\n",
-			__func__, gp2a->irq, pdata->p_out, ret);
+		SENSOR_ERR("request_irq(%d) failed for gpio %d (%d)\n",
+			gp2a->irq, pdata->p_out, ret);
 		goto err_request_irq;
 	}
 
-	pr_info("[SENSOR] %s, request_irq(%d) success for gpio %d\n",
-		__func__, gp2a->irq, pdata->p_out);
+	SENSOR_INFO("request_irq(%d) success for gpio %d\n",
+		gp2a->irq, pdata->p_out);
 
 	disable_irq(gp2a->irq);
 
@@ -892,14 +878,14 @@ static int gp2a_request_gpio(struct gp2a_platform_data *pdata)
 #if defined(CONFIG_SENSORS_LEDA_EN_GPIO)
 	ret = gpio_request(pdata->power_en, "prox_en");
 	if (ret) {
-		pr_err("[SENSOR] %s: gpio request fail\n", __func__);
+		SENSOR_ERR("gpio request fail\n");
 		return ret;
 	}
 
 	ret = gpio_direction_output(pdata->power_en, 0);
 	if (ret) {
-		pr_err("[SENSOR] %s: unable to set_direction [%d]\n",
-			__func__, pdata->power_en);
+		SENSOR_ERR("unable to set_direction [%d]\n",
+			pdata->power_en);
 		return ret;
 	}
 #endif
@@ -917,8 +903,7 @@ static int gp2a_parse_dt(struct device *dev, struct gp2a_platform_data *pdata)
 	pdata->p_out = of_get_named_gpio_flags(np, "gp2a-i2c,irq-gpio", 0,
 		&flags);
 	if (pdata->p_out < 0) {
-		pr_err("[SENSOR] %s : get irq_gpio(%d) error\n", __func__,
-			pdata->p_out);
+		SENSOR_ERR("get irq_gpio(%d) error\n", pdata->p_out);
 		return -ENODEV;
 	}
 
@@ -926,8 +911,7 @@ static int gp2a_parse_dt(struct device *dev, struct gp2a_platform_data *pdata)
 	pdata->power_en = of_get_named_gpio_flags(np, "gp2a-i2c,en-gpio", 0,
 		&flags);
 	if (pdata->power_en < 0) {
-		pr_err("[SENSOR] %s : get power_en(%d) error\n", __func__,
-			pdata->power_en);
+		SENSOR_ERR("get power_en(%d) error\n", pdata->power_en);
 		return -ENODEV;
 	}
 #endif
@@ -946,17 +930,17 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 #endif
 	int ret;
 
-	pr_info("[SENSOR] %s, start\n", __func__);
+	SENSOR_INFO("start\n");
 
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		pr_err("[SENSOR] %s, i2c functionality failed\n", __func__);
+		SENSOR_ERR("i2c functionality failed\n");
 		return -ENOMEM;
 	}
 
 #if defined(CONFIG_SENSORS_GP2A_HAS_REGULATOR)
 	ret = gp2a_regulator_onoff(&client->dev, ON);
 	if (ret) {
-		pr_err("[SENSOR] %s, Power Up Failed\n", __func__);
+		SENSOR_ERR("Power Up Failed\n");
 		return ret;
 	}
 #endif
@@ -978,8 +962,7 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	/* Check if the device is there or not. */
 	ret = gp2a_i2c_write(client, REGS_CON, 0x00);
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, gp2a is not connected.(%d)\n", __func__,
-			ret);
+		SENSOR_ERR("gp2a is not connected.(%d)\n", ret);
 		goto err_setup_dev;
 	}
 
@@ -987,7 +970,7 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	/* Configure IIO device */
 	indio_dev = iio_device_alloc(sizeof(*gp2a));
 	if (!indio_dev) {
-		pr_err("[SENSOR] %s, iio_device_alloc failed\n", __func__);
+		SENSOR_ERR("iio_device_alloc failed\n");
 		ret = -ENOMEM;
 		goto err_mem_alloc;
 	}
@@ -1004,20 +987,19 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	indio_dev->info = &gp2a_info;
 	ret = gp2a_probe_buffer(indio_dev);
 	if (ret) {
-		pr_err("[gp2a]failed to probe the buffer\n");
+		SENSOR_ERR("failed to probe the buffer\n");
 		goto exit_iio_buffer_failed;
 	}
 
 	ret = gp2a_probe_trigger(indio_dev);
 	if (ret) {
-		pr_err("[gp2a]failed to gp2a_probe_trigger\n");
+		SENSOR_ERR("failed to gp2a_probe_trigger\n");
 		goto exit_iio_trigger_failed;
 	}
 
 	ret = iio_device_register(indio_dev);
 	if (ret) {
-		pr_err("[SENSOR] %s: iio_device_register failed(%d)\n",
-			__func__, ret);
+		SENSOR_ERR("iio_device_register failed(%d)\n", ret);
 		goto exit_iio_register_failed;
 	}
 
@@ -1029,7 +1011,7 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 	/* Allocate memory for driver data */
 	gp2a = kzalloc(sizeof(struct gp2a_data), GFP_KERNEL);
 	if (!gp2a) {
-		pr_err("[SENSOR] %s, failed memory alloc\n", __func__);
+		SENSOR_ERR("failed memory alloc\n");
 		ret = -ENOMEM;
 		goto err_mem_alloc;
 	}
@@ -1040,8 +1022,7 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 
 	gp2a->input = input_allocate_device();
 	if (!gp2a->input) {
-		pr_err("[SENSOR] %s, could not allocate input device\n",
-			__func__);
+		SENSOR_ERR("could not allocate input device\n");
 		goto err_input_allocate_device_proximity;
 	}
 
@@ -1052,21 +1033,20 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 
 	ret = input_register_device(gp2a->input);
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, could not register input device\n",
-			__func__);
+		SENSOR_ERR("could not register input device\n");
 		goto err_input_register_device_proximity;
 	}
 	ret = sensors_create_symlink(&gp2a->input->dev.kobj,
 		gp2a->input->name);
 	if (ret < 0) {
-		pr_err("[SENSOR] %s, create sysfs symlink error\n", __func__);
+		SENSOR_ERR("create sysfs symlink error\n");
 		goto err_sysfs_create_symlink_proximity;
 	}
 
 	ret = sysfs_create_group(&gp2a->input->dev.kobj,
 		&proximity_attribute_group);
 	if (ret) {
-		pr_err("[SENSOR] %s, create sysfs group error\n", __func__);
+		SENSOR_ERR("create sysfs group error\n");
 		goto err_sysfs_create_group_proximity;
 	}
 #endif
@@ -1079,21 +1059,20 @@ static int gp2a_i2c_probe(struct i2c_client *client,
 
 	ret = gp2a_setup_irq(gp2a);
 	if (ret) {
-		pr_err("[SENSOR] %s, could not setup irq\n", __func__);
+		SENSOR_ERR("could not setup irq\n");
 		goto err_setup_irq;
 	}
 
 	ret = sensors_register(gp2a->dev, gp2a, proxi_attrs,
 		"proximity_sensor");
 	if (ret < 0) {
-		pr_info("[SENSOR] %s, could not sensors_register\n",
-			__func__);
+		SENSOR_INFO("could not sensors_register\n");
 		goto err_sensors_register;
 	}
 
 	gp2a_leda_onoff(pdata, &client->dev, OFF);
 
-	pr_info("[SENSOR] %s done\n", __func__);
+	SENSOR_INFO("done\n");
 	goto done;
 
 err_sensors_register:

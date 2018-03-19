@@ -60,7 +60,15 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530000>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
+                        clocks = <&clk_little_mcu>;
+                        cpu0-supply = <&vddarm>;
+                        operating-points = <
+                        /* kHz    uV */
+                        1000000  950000
+                        900000   950000
+                        768000   950000
+                        >;
 		};
 
 		CPU1: cpu@530001 {
@@ -68,7 +76,7 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530001>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		CPU2: cpu@530002 {
@@ -76,7 +84,7 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530002>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		CPU3: cpu@530003 {
@@ -84,7 +92,7 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530003>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		CPU4: cpu@530100 {
@@ -92,7 +100,14 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530100>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
+                        clocks = <&clk_big_mcu>;
+                        cpu0-supply = <&vddbigarm>;
+                        operating-points = <
+                        /* kHz    uV */
+                        1500000   1070000
+                        1200000   950000
+                        >;
 		};
 
 		CPU5: cpu@530101 {
@@ -100,7 +115,7 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530101>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		CPU6: cpu@530102 {
@@ -108,7 +123,7 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530102>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		CPU7: cpu@530103 {
@@ -116,33 +131,33 @@
 			compatible = "arm,cortex-a53","arm,armv8";
 			reg = <0x0 0x530103>;
 			enable-method = "psci";
-			cpu-idle-states = <&LIGHT_SLEEP>;
+			cpu-idle-states = <&LIGHT_SLEEP &CORE_PD &CLUSTER_PD>;
 		};
 
 		idle-states{
 			entry-method = "arm,psci";
 			LIGHT_SLEEP: light_sleep {
 				compatible = "arm,idle-state";
-				exit-latency-us = <100>;
-				min-residency-us = <500>;
+				exit-latency-us = <10>;
+				min-residency-us = <50>;
 				entry-method-param = <0x00000001>;
 			};
 			CORE_PD: core_pd {
 				compatible = "arm,idle-state";
 				exit-latency-us = <1070>;
-				min-residency-us = <1600>;
+				min-residency-us = <2500>;
 				entry-method-param = <0x00010002>;
 			};
 			CLUSTER_PD: cluster_pd {
 				compatible = "arm,idle-state";
 				exit-latency-us = <2000>;
-				min-residency-us = <5000>;
+				min-residency-us = <3000>;
 				entry-method-param = <0x01010003>;
 			};
 			TOP_PD: top_pd {
 				compatible = "arm,idle-state";
-				exit-latency-us = <2000>;
-				min-residency-us = <5000>;
+				exit-latency-us = <2300>;
+				min-residency-us = <10000>;
 				entry-method-param = <0x01010004>;
 			};
 			DEEP_SLEEP: deep_sleep {
@@ -245,7 +260,7 @@
 		ngpios = <16>;
 		interrupts = <0 37 0x0>;
 	};
-	
+
 	d_gpio_gpio: gpio@40280000 {
 		compatible = "sprd,d-gpio-gpio";
 		reg = <0 0x40280000 0 0x1000>;
@@ -324,12 +339,15 @@
 			interrupts = <0 60 0x0>;
 			sprd,name = "sdio_emmc";
 			/*detect_gpio = <-1>; */
-			SD_Pwr_Name = "vddemmccore";
-			_1_8V_signal_Name = "vddgen0";
+			/*** keep eMMC power on ***/
+			/* additional settings in pm-scx35.c */
+			//SD_Pwr_Name = "vddemmccore";
+			//_1_8V_signal_Name = "vddgen0";
                         signal_default_Voltage = <1800000>;
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_emmc>, <&clk_192m>;
 			base_clk = <192000000>;
+			/* added Samsung caps in sdhost.c */
 			caps = <0xC00F8D47>;
 			caps2 = <0x202>;
 			pm_caps = <0x4>;
@@ -350,6 +368,7 @@
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_sdio0>, <&clk_192m>;
 			base_clk = <192000000>;
+			/* added Samsung caps in sdhost.c */
 			caps = <0xC0020407>;
 			caps2 = <0x200>;
 			pm_caps = <0x4>;
@@ -422,27 +441,34 @@
 	usb: usb@20200000{
 		compatible  = "sprd,usb";
 		interrupts = <0 55 0x0>;
-		ngpios = <1>;
-		gpios = <&a_eic_gpio 0 0>;
+		vbus-gpios = <&a_eic_gpio 0 0>;
 		reg = <0 0x20200000 0 0x1000>;
 		tune_value = <0x0005af33>;
 		usb-supply = <&vddusb>;
+		phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
 
-	sprd_thermal: thermal@402F0000{
-		compatible = "sprd,sprd-thermal";
-		id = <0>;
-		interrupts = <0 26 0x0>;
-		reg = <0 0x402F0000 0 0x1000>;
-		trip_points_active = <65 69 95 110>;
-		trip_points_lowoff =  <0 57 60 80>;
-		trip_points_critical = <100>;
-		trip_num = <5>;
+	usb_notifier {
+		compatible = "samsung,usb-notifier";
+		booster-name = "sm5701_booster";
 	};
 
-	sprd_thermal1:thermal1@402F0000 {
+	sprd_thermal: thermal_arm@402F0000{
+		compatible = "sprd,sprd-thermal";
+                id = <0>;
+                interrupts = <0 26 0x0>;
+                reg = <0 0x402F0000 0 0x1000>;
+                trip_points_active = <94 105>;
+                trip_points_lowoff =  <0 75>;
+                trip_points_critical = <105>;
+                trip_num = <3>;
+                cool_num = <2>;
+                cooling-names = "thermal-cpufreq-0","thermal-cpufreq-0",
+                                "thermal-cpufreq-1","thermal-cpufreq-1";
+	};
+	sprd_thermal1:thermal_gpu@402F0000 {
 		compatible = "sprd,sprd-thermal";
 		id = <1>;
 		interrupts = <0 26 0x0>;
@@ -452,8 +478,7 @@
 		trip_points_critical = <100>;
 		trip_num = <2>;
 	};
-
-	sprd_thermal2: thermal@40038280{
+	sprd_thermal2: thermal_adi@40038280{
 		compatible = "sprd,sprd-thermal";
 		id = <2>;
 		interrupt-parent = <&adi>;
@@ -464,7 +489,41 @@
 		trip_points_critical = <110>;
 		trip_num = <2>;
 	};
-
+	sprd_thermal3:thermal_bcore@402F0000 {
+		compatible = "sprd,sprd-thermal";
+		id = <3>;
+		interrupts = <0 26 0x0>;
+		reg = <0 0x402F0000 0 0x1000>;
+		trip_points_active = <100>;
+		trip_points_lowoff = <90>;
+		trip_points_critical = <100>;
+		trip_num = <2>;
+	};
+	sprd_board_thermal: thermal_board{
+        	compatible = "sprd,board-thermal";
+		id = <4>;
+		trip_points_active = <62 100>;
+                trip_points_lowoff = <0 58>;
+		trip_points_critical = <100>;
+		trip_num = <3>;
+		temp_inteval=<2>;
+		temp-support = <1>;
+		temp-adc-ch = <2>;
+		temp-adc-scale = <1>;
+		temp-adc-sample-cnt = <15>;
+		temp-table-mode = <1>;
+		temp-tab-size = <16>;
+		temp-tab-val = <1122 1094 1049 983 892 779
+				654 528 413 316 238 178
+				133 100 75 57>;
+		temp-tab-temp = <965 975 985 995 1005 1015	/* temperature + 1000,750 = 1000 + (-250)*/
+				1025 1035 1045 1055 1065 1075
+				1085 1095 1105 1115>;
+		cool_num = <2>;
+		cooling-names = "thermal-cpufreq-2","thermal-cpufreq-2",
+				"thermal-cpufreq-3","thermal-cpufreq-3";
+			
+	};
 	adc: adc@40038300{
 		compatible  = "sprd,sprd-adc";
 		reg = <0x40038300 0x1000>;
@@ -478,6 +537,38 @@
 		clocks = <&clk_i2c0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+	};
+	little_cpu_cooling{
+		compatible = "sprd,sprd-cpu-cooling";
+		id = <0>;
+		cluster = <0>;
+		max_freq = <1000000 768000>;
+		max_core = <4 1>;
+		state_num = <2>;
+	};
+	big_cpu_cooling{
+		compatible = "sprd,sprd-cpu-cooling";
+		id = <1>;
+		cluster = <1>;
+		max_freq = <1500000 1200000>;
+		max_core = <4 0>;
+		state_num = <2>;
+	};
+	little_pcb_cooling{
+		compatible = "sprd,sprd-cpu-cooling";
+		id = <2>;
+		cluster = <0>;
+		max_freq = <1000000 1000000>;
+		max_core = <4 3>;
+		state_num = <2>;
+	};
+	big_pcb_cooling{
+		compatible = "sprd,sprd-cpu-cooling";
+		id = <3>;
+		cluster = <1>;
+		max_freq = <1500000 1200000>;
+		max_core = <4 0>;
+		state_num = <2>;
 	};
 
 	i2c1: i2c@70600000{
@@ -797,46 +888,46 @@
 	/*sharLT8 gspn initializer */
 	gspn:gspn@0x20A00000 {
 		compatible = "sprd,gspn";
-		reg = <0x71500000 0x1000>,	//arm interrupt ctl reg
-			<0x20E00000 0x1000>,	//gspn module enable ctl reg base
-			<0x20E00004 0x1000>,	//gspn module reset ctl reg base
-			<0x20E0304C 0x1000>,	//[0] gsp/gspn select reg base, 0:gsp; 1:gspn
-			<0x402e00fc 0x1000>;	//[0] ap chip id reg addr
+		reg = <0 0x71500000 0 0x1000>, // arm interrupt ctl reg
+			<0 0x20E00000 0 0x1000>, //gspn module enable ctl reg base
+			<0 0x20E00004 0 0x1000>, //gspn module reset ctl reg base
+			<0 0x20E0304C 0 0x1000>, //[0] gsp/gspn select reg base, 0:gsp; 1:gspn
+			<0 0x402e00fc 0 0x1000>; //[0] ap chip id reg addr
 		gspn0:gspn@0x20A00000 {
 			core_id = <0>;
-			gspn_en_rst_bit = <0x00000008>;	//bit3
-			mmu_en_rst_bit = <0x00000008>;	//bit3
-			auto_gate_bit = <0x00000100>;	//bit8
-			force_gate_bit = <0x00000200>;	//bit9
-			emc_en_bit = <0x00000008>;		//bit3
-			reg = <0x20A00000 0x1000>,		//gspn module ctl reg
-				<0x20B10000 0x1000>,		//iommu ctl reg,64MB,page size 4KB
-				<0x21500028 0x1000>,		//gspn clock source select ctl reg base
-				<0x20E00010 0x1000>,		//gspn clock auto-gate/force-gate ctl reg base
-				<0x20E00000 0x1000>;		//gspn emc clock ctl reg base
+			gspn_en_rst_bit = <0x00000008>;//bit3
+			mmu_en_rst_bit = <0x00000008>;//bit3
+			auto_gate_bit = <0x00000100>;//bit8
+			force_gate_bit = <0x00000200>;//bit9
+			emc_en_bit = <0x00000008>;//bit3
+			reg = <0 0x20A00000 0 0x1000>, //gspn module ctl reg
+				<0 0x20B08000 0 0x1000>, //iommu ctl reg,64MB,page size 4KB
+				<0 0x215000a0 0 0x1000>, //gspn clock source select ctl reg base
+				<0 0x20E00010 0 0x1000>, //gspn clock auto-gate/force-gate ctl reg base
+				<0 0x20E00000 0 0x1000>; //gspn emc clock ctl reg base
 			interrupts = <0 51 0x0>;
-			clock-names = "clk_gsp", "clk_gsp_emc", "clk_gsp_parent", "clk_aon_apb";
-			//clocks = <&clk_gsp>, <&clk_gsp_emc>, <&clk_256m>, <&clk_aon_apb>;
+			clock-names = "clk_gsp1", "clk_gsp_emc", "clk_gsp_parent", "clk_aon_apb";
+			clocks = <&clk_gsp1>, <&clk_gsp_emc>, <&clk_307m2>, <&clk_aon_apb>;
 		};
 	};
 
 	sipc: sipc@0x87800000 {
 		compatible = "sprd,sipc";
-		reg = <0 0x87800000 0 0x5B0000>;	/* <SMEM SIZE>*/
+		reg = <0 0x87800000 0 0x400000>; /* <SMEM SIZE>*/
 		//#interrupt-cells = <2>;
 		#address-cells = <1>;
 		#size-cells = <1>;
-		ranges =<0x09600000 0 0x89600000 0x4600000>,
-				<0x07800000 0 0x87800000 0x5B0000>,
-				<0x0dbff000 0 0x8dbff000 0x1000>;
+		ranges =<0x09600000 0 0x89600000 0x4000000>,
+				<0x07800000 0 0x87800000 0x400000>,
+				<0x01440000 0 0x8AA40000 0x1000>;
 		sipc_lte@0x09600000 {
 			sprd,name = "sipc-lte";
 			sprd,dst = <5>;
 			/* it's unnecessary to config IPI info upon mailbox arch */
 			mailbox,core = <7>;
-			reg = <0x09600000 0x4600000>,	/* <CP_start_addr size> */
-				<0x07800000 0x5B0000>,		/* <SMEM_phy_addr total_size> */
-				<0x0dbff000 0x1000>;		/* smsg ring buffer <base size> */
+			reg = <0x09600000 0x4000000> , /* <CP_start_addr size> */
+				<0x07800000 0x400000>, /* <SMEM_phy_addr total_size> */
+				<0x01440000 0x1000>; /* smsg ring buffer <base size> */
 		};
 	};
 
@@ -879,7 +970,7 @@
 		sprd,name = "spipe_lte";
 		sprd,dst = <5>;
 		sprd,channel = <4>;
-		sprd,ringnr = <9>;
+		sprd,ringnr = <11>;
 		sprd,size-rxbuf = <0x1000>;		/* 4*1024 */
 		sprd,size-txbuf = <0x1000>;		/* 4*1024 */
 	};
@@ -916,57 +1007,63 @@
 
 	seth0_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte0";
+		sprd,name = "rmnet0";
 		sprd,dst = <5>;
 		sprd,channel = <7>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	seth1_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte1";
+		sprd,name = "rmnet1";
 		sprd,dst = <5>;
 		sprd,channel = <8>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	seth2_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte2";
+		sprd,name = "rmnet2";
 		sprd,dst = <5>;
 		sprd,channel = <9>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	seth3_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte3";
+		sprd,name = "rmnet3";
 		sprd,dst = <5>;
 		sprd,channel = <18>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	seth4_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte4";
+		sprd,name = "rmnet4";
 		sprd,dst = <5>;
 		sprd,channel = <19>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	seth5_lte {
 		compatible = "sprd,seth";
-		sprd,name = "seth_lte5";
+		sprd,name = "rmnet5";
 		sprd,dst = <5>;
 		sprd,channel = <20>;
-		sprd,blknum = <256>;
+		sprd,blknum = <512>;
+		sprd,poolsize = <16>;
 	};
 
 	scproc_arm7: scproc@0x50800000 {
 		compatible = "sprd,scproc";
 		sprd,name = "cppmic";
-		sprd,ctrl-reg = <0x114 0xff 0xb0 0xff>;				/* <shut_down deep_sleep reset get_status> */
-		sprd,ctrl-mask = <0x01 0xfffffffe 0x100 0xf0000>;	/* masks <> */
+		sprd,ctrl-reg = <0x114 0xcc 0xb0 0xff>; /* <shut_down deep_sleep reset get_status> */
+		sprd,ctrl-mask = <0x01 0x200000 0x100 0xf0000>; /* masks <> */
 		sprd,iram-data = <0xe59f0000 0xe12fff10 0x0>;		/* 3rd param equals modem_addr*/
 		reg = <0 0x50800000 0 0x8000>,						/* <CP_start_addr total_size> = <+128M 26M> */
 			<0 0x50800000 0 0x0>,							/* <iram1_base size> */
@@ -987,26 +1084,30 @@
 	scproc_cp1: scproc@0x89600000 {
 		compatible = "sprd,scproc";
 		sprd,name = "cptl";
-		sprd,ctrl-reg = <0x0c 0xff 0xb0 0x78>;					/* <shut_down deep_sleep reset get_status> */
-		sprd,ctrl-mask = <0x00300000 0x10000000 0x02 0x1>;		/* masks <> */
-		sprd,iram-data = <0xe59f0000 0xe12fff10 0x8ae00000>;	/* 3rd param equals modem_addr*/
-		reg = <0 0x89600000 0 0x5300000>,						/* <CP_start_addr total_size> = <+128M 83M> */
+		sprd,ctrl-reg = <0x0c 0xcc 0xb0 0x78>; /* <shut_down deep_sleep reset get_status> */
+                sprd,ctrl-mask = <0x00300000 0x140000 0x02 0x1>; /* masks <> */
+		sprd,iram-data = <0xe59f0000 0xe12fff10 0x8AB48000>; /* 3rd param modem_addr*/
+		reg = <0 0x89600000 0 0x4000000>, /* <CP_start_addr total_size> = <+128M 83M> */
 			<0 0x50001000 0 0x0c>,								/* <iram1_base size> */
 			<0 0x402e0000 0 0x100>,								/* <aon_apb_base size> */
 			<0 0x402b0000 0 0x100>,								/* <pmu_base size> */
 			<0 0x402b0000 0 0x100>,								/* <pmu_base size> */
-			<0 0x402b0000 0 0x100>;								/* <pmu_base size> */
+			<0 0x402b0000 0 0x100>, /* <pmu_base size> */
+			<0 0x8AA41000 0 0x800>;/* <mini_dump_base size> */
 		interrupts = <0 84 0x0>;								/* cp1_wdg_int */
 		#address-cells = <1>;
 		#size-cells = <1>;
 		/* segnr=4 */
-		ranges = <0x1800000 0 0x8ae00000 0x02E00000>,
-			<0x0020000 0 0x89620000 0x002E0000>,
-			<0x0300000 0 0x89900000 0x1C0000>,
-			<0x4900000 0 0x8df00000 0xA00000>;
-		modem@0x1800000 {
+		ranges = <0x1548000 0 0x8AB48000 0x00c00000>,
+			 <0x0020000 0 0x89620000 0x002E0000>,
+			 <0x0300000 0 0x89900000 0x1C0000>,
+			 <0x3880000 0 0x8CE80000 0x200000>,
+			 <0x1441800 0 0x8AA41800 0x800>,
+                         <0x1442000 0 0x8AA42000 0x6C000>,
+                         <0x14AE000 0 0x8AAAE000 0x90000>;
+		modem@0x1548000 {
 			cproc,name = "modem";
-			reg = <0x1800000 0x02E00000>;						/* <modem_addr size> */
+			reg = <0x01548000 0x00C00000>; /* <modem_addr size> */
 		};
 		dsp@0x20000 {
 			cproc,name = "tgdsp";
@@ -1016,9 +1117,21 @@
 			cproc,name = "ldsp";
 			reg = <0x300000 0x1c0000>;							/* <dsp_addr size>*/
 		};
-		modem@0x4900000 {
+                modem@0x3880000 {
 			cproc,name = "warm";
-			reg = <0x4900000 0xA00000>;							/* <modem_addr size>*/
+			reg = <0x3880000 0x200000>; /* <modem_addr size>*/
+		};
+		cpcmdline@0x1441800 {
+			cproc,name = "cpcmdline";
+			reg = <0x1441800 0x800>; /* <modem_addr size>*/
+		};
+		fixnv@0x1442000 {
+			cproc,name = "fixnv";
+			reg = <0x1442000 0x6c000>;
+		};
+		runnv@0x14AE000 {
+			cproc,name = "runnv";
+			reg = <0x14AE000 0x90000>;
 		};
 	};
 
@@ -1031,14 +1144,29 @@
 	gpu: gpu@60000000 {
 		compatible = "sprd,mali-midgard";
 		reg = <0 0x60000000 0 0x4000>;
-		interrupts = <0 39 0x4>,
-					<0 39 0x4>,
-					<0 39 0x4>;
-		interrupt-names = "JOB",
-						"MMU",
-						"GPU";
-		clocks = <&clk_gpu_avs>;
-		clock-names = "clk_gpu_avs";
+		interrupts = <0 39 0x4>, <0 39 0x4>, <0 39 0x4>;
+		interrupt-names = "JOB", "MMU", "GPU";
+
+		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6>, <&clk_192m>, <&clk_256m>, <&clk_307m2>, <&clk_384m>, <&clk_gpll>;
+		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6","clk_192m","clk_256m","clk_307m2","clk_384m","clk_gpll";
+
+		operating-points = <
+			/* kHz    uV */
+			512000   0
+			384000   0
+			256000   0
+			153600   0
+			>;
+
+		freq-list-len = <4>;
+		freq-lists = <153600 2 1>, <256000 4 1>, <384000 6 1>, <512000 7 1>;
+		freq-default = <3>;
+		freq-9 = <3>;
+		freq-8 = <3>;
+		freq-7 = <1>;
+		freq-5 = <0>;
+		freq-range-max = <3>;
+		freq-range-min = <0>;
 	};
 
 	l_ion: ion {
@@ -1090,8 +1218,8 @@
 				<0 0x60f00000 0 0x20000>,		//pgt
 				<0 0x60f20000 0 0x2000>;		//ctrl_reg
 		reg_name = "iova","pgt","ctrl_reg";
-		clock-names = "clk_mmu","clk_mm_i";
-		clocks = <&clk_mmu>,<&clk_mm>;
+		clock-names = "clk_mmu","clk_mm_i","clk_mm_axi";
+		clocks = <&clk_mmu>,<&clk_mm>,<&clk_mm_axi>;
 		status = "ok";
 	};
 
@@ -1099,9 +1227,8 @@
 		compatible = "sprd,sprd_vsp";
 		reg = <0 0x60900000 0 0xc000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-		clocks = <&clk_mm>, <&clk_vsp>, <&clk_307m2>, <&clk_256m>, <&clk_128m>, <&clk_96m>;
-		clock-parent-info = <2 4>;
+		clock-names = "clk_mm_i", "clk_vsp", "clk_mm_axi";
+		clocks = <&clk_mm>, <&clk_vsp>, <&clk_mm_axi>;
 		version = <7>;
 	};
 
@@ -1109,7 +1236,7 @@
 		compatible = "sprd,sprd_vpp";
 		reg = <0 0x61000000 0 0x4000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i","clk_vpp";
+		clock-names = "clk_mm","clk_vpp";
 		clocks = <&clk_mm>, <&clk_vpp>;
 	};
 
@@ -1119,6 +1246,7 @@
 		interrupts = <0 43 0x0>;
 		clock-names = "clk_mm_i","clk_coda7_axi","clk_coda7_cc","clk_coda7_apb";
 		clocks = <&clk_mm>, <&clk_coda7_axi>, <&clk_coda7_cc>, <&clk_coda7_apb>;
+		power-regs-info = <0x402b0044 0 0x402b00c8 0xf0000000>;
 	};
 
 	sprd_jpg {

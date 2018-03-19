@@ -99,12 +99,12 @@ static LCM_Init_Code init_data[] = {
 	{LCM_SEND(2),{0x00,0x81}},
 	//if(!TC358768_Gen_write_1A_1P(0xC1,0x55)) return -1;//xufei 2013-08-26 delete
 	//or
-	{LCM_SEND(2),{0xC1,0x66}},
+	{LCM_SEND(2),{0xC1,0x55}},
 	{LCM_SEND(2),{0x00,0x90}},
 	{LCM_SEND(2),{0xC4,0x49}},
 	{LCM_SEND(2),{0x00,0x00}},
-	{LCM_SEND(2),{0x35,0x01}},
-	{LCM_SEND(2),{0x00,0x00}},
+	//{LCM_SEND(2),{0x35,0x01}},
+	//{LCM_SEND(2),{0x00,0x00}},
 	{LCM_SEND(2),{0x36,0x00}},
 	//-----------------POWER SETTING-----------------
 	{LCM_SEND(2),{0x00,0xA0}},
@@ -125,15 +125,15 @@ static LCM_Init_Code init_data[] = {
 
 	//if(!TC358768_Gen_write_1A_2P(0xC5,0x04,0xB8)) return -1;//xufei 2013-08-26 delete
 	//or
-	{LCM_SEND(5),{3,0,0xC5,0x04,0x58}},
+	{LCM_SEND(5),{3,0,0xC5,0x04,0xB8}},
 	{LCM_SEND(2),{0x00,0xBB}},
 	{LCM_SEND(2),{0xC5,0x80}},
 	{LCM_SEND(2),{0x00,0x82}},
 	{LCM_SEND(2),{0xC4,0x02}},
 	{LCM_SEND(2),{0x00,0xC6}},
 	{LCM_SEND(2),{0xB0,0x03}},
-	{LCM_SEND(2),{0x00,0xB1}},
-	{LCM_SEND(2),{0xC6,0x03}},
+	//{LCM_SEND(2),{0x00,0xB1}}, 
+	//{LCM_SEND(2),{0xC6,0x03}},
 	//-----------------CONTROL SETTING---------------
 	{LCM_SEND(2),{0x00,0x00}},
 	{LCM_SEND(2),{0xD0,0x40}},
@@ -260,12 +260,12 @@ static LCM_Init_Code init_data[] = {
 	{LCM_SEND(2),{0x00,0xC0}},
 	{LCM_SEND(10),{8,0,0xCF,0x02,0x01,0x20,0x20,0x00,0x00,0x01}},
 	{LCM_SEND(2),{0x00,0xC7}},
-	{LCM_SEND(6),{4,0,0xCF,0x81,0x00,0x03,0x08}},
+	{LCM_SEND(7),{5,0,0xCF,0x81,0x00,0x03,0x08}},
 	{LCM_SEND(2),{0x00,0xB5}},
 	{LCM_SEND(9),{7,0,0xC5,0x00,0x6F,0xFF,0x00,0x6F,0xFF}},
 	//-----------------FOR POWER IC--------------------------
 	{LCM_SEND(2),{0x00,0x90}},
-	{LCM_SEND(6),{4,0,0xF5,0x02,0x11,0x02,0x11}},
+	{LCM_SEND(7),{5,0,0xF5,0x02,0x11,0x02,0x11}},
 	{LCM_SEND(2),{0x00,0x90}},
 	{LCM_SEND(2),{0xC5,0x50}},
 	{LCM_SEND(2),{0x00,0x94}},
@@ -285,13 +285,13 @@ static LCM_Init_Code init_data[] = {
 	{LCM_SEND(2),{0xF5,0x03}},
 	{LCM_SEND(2),{0x00,0xB4}},
 	{LCM_SEND(2),{0xC5,0xC0}},
-	{LCM_SEND(2),{0x00,0xc6}},
-	{LCM_SEND(2),{0xB0,0x03}},
+	//{LCM_SEND(2),{0x00,0xc6}},
+	//{LCM_SEND(2),{0xB0,0x03}},
 	//spread frame range
-	{LCM_SEND(2),{0x00,0xA0}},
-	{LCM_SEND(2),{0xC1,0x02}},
-	{LCM_SEND(2),{0x00,0xA3}},
-	{LCM_SEND(2),{0xC1,0xF0}},
+	//{LCM_SEND(2),{0x00,0xA0}},
+	//{LCM_SEND(2),{0xC1,0x02}},
+	//{LCM_SEND(2),{0x00,0xA3}},
+	//{LCM_SEND(2),{0xC1,0xF0}},
 	//-----------------GAMMA------------------------------
 	{LCM_SEND(2),{0x00,0x00}},
 	{LCM_SEND(10),{8,0,0xE1,0x00,0x0d,0x14,0x0d,0x06,0x0e,0x0a}},
@@ -305,8 +305,8 @@ static LCM_Init_Code init_data[] = {
 	{LCM_SEND(1), {0x11}}, // sleep out
 	{LCM_SLEEP(120)},
 	{LCM_SEND(1), {0x29}}, // display on
-	{LCM_SLEEP(50),}, //30, 100
-	{LCM_SEND(1), {0x2C}}, // normal on
+	{LCM_SLEEP(50),}, //30,100
+	//{LCM_SEND(1), {0x2C}}, // normal on
 };
 
 static int32_t otm1283a_mipi_init(struct panel_spec *self)
@@ -501,9 +501,9 @@ static struct panel_operations lcd_otm1283a_mipi_operations = {
 };
 
 static struct timing_rgb lcd_otm1283a_mipi_timing = {
-	.hfp =32,
+	.hfp = 32,
 	.hbp = 4,
-	.hsync =8,
+	.hsync = 8,
 	.vfp = 17,
 	.vbp = 18,
 	.vsync = 7,

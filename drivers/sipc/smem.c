@@ -23,10 +23,15 @@
 
 #include <linux/sipc.h>
 
+enum {
+	smem_pool_init = 0x1,
+};
+
 struct smem_pool {
 	struct list_head 	smem_head;
 	spinlock_t 		lock;
 
+	uint32_t		flag;
 	uint32_t		addr;
 	uint32_t		size;
 	atomic_t 		used;
@@ -65,6 +70,8 @@ int smem_init(uint32_t addr, uint32_t size)
 		return -1;
 	}
 
+	spool->flag = smem_pool_init;
+
 	return 0;
 }
 
@@ -75,7 +82,12 @@ uint32_t smem_alloc(uint32_t size)
 	struct smem_pool *spool = &mem_pool;
 	struct smem_record *recd;
 	unsigned long flags;
-	uint32_t addr;
+	uint32_t addr = NULL;
+
+	if (smem_pool_init != spool->flag) {
+		printk(KERN_ERR "failed to alloc smem record, reason: smem pool not init\n");
+		goto error;
+	}
 
 	recd = kzalloc(sizeof(struct smem_record), GFP_KERNEL);
 	if (!recd) {
@@ -111,6 +123,10 @@ void smem_free(uint32_t addr, uint32_t size)
 	struct smem_record *recd, *next;
 	unsigned long flags;
 
+	if (smem_pool_init != spool->flag) {
+		return;
+	}
+
 	size = PAGE_ALIGN(size);
 	atomic_sub(size, &spool->used);
 	gen_pool_free(spool->gen, addr, size);
@@ -138,7 +154,7 @@ static int smem_debug_show(struct seq_file *m, void *private)
 
 	seq_printf(m, "smem pool infomation:\n");
 	seq_printf(m, "phys_addr=0x%x, total=0x%x, used=0x%x, free=0x%x\n",
-		spool->addr, spool->size, spool->used, fsize);
+		spool->addr, spool->size, spool->used.counter, fsize);
 	seq_printf(m, "smem record list:\n");
 
 	spin_lock_irqsave(&spool->lock, flags);

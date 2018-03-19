@@ -28,6 +28,11 @@ struct sci_pin_switch {
 };
 
 static struct sci_pin_switch sci_pin_switch_array[] = {
+#if defined(CONFIG_ARCH_SCX20)
+	{"", "ap_iis0_internal_loop_sel", 0x0, 31, 1, 0},
+	{"", "cp0_iis0_internal_loop_sel", 0x0, 30, 1, 0},
+#endif
+
 #if !(defined(CONFIG_ARCH_SCX15)||defined(CONFIG_ARCH_SCX35L))
 	{"", "vbc_dac_iislrck_pin_in_sel", 0x4, 24, 1, 0},
 	{"", "vbc_dac_iisclk_pin_in_sel", 0x4, 23, 1, 0},
@@ -110,7 +115,22 @@ static struct sci_pin_switch bt_iis_sys_sel_array[] = {
 	{"bt_iis_sys_sel", "rsv_e", 0x8, 28, 4, 14},
 	{"bt_iis_sys_sel", "rsv_f", 0x8, 28, 4, 15},
 };
+#if defined(CONFIG_ARCH_SCX20)
 
+static struct sci_pin_switch cp2_iis_0_array[] = {
+	{"cp2_iis0_internal_loop_sel", "pad_out_iis0", 0x0, 28, 2, 0},
+	{"cp2_iis0_internal_loop_sel", "cp0_out_iis0", 0x0, 28, 2, 1},
+	{"cp2_iis0_internal_loop_sel", "ap_out_iis0", 0x0, 28, 2, 2},
+
+};
+static struct sci_pin_switch iis_0_array[] = {
+	{"iis0_sys_sel", "ap_iis0", 0xc, 6, 2, 0},
+	{"iis0_sys_sel", "cp0_iis0", 0xc, 6, 2, 1},
+	{"iis0_sys_sel", "cp2_iis0", 0xc, 6, 2, 2},
+	{"iis0_sys_sel", "vbc_iis0", 0xc, 6, 2, 3},
+};
+
+#else
 static struct sci_pin_switch iis_0_array[] = {
 	{"iis0_sys_sel", "ap_iis0", 0xc, 6, 3, 0},
 	{"iis0_sys_sel", "cp0_iis0", 0xc, 6, 3, 1},
@@ -118,27 +138,27 @@ static struct sci_pin_switch iis_0_array[] = {
 	{"iis0_sys_sel", "cp2_iis0", 0xc, 6, 3, 3},
 	{"iis0_sys_sel", "vbc_iis0", 0xc, 6, 3, 4},
 };
-
+#endif
 static struct sci_pin_switch iis_1_array[] = {
-	{"iis1_sys_sel", "ap_iis1", 0xc, 9, 2, 0},
-	{"iis1_sys_sel", "cp0_iis1", 0xc, 9, 2, 1},
-	{"iis1_sys_sel", "cp1_iis1", 0xc, 9, 2, 2},
-	{"iis1_sys_sel", "cp2_iis1", 0xc, 9, 2, 3},
+	{"iis1_sys_sel", "ap_iis1", 0xc, 9, 3, 0},
+	{"iis1_sys_sel", "cp0_iis1", 0xc, 9, 3, 1},
+	{"iis1_sys_sel", "cp1_iis1", 0xc, 9, 3, 2},
+	{"iis1_sys_sel", "cp2_iis1", 0xc, 9, 3, 3},
 };
 
 #if !defined(CONFIG_ARCH_SCX15)
 static struct sci_pin_switch iis_2_array[] = {
-	{"iis2_sys_sel", "ap_iis2", 0xc, 12, 2, 0},
-	{"iis2_sys_sel", "cp0_iis2", 0xc, 12, 2, 1},
-	{"iis2_sys_sel", "cp1_iis2", 0xc, 12, 2, 2},
-	{"iis2_sys_sel", "cp2_iis2", 0xc, 12, 2, 3},
+	{"iis2_sys_sel", "ap_iis2", 0xc, 12, 3, 0},
+	{"iis2_sys_sel", "cp0_iis2", 0xc, 12, 3, 1},
+	{"iis2_sys_sel", "cp1_iis2", 0xc, 12, 3, 2},
+	{"iis2_sys_sel", "cp2_iis2", 0xc, 12, 3, 3},
 };
 
 static struct sci_pin_switch iis_3_array[] = {
-	{"iis3_sys_sel", "ap_iis3", 0xc, 15, 2, 0},
-	{"iis3_sys_sel", "cp0_iis3", 0xc, 15, 2, 1},
-	{"iis3_sys_sel", "cp1_iis3", 0xc, 15, 2, 2},
-	{"iis3_sys_sel", "cp2_iis3", 0xc, 15, 2, 3},
+	{"iis3_sys_sel", "ap_iis3", 0xc, 15, 3, 0},
+	{"iis3_sys_sel", "cp0_iis3", 0xc, 15, 3, 1},
+	{"iis3_sys_sel", "cp1_iis3", 0xc, 15, 3, 2},
+	{"iis3_sys_sel", "cp2_iis3", 0xc, 15, 3, 3},
 };
 #endif
 #endif
@@ -159,6 +179,10 @@ static struct sci_pin_switch_dir {
 	{
 	bt_iis_sys_sel_array, ARRAY_SIZE(bt_iis_sys_sel_array)},
 #endif
+	#if defined(CONFIG_ARCH_SCX20)
+	{
+	cp2_iis_0_array, ARRAY_SIZE(cp2_iis_0_array)},
+	#endif
 	{
 	iis_0_array, ARRAY_SIZE(iis_0_array)}, {
 	iis_1_array, ARRAY_SIZE(iis_1_array)},
@@ -278,7 +302,7 @@ static ssize_t pin_switch_dir_proc_write(struct file *file,
 					 const char __user * buffer,
 					 size_t count, loff_t * pos)
 {
-	int val = 0;
+	long val = 0;
 	int ret = 0;
 	struct sci_pin_switch *p =
 	    (struct sci_pin_switch *)(PDE_DATA(file_inode(file)));
@@ -360,6 +384,9 @@ static int sc271x_regulator_event(struct notifier_block *regu_nb,
 	if (!p_pin_reg_desc) {
 		return -EINVAL;
 	}
+	if (!regu_nb) {
+		return -EINVAL;
+	}
 	regu_name = p_pin_reg_desc->supplies.supply;
 	bit = p_pin_reg_desc->platform_data->bit_offset;
 	reg = p_pin_reg_desc->platform_data->reg;
@@ -416,7 +443,7 @@ static int pin_regulator_notifier_register(struct pin_reg_desc *table)
 		if (IS_ERR_OR_NULL(regu)) {
 			pr_err("no regu %s !\n",
 			       table[i].platform_data->power_domain);
-			return -ENXIO;;
+			continue;
 		}
 		table[i].supplies.consumer = regu;
 		table[i].supplies.supply = table[i].platform_data->power_domain;

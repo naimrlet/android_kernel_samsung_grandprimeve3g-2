@@ -46,11 +46,12 @@
 #include <soc/sprd/adc.h>
 
 #define REGULATOR_ROOT_DIR	"sprd-regulator"
-
+#define EFUSE_BLK_INDEX 15
+#define EFUSE_BIT_INDEX 7
 #undef debug
-#define debug(format, arg...) pr_info("regu: " "@@@%s: " format, __func__, ## arg)
+#define debug(format, arg...) //pr_info("regu: " "@@@%s: " format, __func__, ## arg)
 #define debug0(format, arg...)	//pr_debug("regu: " "@@@%s: " format, __func__, ## arg)
-#define debug2(format, arg...)	pr_debug("regu: " "@@@%s: " format, __func__, ## arg)
+#define debug2(format, arg...)	//pr_debug("regu: " "@@@%s: " format, __func__, ## arg)
 
 #ifndef	ANA_REG_OR
 #define	ANA_REG_OR(_r, _b)	sci_adi_write(_r, _b, 0)
@@ -79,13 +80,14 @@ struct sci_regulator_regs {
 	u32 vol_trm_bits;
 	unsigned long cal_ctl;
 	u32 cal_ctl_bits, cal_chan;
-	u32 min_uV, step_uV;
+	u32 min_uV, max_uV, step_uV;
 	int otp_delta;
-	u32 vol_def;
+	u32 vol_def, vol_old;
 	unsigned long vol_ctl;
 	u32 vol_ctl_bits;
 	u32 vol_sel_cnt;
 	u32 *vol_sel;
+	int vol_target;
 };
 
 struct sci_regulator_data {
@@ -232,13 +234,32 @@ static int ldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 	struct sci_regulator_desc *desc = __get_desc(rdev);
 	struct sci_regulator_regs *regs = &desc->regs;
 	//int mv = min_uV / 1000;
+	int delta = 0;
 	int ret = -EINVAL;
 
 	debug("regu 0x%p (%s) set voltage, %d(uV) %d(uV)\n", regs,
 	      desc->desc.name, min_uV, max_uV);
+	regs->vol_old = min_uV;
+	delta = get_regu_offset(rdev, min_uV);
+	min_uV += delta;
 
-	min_uV += get_regu_offset(rdev, min_uV);
+	if ((desc->regs.typ & BIT(4))){
+		if( min_uV >= regs->max_uV )
+			min_uV = regs->max_uV - delta -10;
+		else
+			min_uV -= delta;
 
+	}else{
+		if(min_uV < regs->min_uV){
+		   debug("warning: regulator (%s) target voltage %d lower than min_uV,modify target to min_uV %d(uV)\n",desc->desc.name, min_uV,regs->min_uV);
+		    min_uV = regs->min_uV;
+		   }
+
+		  if(min_uV > regs->max_uV){
+		    debug("warning: regulator (%s) target voltage %d higher than max_uV,modify target to max_uV %d(uV)\n",desc->desc.name, min_uV,regs->max_uV);
+		       min_uV = regs->max_uV;
+		    }
+	}
 	if (regs->vol_trm) {
 		int shft = __ffs(regs->vol_trm_bits);
 		u32 trim =
@@ -274,6 +295,8 @@ static int ldo_get_voltage(struct regulator_dev *rdev)
 		vol = regs->min_uV + trim * regs->step_uV;
 		debug2("regu 0x%p (%s), voltage %d\n", regs, desc->desc.name,
 		       vol);
+		if (!(desc->regs.typ & BIT(4)))
+			vol -= get_regu_offset(rdev, regs->vol_old);
 		return vol;
 	}
 
@@ -294,11 +317,12 @@ static int get_regu_offset(struct regulator_dev *rdev, int des_uV)
 	struct sci_regulator_regs *regs = &desc->regs;
 	int delta = 0;
 
-	if ((desc->regs.typ & BIT(4)))
-		return 0;
-
-	delta = (des_uV/1000) * regs->otp_delta / ((int)regs->vol_def/1000);
-	delta *=(int)regs->step_uV;
+	if ((desc->regs.typ & BIT(4))){
+		delta = regs->otp_delta *(int)regs->step_uV;
+	}else{
+		delta = (des_uV/1000) * regs->otp_delta / ((int)regs->vol_def/1000);
+		delta *=(int)regs->step_uV;
+	}
 
 	return delta;
 }
@@ -540,9 +564,23 @@ static int dcdc_set_voltage_step(struct regulator_dev *rdev, int min_uV,
 	struct sci_regulator_desc *desc = __get_desc(rdev);
 	struct sci_regulator_regs *regs = &desc->regs;
 
+        vol -= regs->hide_offset*1000;
 	to_vol += get_regu_offset(rdev, min_uV);
         to_vol -= regs->hide_offset*1000;
 
+	if ((desc->regs.typ & BIT(4))){
+	to_vol -= get_regu_offset(rdev, min_uV);
+	}
+
+        if(to_vol < regs->min_uV){
+	    debug("warning: regulator (%s) target voltage %d lower than min_uV,modify target to min_uV %d(uV)\n",desc->desc.name, to_vol,regs->min_uV);
+            to_vol = regs->min_uV;
+        }
+
+        if(to_vol > regs->max_uV){
+	    debug("warning: regulator (%s) target voltage %d higher than max_uV,modify target to max_uV %d(uV)\n",desc->desc.name, to_vol,regs->max_uV);
+            to_vol = regs->max_uV;
+        }
 	if (vol < to_vol) {
 		do {		/*FIXME: dcdc sw step up for eliminate overshoot (+65mV) */
 			vol += step;
@@ -598,8 +636,13 @@ static int dcdc_get_voltage(struct regulator_dev *rdev)
 
         uV += regs->hide_offset*1000;
 	debug2("%s get voltage, %d +%duv\n", desc->desc.name, uV, cal);
+		if ((desc->regs.typ & BIT(4))){
+			uV = uV + cal;
+		}else{
+			uV = uV + cal - get_regu_offset(rdev, regs->vol_old);
+		}
 
-	return (uV + cal) /*uV */ ;
+	return uV /*uV */ ;
 }
 
 
@@ -1049,6 +1092,22 @@ static int debugfs_boost_set(void *data, u64 val)
 	return 0;
 }
 
+static int debugfs_cal_get(void *data, u64 * val)
+{
+    uint otp_ana_flag = 0;
+    otp_ana_flag = (u8)__adie_efuse_read(0);
+    if(!(otp_ana_flag & BIT(7))) {
+        *val = 1;
+    }else{
+        *val = 0;
+    }
+	return 0;
+}
+static int debugfs_cal_set(void *data, u64 val)
+{
+	return 0;
+}
+
 DEFINE_SIMPLE_ATTRIBUTE(fops_ana_addr,
 			debugfs_ana_addr_get, debugfs_ana_addr_set, "%llu\n");
 DEFINE_SIMPLE_ATTRIBUTE(fops_adc_chan,
@@ -1059,6 +1118,8 @@ DEFINE_SIMPLE_ATTRIBUTE(fops_ldo,
 			debugfs_voltage_get, debugfs_voltage_set, "%llu\n");
 DEFINE_SIMPLE_ATTRIBUTE(fops_boost,
 			debugfs_boost_get, debugfs_boost_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(fops_cal,
+			debugfs_cal_get, debugfs_cal_set, "%llu\n");
 
 static void rdev_init_debugfs(struct regulator_dev *rdev)
 {
@@ -1072,6 +1133,8 @@ static void rdev_init_debugfs(struct regulator_dev *rdev)
 
 	debugfs_create_file("enable", S_IRUGO | S_IWUSR,
 			    desc->debugfs, rdev, &fops_enable);
+	debugfs_create_file("calibrated", S_IRUGO | S_IWUSR,
+			    desc->debugfs, rdev, &fops_cal);
 
 	if (desc->desc.type == REGULATOR_CURRENT)
 		debugfs_create_file("current", S_IRUGO | S_IWUSR,
@@ -1214,7 +1277,13 @@ static int of_regu_read_reg(struct device_node *np, int idx,
 
 	return 0;
 }
-
+static u32 judge_efuse_flag()
+{
+	u32 efuse_flag =0,blk_val =0;
+	blk_val =__adie_efuse_read(EFUSE_BLK_INDEX);
+	efuse_flag = (blk_val >> EFUSE_BIT_INDEX) & BIT(0);
+	return efuse_flag;
+}
 static int sci_regulator_parse_dt(struct platform_device *pdev,
 				  struct device_node *np,
 				  struct sci_regulator_desc *desc,
@@ -1235,6 +1304,7 @@ static int sci_regulator_parse_dt(struct platform_device *pdev,
 	desc->desc.id = (atomic_inc_return(&idx) - 1);
 	desc->desc.type = REGULATOR_VOLTAGE;
 	desc->desc.owner = THIS_MODULE;
+	desc->desc.continuous_voltage_range = true;
 
 	supply[0].dev_name = NULL;
 	supply[0].supply = np->name;
@@ -1274,6 +1344,13 @@ static int sci_regulator_parse_dt(struct platform_device *pdev,
 	of_regu_read_reg(np, 2, regs);
 
 	regs->min_uV = desc->init_data->constraints.min_uV;
+	regs->max_uV = desc->init_data->constraints.max_uV;
+
+	regs->vol_target = -1;
+	ret =
+	    of_property_read_u32(np, "vol-tagert", &tmp_val_u32);
+	if (!ret)
+		regs->vol_target = tmp_val_u32;
 
 	ret =
 	    of_property_read_u32(np, "regulator-step-microvolt", &tmp_val_u32);
@@ -1283,12 +1360,20 @@ static int sci_regulator_parse_dt(struct platform_device *pdev,
 	ret =
 	    of_property_read_u32(np, "regulator-default-microvolt",
 				 &tmp_val_u32);
-	if (!ret)
+	if (!ret){
 		regs->vol_def = tmp_val_u32;
-
+		regs->vol_old = regs->vol_def;
+	}
 	ret = of_property_read_u32(np, "hide-offset", &tmp_val_u32);
 	if (!ret)
 		regs->hide_offset = ((int)tmp_val_u32 - 1000);/*base value is 1000*/
+
+	if ((0 == strcmp(np->name, "vddcore"))
+	    || (0 == strcmp(np->name, "vddarm"))) {
+		 if(judge_efuse_flag()){
+			regs->hide_offset = 150;
+		 }
+	}
 
 	debug("[%d] %s type %d, range %d(uV) - %d(uV), step %d(uV), default %d(uV) - (%s)\n", (idx.counter - 1),
 		np->name, type, desc->init_data->constraints.min_uV, desc->init_data->constraints.max_uV,
@@ -1343,7 +1428,17 @@ static int sci_regulator_parse_dt(struct platform_device *pdev,
 
 	return 0;
 }
+static int rdev_vol_init(struct regulator_dev *rdev)
+{
+	struct sci_regulator_desc *desc = __get_desc(rdev);
+	struct sci_regulator_regs *regs = &desc->regs;
+	if( regs->vol_target > 0 )
+	{
+		rdev->desc->ops->set_voltage(rdev,regs->vol_target,regs->vol_target, 0);
+	}
 
+	return 0;
+}
 static int sci_regulator_register_dt(struct platform_device *pdev)
 {
 	struct sci_regulator_desc *sci_desc = NULL;
@@ -1380,7 +1475,7 @@ static int sci_regulator_register_dt(struct platform_device *pdev)
 	    ("regulators desc list 0x%p, count %d, sci_regulator_desc size %d\n",
 	     sci_desc, regu_cnt, sizeof(struct sci_regulator_desc));
 
-	for_each_child_of_node(dev_np, child_np) {
+	for_each_available_child_of_node(dev_np, child_np) {
 		if (0 == strcmp(child_np->name, "dummy"))	/* skip dummy node */
 			continue;
 
@@ -1418,7 +1513,11 @@ static int sci_regulator_register_dt(struct platform_device *pdev)
 		if (!IS_ERR_OR_NULL(rdev)) {
 			rdev->reg_data = rdev;
 			sci_desc->data.rdev = rdev;
+			if(rdev->desc->ops->is_enabled(rdev)){
+			     rdev->use_count = 1;
+			}
 			__init_trimming(rdev);
+			rdev_vol_init(rdev);
 			rdev_init_debugfs(rdev);
 		}
 

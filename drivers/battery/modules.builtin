@@ -1,0 +1,6 @@
+kernel/drivers/battery/sec_battery.ko
+kernel/drivers/battery/sm5701_charger.ko
+kernel/drivers/battery/sec_dt_init.ko
+kernel/drivers/battery/sprd27x3_fuelgauge4samsung.ko
+kernel/drivers/battery/sec_fuelgauge.ko
+kernel/drivers/battery/sprd_2713_fgu.ko

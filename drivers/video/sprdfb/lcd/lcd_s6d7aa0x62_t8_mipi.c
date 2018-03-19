@@ -189,7 +189,7 @@ static uint32_t s6d7aa0x62_readid(struct panel_spec *self)
 	
 	return 0;
 #endif
-	return 0x4;
+	return 0x6262;
 }
 
 static uint32_t s6d7aa0x62_readpowermode(struct panel_spec *self)
@@ -313,7 +313,7 @@ struct panel_spec lcd_s6d7aa0x62_mipi_spec = {
 
 struct panel_cfg lcd_s6d7aa0x62_mipi = {
 	.dev_id = SPRDFB_MAINLCD_ID,
-	.lcd_id = 0x4,
+	.lcd_id = 0x6262,
 	.lcd_name = "lcd_s6d7aa0x62_mipi",
 	.panel = &lcd_s6d7aa0x62_mipi_spec,
 };

@@ -12,6 +12,7 @@ obj-$(CONFIG_LEDS_LOCOMO)		+= leds-locomo.o
 obj-$(CONFIG_LEDS_LM3530)		+= leds-lm3530.o
 obj-$(CONFIG_LEDS_LM3533)		+= leds-lm3533.o
 obj-$(CONFIG_LEDS_LM3642)		+= leds-lm3642.o
+obj-$(CONFIG_LEDS_LM3648)		+= leds-lm3648.o
 obj-$(CONFIG_LEDS_MIKROTIK_RB532)	+= leds-rb532.o
 obj-$(CONFIG_LEDS_S3C24XX)		+= leds-s3c24xx.o
 obj-$(CONFIG_LEDS_NET48XX)		+= leds-net48xx.o
@@ -64,12 +65,17 @@ obj-$(CONFIG_FLED_SPRD_SM5701)       	+= leds-sprd-sm5701.o
 # SPRD keyboard-backlight Drivers
 obj-$(CONFIG_LEDS_SPRD_KB) += leds-sprd-kb.o
 obj-$(CONFIG_SPRD_KPLED_2723) += leds-sprd-kpled-2723.o
+obj-$(CONFIG_SPRD_KPLED_2731) += leds-sprd-kpled-2731.o
 # SPRD bltc_rgb led Drivers
 obj-$(CONFIG_LEDS_SPRD_BLTC_RGB)	+= leds-sprd-bltc-rgb.o
+obj-$(CONFIG_LEDS_SPRD_BLTC_RGB_2731)	+= leds-sprd-bltc-rgb-2731.o
 # SPRD rgb led Drivers
 obj-$(CONFIG_LEDS_SPRD_RGB)	+= leds-sprd-rgb.o
 # LED SPI Drivers
 obj-$(CONFIG_LEDS_DAC124S085)		+= leds-dac124s085.o
+
+obj-$(CONFIG_LEDS_SMARTGLOW_AN30259A)		+= leds-an30259a-smartglow.o
+obj-$(CONFIG_LEDS_AN30259A)		+= leds-an30259a.o
 
 # LED Triggers
 obj-$(CONFIG_LEDS_TRIGGERS)		+= trigger/

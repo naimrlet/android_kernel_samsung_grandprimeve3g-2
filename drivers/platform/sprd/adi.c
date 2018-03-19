@@ -39,7 +39,7 @@ unsigned long sprd_adi_phys;
 
 /* registers definitions for controller CTL_ADI */
 #define REG_ADI_CTRL0					(CTL_ADI_BASE + 0x04)
-#ifdef	CONFIG_ARCH_SCX35LT8
+#if defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
 #define REG_ADI_CHNL_PRIL				(CTL_ADI_BASE + 0x08)
 #define REG_ADI_CHNL_PRIH				(CTL_ADI_BASE + 0x0C)
 #define REG_ADI_INT_RAW					(CTL_ADI_BASE + 0x14)
@@ -310,7 +310,7 @@ static void __init __adi_init(void)
 		value |= BITS_CMMB_WR_PRI;
 		__raw_writel(value, (void __iomem *)REG_ADI_CTRL0);
 
-#ifdef	CONFIG_ARCH_SCX35LT8
+#if defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
 		value = __raw_readl((void __iomem *)REG_ADI_CHNL_PRIL);
 #else
 		value = __raw_readl((void __iomem *)REG_ADI_CHNL_PRI);
@@ -319,7 +319,7 @@ static void __init __adi_init(void)
 		    BITS_DSP_RD_PRI | BITS_DSP_WR_PRI |
 		    BITS_ARM_RD_PRI | BITS_ARM_WR_PRI |
 		    BITS_STC_WR_PRI | BITS_INT_STEAL_PRI;
-#ifdef	CONFIG_ARCH_SCX35LT8
+#if defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
 		__raw_writel(value, (void __iomem *)REG_ADI_CHNL_PRIL);
 #else
 		__raw_writel(value, (void __iomem *)REG_ADI_CHNL_PRI);
@@ -330,7 +330,7 @@ static void __init __adi_init(void)
 			WARN_ON(1);
 
 		value = VALUE_CH_PRI;
-#ifdef  CONFIG_ARCH_SCX35LT8
+#if defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE)
 		__raw_writel(value, (void __iomem *)REG_ADI_CHNL_PRIL);
 		__raw_writel(value, (void __iomem *)REG_ADI_CHNL_PRIH);
 #else

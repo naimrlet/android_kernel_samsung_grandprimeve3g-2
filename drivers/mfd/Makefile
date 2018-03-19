@@ -161,5 +161,9 @@ obj-$(CONFIG_MFD_RETU)		+= retu-mfd.o
 obj-$(CONFIG_MFD_AS3711)	+= as3711.o
 obj-$(CONFIG_MFD_SM5504) 	+= sm5504.o 
 obj-$(CONFIG_MFD_SM5701) 	+= sm5701_core.o sm5701_irq.o
+obj-$(CONFIG_MFD_SPRD_SM5701) 	+= sprd_sm5701_core.o
 obj-$(CONFIG_MFD_RT8973)	+= rt8973.o
 
+obj-$(CONFIG_MFD_SPRD_TYPEC)	+= typec-sprd.o
+obj-$(CONFIG_MFD_NXP_PTN5150)	+= nxp_ptn5150.o
+obj-$(CONFIG_MFD_SMUIC)		+= smuic.o

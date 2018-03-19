@@ -811,7 +811,7 @@ void DWC_TIMER_SCHEDULE(dwc_timer_t *timer, uint32_t time)
 		timer->t->expires = jiffies + msecs_to_jiffies(time);
 		add_timer(timer->t);
 	} else {
-		DWC_DEBUG("Modifying timer %s to expire in +%d msec", timer->name, time);
+		//DWC_DEBUG("Modifying timer %s to expire in +%d msec", timer->name, time);
 		mod_timer(timer->t, jiffies + msecs_to_jiffies(time));
 	}
 

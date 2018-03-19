@@ -35,8 +35,8 @@
 
 /* LCD suspend mode */
 
-/* SEND_SLEEP_CMD refer to send enter sleep cmd to panel before reset panel,
-   ssd panel need hs clk before enter sleep or reset panel */
+/* SEND_SLEEP_CMD refer to send enter sleep cmd to panel before reset panel, 
+ssd panel need hs clk before enter sleep or reset panel */
 #define SEND_SLEEP_CMD		1
 
 /* bus mode */
@@ -69,9 +69,9 @@
 /* only do command/data register, such as some mono oled display device */
 #define PANEL_CAP_MANUAL_REFRESH       0x8
 
-#define LCD_DelayMS	msleep
+#define LCD_DelayMS      msleep
 
-enum {
+enum{
 	SPRDFB_PANEL_TYPE_MCU = 0,
 	SPRDFB_PANEL_TYPE_RGB,
 	SPRDFB_PANEL_TYPE_MIPI,
@@ -79,20 +79,20 @@ enum {
 	SPRDFB_PANEL_TYPE_LIMIT
 };
 
-enum {
+enum{
 	SPRDFB_POLARITY_POS = 0,
 	SPRDFB_POLARITY_NEG,
 	SPRDFB_POLARITY_LIMIT
 };
 
-enum {
+enum{
 	SPRDFB_RGB_BUS_TYPE_I2C = 0,
 	SPRDFB_RGB_BUS_TYPE_SPI,
 	SPRDFB_RGB_BUS_TYPE_LVDS,
 	SPRDFB_RGB_BUG_TYPE_LIMIT
 };
 
-enum {
+enum{
 	SPRDFB_MIPI_MODE_CMD = 0,
 	SPRDFB_MIPI_MODE_VIDEO,
 	SPRDFB_MIPI_MODE_LIMIT
@@ -130,7 +130,7 @@ typedef int32_t (*i2c_write_16bits_t)(uint16_t reg, bool reg_is_8bit,
 		uint16_t val, bool val_is_8bit);
 typedef int32_t (*i2c_read_16bits_t)(uint16_t reg, bool reg_is_8bit,
 		uint16_t *val, bool val_is_8bit);
-typedef int32_t (*i2c_write_burst_t)(uint8_t *buf, int num);
+typedef int32_t (*i2c_write_burst_t)(uint8_t* buf, int num);
 
 typedef void (*spi_send_cmd_t)(uint32_t cmd);
 typedef void (*spi_send_data_t)(uint32_t data);
@@ -139,6 +139,7 @@ typedef void (*spi_read_t)(uint32_t *data);
 /* LCD operations */
 struct panel_operations {
 	int32_t (*panel_power)(struct panel_spec *self, uint8_t on);
+	int32_t (*panel_reduced_init)(struct panel_spec *self);
 	int32_t (*panel_init)(struct panel_spec *self);
 	int32_t (*panel_close)(struct panel_spec *self);
 	int32_t (*panel_reset)(struct panel_spec *self);
@@ -149,24 +150,27 @@ struct panel_operations {
 	int32_t (*panel_set_contrast)(struct panel_spec *self,
 			uint16_t contrast);
 	int32_t (*panel_set_brightness)(struct panel_spec *self,
-			uint16_t brightness);
+				uint16_t brightness);
 	int32_t (*panel_set_window)(struct panel_spec *self,
-			uint16_t left, uint16_t top,
-			uint16_t right, uint16_t bottom);
+				uint16_t left, uint16_t top,
+				uint16_t right, uint16_t bottom);
 	int32_t (*panel_invalidate)(struct panel_spec *self);
 	int32_t (*panel_invalidate_rect)(struct panel_spec *self,
-			uint16_t left, uint16_t top,
-			uint16_t right, uint16_t bottom);
+				uint16_t left, uint16_t top,
+				uint16_t right, uint16_t bottom);
 	int32_t (*panel_rotate_invalidate_rect)(struct panel_spec *self,
-			uint16_t left, uint16_t top,
-			uint16_t right, uint16_t bottom,
-			uint16_t angle);
+				uint16_t left, uint16_t top,
+				uint16_t right, uint16_t bottom,
+				uint16_t angle);
 	int32_t (*panel_set_direction)(struct panel_spec *self,
 			uint16_t direction);
 	uint32_t (*panel_readid)(struct panel_spec *self);
 	int32_t (*panel_esd_check)(struct panel_spec *self);
 	int32_t (*panel_change_fps)(struct panel_spec *self, int fps_level);
 	int32_t (*panel_change_epf)(struct panel_spec *self, bool is_default);
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+        int32_t (*panel_dimming_init)(struct panel_spec *self, struct device *dev);
+#endif
 	int32_t (*panel_set_start)(struct panel_spec *self);
 	int32_t (*panel_pin_init)(uint32_t val);
 };
@@ -205,16 +209,16 @@ struct ops_i2c {
 			uint16_t val, bool val_is_8bit);
 	int32_t (*i2c_read_16bits)(uint16_t reg, bool reg_is_8bit,
 			uint16_t *val, bool val_is_8bit);
-	int32_t (*i2c_write_burst)(uint8_t *buf, int num);
+	int32_t (*i2c_write_burst)(uint8_t* buf, int num);
 };
 
-struct ops_spi {
+struct ops_spi{
 	void (*spi_send_cmd)(uint32_t cmd);
 	void (*spi_send_data)(uint32_t data);
 	void (*spi_read)(uint32_t *data);
 };
 
-struct ops_mipi {
+struct ops_mipi{
 	int32_t (*mipi_set_cmd_mode)(void);
 	int32_t (*mipi_set_video_mode)(void);
 	int32_t (*mipi_set_lp_mode)(void);
@@ -236,12 +240,12 @@ struct ops_mipi {
 	int32_t (*mipi_eotp_set)(uint8_t rx_en, uint8_t tx_en);
 };
 
-struct i2c_info {
+struct i2c_info{
 	uint32_t i2c_addr;
 	struct ops_i2c *ops;
 };
 
-struct spi_info {
+struct spi_info{
 	struct ops_spi *ops;
 };
 
@@ -268,10 +272,10 @@ struct info_rgb {
 	uint16_t v_sync_pol;
 	uint16_t de_pol;
 	struct timing_rgb *timing;
-	union {
+	union{
 		struct i2c_info *i2c;
 		struct spi_info *spi;
-	} bus_info;
+	}bus_info;
 };
 
 struct info_mcu {
@@ -284,7 +288,7 @@ struct info_mcu {
 	struct ops_mcu *ops;
 };
 
-struct panel_if_ctrl {
+struct panel_if_ctrl{
 	const char *if_name;
 
 	int32_t (*panel_if_check)(struct panel_spec *self);
@@ -320,7 +324,7 @@ struct panel_spec {
 	uint16_t suspend_mode;
 	uint16_t type; /*mcu, rgb, mipi*/
 	uint16_t direction;
-	bool is_clean_lcd;
+	bool	 is_clean_lcd;
 	bool rst_mode;
 	bool rst_gpio_en;
 	uint32_t rst_gpio;
@@ -328,10 +332,16 @@ struct panel_spec {
 	union {
 		struct info_mcu *mcu;
 		struct info_rgb *rgb;
-		struct info_mipi *mipi;
+		struct info_mipi * mipi;
 	} info;
 	struct panel_if_ctrl *if_ctrl;
 	struct panel_operations *ops;
+#ifdef CONFIG_LCD_ESD_RECOVERY
+	struct esd_det_info *esd_info;
+#endif
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+        unsigned char *br_map;
+#endif
 };
 
 struct panel_cfg {
@@ -345,5 +355,14 @@ struct panel_cfg {
 int sprdfb_panel_register(struct panel_cfg *cfg);
 
 void sprdfb_panel_change_fps(struct sprdfb_device *dev, int fps_level);
-
+#ifdef CONFIG_FB_SC9001
+static inline uint32_t rgb_calc_h_timing(struct timing_rgb *timing)
+{
+	return  (timing->hsync | (timing->hbp << 8) | (timing->hfp << 20));
+}
+static inline uint32_t rgb_calc_v_timing(struct timing_rgb *timing)
+{
+	return (timing->vsync| (timing->vbp << 8) | (timing->vfp << 20));
+}
+#endif
 #endif

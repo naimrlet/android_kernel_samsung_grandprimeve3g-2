@@ -65,7 +65,7 @@ int vbat_check_cb_chain(char *vbat_check_name)
 		}
 	}
 
-	ret = -EINVAL;
+	ret = EINVAL;
 
 	pr_err("%s: no matched vbat check id found\n", __func__);
 out_chain:

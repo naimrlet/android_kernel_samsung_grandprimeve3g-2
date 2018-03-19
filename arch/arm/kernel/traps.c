@@ -231,10 +231,6 @@ void show_stack(struct task_struct *tsk, unsigned long *sp)
 #define S_ISA " ARM"
 #endif
 
-#ifdef CONFIG_SEC_DEBUG
-extern void sec_debug_backup_ctx(struct pt_regs*);
-extern unsigned int sec_debug_callstack_workaround;
-#endif
 static int __die(const char *str, int err, struct pt_regs *regs)
 {
 	struct task_struct *tsk = current;
@@ -251,21 +247,12 @@ static int __die(const char *str, int err, struct pt_regs *regs)
 
 	print_modules();
 	__show_regs(regs);
-#ifdef CONFIG_SEC_DEBUG
-	sec_debug_backup_ctx(regs);
-	sec_debug_callstack_workaround=0x12345678;
-#endif
 	printk(KERN_EMERG "Process %.*s (pid: %d, stack limit = 0x%p)\n",
 		TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), end_of_stack(tsk));
 
 	if (!user_mode(regs) || in_interrupt()) {
-		if(((unsigned long)regs->ARM_sp - (unsigned long)task_stack_page(tsk)) < THREAD_SIZE) {
-			dump_mem(KERN_EMERG, "Stack: ", regs->ARM_sp,
-				 THREAD_SIZE + (unsigned long)task_stack_page(tsk));
-		} else {
-			dump_mem(KERN_EMERG, "Stack: ", (unsigned long)task_stack_page(tsk),
-				 THREAD_SIZE + (unsigned long)task_stack_page(tsk));
-		}
+		dump_mem(KERN_EMERG, "Stack: ", regs->ARM_sp,
+			 THREAD_SIZE + (unsigned long)task_stack_page(tsk));
 		dump_backtrace(regs, tsk);
 		dump_instr(KERN_EMERG, regs);
 	}

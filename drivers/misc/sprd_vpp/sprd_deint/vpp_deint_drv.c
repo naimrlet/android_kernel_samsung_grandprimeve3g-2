@@ -71,10 +71,14 @@ struct deint_dev {
     struct semaphore deint_mutex;
 
     struct clk *vpp_clk;
-    struct clk *vpp_parent_clk;
-    struct clk *mm_clk;
+    struct clk *vpp_parent_clk[DEINT_CLK_LEVEL_NUM];
+    struct clk *vpp_ctrl_clk[MAX_VPP_CTRL_CLK_NUM];
+
+    char* vpp_clk_node_name[MAX_VPP_CTRL_CLK_NUM];
 
     unsigned int irq;
+    unsigned int ctrl_clk_num;
+    unsigned int chip_version;
 
     struct deint_fh *deint_fp;
     struct device_node *dev_np;
@@ -92,23 +96,9 @@ struct clock_name_map_t {
     char *name;
 };
 
-#if defined(CONFIG_ARCH_SCX35LT8)
-static struct clock_name_map_t clock_name_map[] = {
-    {256000000,"clk_256m"},
-    {153600000,"clk_153m6"},
-    {128000000,"clk_128m"},
-    {96000000,"clk_96m"}
-};
-#else
-static struct clock_name_map_t clock_name_map[] = {
-    {256000000,"clk_256m"},
-    {192000000,"clk_192m"},
-    {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
-};
-#endif
+static struct clock_name_map_t clock_name_map[DEINT_CLK_LEVEL_NUM];
 
-static int max_freq_level = ARRAY_SIZE(clock_name_map);
+static int max_freq_level = DEINT_CLK_LEVEL_NUM;
 
 static char *deint_get_clk_src_name(unsigned int freq_level)
 {
@@ -247,7 +237,7 @@ static long deint_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         }
         else {
             if (ret == 0) {
-                pr_debug("vpp complete  timeout\n");
+                printk(KERN_ERR "vpp complete  timeout\n");
                 ret = -ETIMEDOUT;
 
                 /*clear vpp int*/
@@ -272,16 +262,16 @@ static long deint_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             return ret;
         }
 
-        deint_fp->is_deint_aquired = 1;
-        deint_hw_dev.deint_fp= deint_fp;
-
-#ifdef SEQUENCE_RUNNING
+#ifdef ENABLE_VPP_FRAME_BY_FRAME
         ret = clk_prepare_enable(deint_hw_dev.vpp_clk);
         if (ret) {
             printk(KERN_ERR "###: vpp_clk: clk_prepare_enable() failed!\n");
             return ret;
         }
 #endif
+
+        deint_hw_dev.deint_fp= deint_fp;
+        deint_fp->is_deint_aquired = 1;
 
         break;
     }
@@ -292,10 +282,9 @@ static long deint_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         deint_fp->is_deint_aquired = 0;
         deint_hw_dev.deint_fp = NULL;
 
-#ifdef SEQUENCE_RUNNING
+#ifdef ENABLE_VPP_FRAME_BY_FRAME
         if (deint_hw_dev.vpp_clk) {
             clk_disable_unprepare(deint_hw_dev.vpp_clk);
-            clk_put(deint_hw_dev.vpp_clk);
         }
 #endif
 
@@ -344,10 +333,38 @@ static irqreturn_t deint_isr(int irq, void *data)
     return IRQ_HANDLED;
 }
 
+static int deint_clock_release(void)
+{
+    int i = 0;
+
+#ifndef ENABLE_VPP_FRAME_BY_FRAME
+    if (deint_hw_dev.vpp_clk) {
+        clk_disable_unprepare(deint_hw_dev.vpp_clk);
+    }
+#endif
+
+    for(i = deint_hw_dev.ctrl_clk_num-1; i >= 0; i--) {
+        if (i == 1) continue; //vpp clock position which is dependent on dts file
+
+        if (deint_hw_dev.vpp_ctrl_clk[i]) {
+            clk_disable_unprepare(deint_hw_dev.vpp_ctrl_clk[i]);
+        }
+    }
+
+#if defined(CONFIG_SPRD_IOMMU)
+    if(deint_hw_dev.chip_version == WHALE)
+        sprd_iommu_module_disable(IOMMU_VPP);
+    else
+        sprd_iommu_module_disable(IOMMU_MM);
+#endif
+
+    return 0;
+}
+
 static int vpp_set_mm_clk(void)
 {
-    int ret =0;
-    struct clk *clk_mm_i;
+    int i, ret =0;
+    struct clk *clk_tmp;
     struct clk *clk_vpp;
     struct clk *clk_parent;
     char *name_parent;
@@ -355,116 +372,64 @@ static int vpp_set_mm_clk(void)
 
     pr_debug(KERN_INFO "vsp_set_mm_clk: deint_instance_cnt %d\n", instance_cnt);
 
-#if defined(CONFIG_ARCH_SCX35)
+    for(i = 0; i < deint_hw_dev.ctrl_clk_num; i++) {
+        if (i == 1) continue; //vpp clock position which is dependent on dts file
 
-#ifdef CONFIG_OF
-    clk_mm_i = of_clk_get_by_name(deint_hw_dev.dev_np, "clk_mm_i");
-#else
-    clk_mm_i = clk_get(NULL, "clk_mm_i");
-#endif
+        printk(KERN_ERR "###:clk_ahb_disp clk_enable() failed!\n");
 
-    if (IS_ERR(clk_mm_i) || (!clk_mm_i)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
-               "clk_mm_i");
-        printk(KERN_ERR "###: clk_mm_i =  %p\n", clk_mm_i);
-        ret = -EINVAL;
-        goto errout;
+        if(deint_hw_dev.vpp_ctrl_clk[i]) {
+            ret = clk_prepare_enable(deint_hw_dev.vpp_ctrl_clk[i]);
+            if (ret) {
+                printk(KERN_ERR "###:clk_ahb_disp clk_enable() failed!\n");
+                goto errout;
+            }
+        }
+    }
+
+#ifndef ENABLE_VPP_FRAME_BY_FRAME
+    if (deint_hw_dev.vpp_clk) {
+        ret = clk_prepare_enable(deint_hw_dev.vpp_clk);
+        if (ret) {
+            printk(KERN_ERR "###: vpp_clk: clk_prepare_enable() failed!\n");
+            ret = -EINVAL;
+            goto errout;
+        }
     } else {
-        deint_hw_dev.mm_clk= clk_mm_i;
-    }
-#endif
-
-    pr_debug(KERN_INFO "deint mmi_clk open");
-    ret = clk_prepare_enable(deint_hw_dev.mm_clk);
-    if (ret) {
-        printk(KERN_ERR "###:deint_hw_dev.mm_clk: clk_enable() failed!\n");
-        return ret;
-    }
-
-#ifdef CONFIG_OF
-    clk_vpp = of_clk_get_by_name(deint_hw_dev.dev_np, "clk_vpp");
-#else
-    clk_vpp = clk_get(NULL, "clk_vpp");
-#endif
-
-    if (IS_ERR(clk_vpp) || (!clk_vpp)) {
-        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
-               "clk_vpp");
-        printk(KERN_ERR "###: vpp_clk =  %p\n", clk_vpp);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        deint_hw_dev.vpp_clk = clk_vpp;
-    }
-
-#ifndef SEQUENCE_RUNNING
-    ret = clk_prepare_enable(deint_hw_dev.vpp_clk);
-    if (ret) {
-        printk(KERN_ERR "###: vpp_clk: clk_prepare_enable() failed!\n");
-        return ret;
-    }
-#endif
-
-#ifdef SET_CLK_FOR_VPP_TWICE
-    name_parent = deint_get_clk_src_name(3);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_vpp", name_parent);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        deint_hw_dev.vpp_parent_clk = clk_parent;
-    }
-
-    ret = clk_set_parent(deint_hw_dev.vpp_clk, deint_hw_dev.vpp_parent_clk);
-    if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_vpp");
+        printk(KERN_ERR "deint clock is NULL \n");
         ret = -EINVAL;
         goto errout;
     }
 #endif
 
-    name_parent = deint_get_clk_src_name(deint_hw_dev.freq_div);
-    clk_parent = clk_get(NULL, name_parent);
-    if ((!clk_parent )|| IS_ERR(clk_parent) ) {
-        printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] by clk_get()!\n", "clk_vpp", name_parent);
-        ret = -EINVAL;
-        goto errout;
-    } else {
-        deint_hw_dev.vpp_parent_clk = clk_parent;
-    }
 
-    ret = clk_set_parent(deint_hw_dev.vpp_clk, deint_hw_dev.vpp_parent_clk);
+    ret = clk_set_parent(deint_hw_dev.vpp_clk, deint_hw_dev.vpp_parent_clk[DEFAULT_FREQ_DIV]);
     if (ret) {
-        printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!", "clk_vpp");
+        printk(KERN_ERR "clock[%s]: clk_set_parent() failed!", "clk_vpp");
         ret = -EINVAL;
         goto errout;
     }
 
-    printk("vpp parent clock name %s\n", name_parent);
-    printk("vpp_freq %d Hz",
-           (int)clk_get_rate(deint_hw_dev.vpp_clk));
+    ret = clk_set_parent(deint_hw_dev.vpp_clk, deint_hw_dev.vpp_parent_clk[DEINT_CLK_LEVEL_NUM-1]);
+    if (ret) {
+        printk(KERN_ERR "clock[%s]: clk_set_parent() failed!", "clk_vpp");
+        ret = -EINVAL;
+        goto errout;
+    }
+
+    printk("vpp_freq %d Hz \n", (int)clk_get_rate(deint_hw_dev.vpp_clk));
 
 #if defined(CONFIG_SPRD_IOMMU)
-    sprd_iommu_module_enable(IOMMU_MM);
+    if(deint_hw_dev.chip_version == WHALE)
+        sprd_iommu_module_enable(IOMMU_VPP);
+    else
+        sprd_iommu_module_enable(IOMMU_MM);
 #endif
 
     return 0;
 
 errout:
-#if defined(CONFIG_ARCH_SCX35)
-    if (deint_hw_dev.mm_clk) {
-        clk_put(deint_hw_dev.mm_clk);
-    }
-#endif
 
-    if (deint_hw_dev.vpp_clk) {
-        clk_put(deint_hw_dev.vpp_clk);
-    }
-
-    if (deint_hw_dev.vpp_parent_clk) {
-        clk_put(deint_hw_dev.vpp_parent_clk);
-    }
+    deint_clock_release();
     return ret;
 }
 
@@ -472,8 +437,6 @@ static int deint_open(struct inode *inode, struct file *filp)
 {
     int ret = 0;
     struct deint_fh *deint_fp = kmalloc(sizeof(struct deint_fh), GFP_KERNEL);
-
-    printk("deint_open called %p\n", deint_fp);
 
     if (deint_fp == NULL) {
         printk(KERN_ERR "deint open error occured\n");
@@ -491,7 +454,7 @@ static int deint_open(struct inode *inode, struct file *filp)
 
     atomic_inc_return(&deint_instance_cnt);
 
-    printk("deint_open: ret %d, deint_fp = %p\n", ret,  deint_hw_dev.deint_fp);
+    printk("deint_open: ret %d \n", ret);
 
     return ret;
 
@@ -518,23 +481,9 @@ static int deint_release (struct inode *inode, struct file *filp)
     kfree(filp->private_data);
     filp->private_data=NULL;
 
-#ifndef SEQUENCE_RUNNING
-    if (deint_hw_dev.vpp_clk) {
-        clk_disable_unprepare(deint_hw_dev.vpp_clk);
-        clk_put(deint_hw_dev.vpp_clk);
-    }
-#endif
-
-    if (deint_hw_dev.mm_clk) {
-        clk_disable_unprepare(deint_hw_dev.mm_clk);
-        clk_put(deint_hw_dev.mm_clk);
-    }
+    deint_clock_release();
 
     atomic_dec_return(&deint_instance_cnt);
-
-#if defined(CONFIG_SPRD_IOMMU)
-    sprd_iommu_module_disable(IOMMU_MM);
-#endif
 
     return 0;
 }
@@ -612,15 +561,7 @@ static int deint_suspend(struct platform_device *pdev, pm_message_t state)
     int instance_cnt = atomic_read(&deint_instance_cnt);
 
     for (cnt = 0; cnt < instance_cnt; cnt++) {
-#if defined(CONFIG_SPRD_IOMMU)
-        sprd_iommu_module_disable(IOMMU_MM);
-#endif
-
-        if (deint_hw_dev.mm_clk) {
-            clk_disable_unprepare(deint_hw_dev.mm_clk);
-            clk_put(deint_hw_dev.mm_clk);
-        }
-
+        deint_clock_release();
         printk(KERN_INFO "deint_suspend, cnt: %d\n", cnt);
     }
 
@@ -664,9 +605,11 @@ static int deint_remove(struct platform_device *pdev)
 static int deint_parse_dt(struct device *dev)
 {
     struct device_node *np = dev->of_node;
+    struct device_node *deint_clk_np = NULL;
+    char *clk_node_name = NULL;
     struct resource res;
-    u32 clock_parent_info[2];
-    int i, ret;
+    int i, ret, clk_count = 0;
+    int deint_clk_count = 0;
 
     ret = of_address_to_resource(np, 0, &res);
     if(ret < 0) {
@@ -683,32 +626,58 @@ static int deint_parse_dt(struct device *dev)
     deint_hw_dev.irq = irq_of_parse_and_map(np, 0);
     deint_hw_dev.dev_np = np;
 
-    printk(KERN_INFO "deint_parse_dt ,  SPRD_VPP_PHYS = %p, SPRD_VPP_BASE = %p, irq = 0x%x\n",
+    printk(KERN_INFO "deint_parse_dt ,  SPRD_VPP_PHYS = %p, SPRD_VPP_BASE = %p, irq = %d\n",
            (void*)SPRD_VPP_PHYS, (void*)SPRD_VPP_BASE, deint_hw_dev.irq);
 
-    ret = of_property_read_u32_array(np, "clock-parent-info", clock_parent_info, 2);
-    if(0 != ret) {
-        printk(KERN_ERR "deint: read clock-parent-info fail (%d)\n", ret);
+    deint_hw_dev.ctrl_clk_num = of_clk_get_parent_count(np);
+    for(i = 0; i < deint_hw_dev.ctrl_clk_num; i++) {
+        clk_node_name  = of_clk_get_parent_name(np, i);
+        deint_hw_dev.vpp_clk_node_name[i] = clk_node_name;
+        deint_hw_dev.vpp_ctrl_clk[i] = of_clk_get_by_name(np, clk_node_name);
+
+        printk(KERN_INFO "deint_parse_dt , clock num: %d, node_name: %s, clock: %p\n", i, clk_node_name, deint_hw_dev.vpp_ctrl_clk[i]);
+        if (IS_ERR(deint_hw_dev.vpp_ctrl_clk[i]) || (!deint_hw_dev.vpp_ctrl_clk[i])) {
+            printk(KERN_ERR "###: Failed : can't get clock [%s}!\n", clk_node_name);
+            deint_hw_dev.vpp_ctrl_clk[i] = NULL;
+            return -EINVAL;
+        }
+    }
+
+    deint_hw_dev.vpp_clk = deint_hw_dev.vpp_ctrl_clk[1]; //This position is based on related dts file
+    deint_clk_np = of_find_node_by_name(NULL, deint_hw_dev.vpp_clk_node_name[1]);
+    if (!deint_clk_np) {
+        printk(KERN_ERR "failed to get deint clk device node\n");
         return -EINVAL;
     }
 
-    max_freq_level = clock_parent_info[1];
-    if (max_freq_level > 4) {
-        printk(KERN_ERR "deint: max_freq_level is invalid\n");
+    clk_count = of_clk_get_parent_count(deint_clk_np);
+    if(clk_count != DEINT_CLK_LEVEL_NUM) {
+        printk(KERN_ERR "failed to get deint clock count\n");
         return -EINVAL;
     }
 
-    for (i = 0; i < max_freq_level; i++) {
+    for(i = 0; i < clk_count; i++) {
         struct clk *clk_parent;
         char *name_parent;
         unsigned long frequency;
 
-        name_parent = of_clk_get_parent_name(np,  i+clock_parent_info[0]);
+        name_parent = of_clk_get_parent_name(deint_clk_np,  i);
         clk_parent = clk_get(NULL, name_parent);
         frequency = clk_get_rate(clk_parent);
+        printk(KERN_INFO "deint: clock_name_map[%d] = (%d, %s)\n", i, frequency, name_parent);
 
         clock_name_map[i].name = name_parent;
         clock_name_map[i].freq = frequency;
+        deint_hw_dev.vpp_parent_clk[i] = clk_parent;
+    }
+
+    if(deint_hw_dev.ctrl_clk_num == 6) {
+        deint_hw_dev.chip_version = WHALE;
+    } else if (deint_hw_dev.ctrl_clk_num > 0) {
+        deint_hw_dev.chip_version = TSHARK;
+    } else {
+        printk(KERN_ERR "deint_parse_dt: deint clock num is set error! \n");
+        return -EINVAL;
     }
 
     return 0;
@@ -717,36 +686,37 @@ static int deint_parse_dt(struct device *dev)
 static int deint_probe(struct platform_device *pdev)
 {
     int ret;
+    unsigned long irq_flag;
     struct resource *res = NULL;
 
     printk(KERN_INFO "deint_probe called !\n");
 
-#ifdef CONFIG_OF
+    memset(&deint_hw_dev, 0, sizeof(deint_hw_dev));
+    deint_hw_dev.freq_div = DEFAULT_FREQ_DIV;
+
     if (pdev->dev.of_node) {
-        ret = deint_parse_dt(&pdev->dev);
+        if(deint_parse_dt(&pdev->dev)) {
+            printk(KERN_ERR "deint_parse_dt failed\n");
+            return -EINVAL;
+        }
     }
-#else
-    ret = deint_parse_dt(&pdev->dev);
-#endif
 
     sema_init(&deint_hw_dev.deint_mutex, 1);
     wake_lock_init(&deint_wakelock, WAKE_LOCK_SUSPEND, "pm_message_wakelock_vpp_deint");
 
-    deint_hw_dev.freq_div = DEFAULT_FREQ_DIV;
-    deint_hw_dev.vpp_clk = NULL;
-    deint_hw_dev.vpp_parent_clk = NULL;
-    deint_hw_dev.mm_clk= NULL;
-    deint_hw_dev.deint_fp = NULL;
+    if (deint_hw_dev.chip_version == WHALE)
+        irq_flag = IRQF_DISABLED;
+    else
+        irq_flag = IRQF_DISABLED|IRQF_SHARED;
 
     ret = misc_register(&deint_dev);
     if (ret) {
-        printk(KERN_ERR "cannot register miscdev on minor=%d (%d)\n",
-               VPP_MINOR, ret);
+        printk(KERN_ERR "cannot register miscdev on minor=%d (%d)\n", VPP_MINOR, ret);
         goto errout;
     }
 
     /* register isr */
-    ret = request_irq(deint_hw_dev.irq, deint_isr, IRQF_DISABLED|IRQF_SHARED, "deinterlace", &deint_hw_dev);
+    ret = request_irq(deint_hw_dev.irq, deint_isr, irq_flag, "deinterlace", &deint_hw_dev);
     if (ret) {
         printk(KERN_ERR "vpp: failed to request deint irq!\n");
         ret = -EINVAL;
@@ -802,3 +772,4 @@ module_exit(deint_exit);
 
 MODULE_DESCRIPTION("SPRD VPP Driver");
 MODULE_LICENSE("GPL");
+

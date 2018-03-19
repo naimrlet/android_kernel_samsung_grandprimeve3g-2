@@ -202,7 +202,7 @@ dsih_state_t;
 typedef struct dphy_t
 {
 	/** Physical base address of PHY module - REQUIRED */
-	uint32_t address;
+	unsigned long address;
 	/** Reference frequency provided to PHY module [KHz] - REQUIRED */
 	uint32_t reference_freq;
 #ifdef CONFIG_FB_DYNAMIC_FREQ_SCALING
@@ -216,9 +216,9 @@ typedef struct dphy_t
 	 * configured. */
 	void (*bsp_pre_config)(struct dphy_t *instance, void* param);
 	/** Register read access function handle - REQUIRED */
-	uint32_t (*core_read_function)(uint32_t addr, uint32_t offset);
+	uint32_t (*core_read_function)(unsigned long addr, uint32_t offset);
 	/** Register write access function handle - REQUIRED */
-	void (*core_write_function)(uint32_t addr, uint32_t offset, uint32_t data);
+	void (*core_write_function)(unsigned long addr, uint32_t offset, uint32_t data);
 	/** Log errors function handle */
 	void (*log_error)(const char * string);
 	/** Log information function handle */
@@ -236,9 +236,11 @@ dphy_t;
 typedef struct dsih_ctrl_t
 {
 	/** Physical base address of controller - REQUIRED */
-	uint32_t address;
+	unsigned long address;
 	/** D-PHY instance associated with the DSI host controller - REQUIRED */
 	dphy_t phy_instance;
+	/**D-PHY frequency*/
+	uint32_t phy_feq;
 	/** Number of lanes physically connected to controller - REQUIRED */
 	uint8_t max_lanes;
 	/** Maximum number of byte clock cycles needed by the PHY to perform
@@ -251,9 +253,9 @@ typedef struct dsih_ctrl_t
 	/** initialised or not */
 	dsih_state_t status;
 	/** Register read access function handle - REQUIRED */
-	uint32_t (*core_read_function)(uint32_t addr, uint32_t offset);
+	uint32_t (*core_read_function)(unsigned long addr, uint32_t offset);
 	/** Register write access function handle - REQUIRED */
-	void (*core_write_function)(uint32_t addr, uint32_t offset, uint32_t data);
+	void (*core_write_function)(unsigned long addr, uint32_t offset, uint32_t data);
 	/** Log errors function handle */
 	void (*log_error)(const char * string);
 	/** Log information function handle */

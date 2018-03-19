@@ -34,6 +34,7 @@
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 #include <linux/of_gpio.h>
+#include <linux/wakelock.h>
 
 #include <soc/sprd/globalregs.h>
 #include <soc/sprd/hardware.h>
@@ -46,7 +47,12 @@
 
 #include <linux/input-hook.h>
 
+#if defined(CONFIG_MACH_J1ACEVELTE)
+#define DEBUG_KEYPAD	1	
+#else
 #define DEBUG_KEYPAD	0
+#endif
+
 #if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 #define PRINT_KEY_LOG 1
 #else
@@ -127,16 +133,15 @@ static unsigned long KPD_REG_BASE;
 #else
 static int PB_INT;
 #endif
-#if defined(CONFIG_SUPPORT_TWOKEY_RESET)
-#define EXT_RSTN_VOLUME_DOWN
-#ifdef EXT_RSTN_VOLUME_DOWN
+
 #ifndef CONFIG_OF
 #define VOLUME_DOWN_INT                  EIC_KEY_POWER
 #else
-static int VOLUME_DOWN_INT; //EIC_KEY_RST_EXT_RSTN_ACTIVE, EIC+10
+static int VOLUME_DOWN_INT;
 #endif
-#endif
-#endif
+
+struct wake_lock keypad_wake_lock;
+
 #if defined(CONFIG_ARCH_SC8825)
 static __devinit void __keypad_enable(void)
 {
@@ -195,17 +200,14 @@ EXPORT_SYMBOL(powerkey_dev);
 
 static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t powerkey_show(struct device *dev, struct device_attribute *attr, char *buf);
-#ifdef EXT_RSTN_VOLUME_DOWN
 static ssize_t reset_enable_show(struct device *dev, struct device_attribute *attr, char *buf);
 static ssize_t reset_enable_store(struct device *dev, struct device_attribute *attr, char *buf,size_t count);
-#endif
+
 static DEVICE_ATTR(sec_key_pressed, S_IRUGO, key_show, NULL);
 static DEVICE_ATTR(sec_power_key_pressed, S_IRUGO, powerkey_show, NULL);
-#ifdef EXT_RSTN_VOLUME_DOWN
 static DEVICE_ATTR(reset_enabled, 0664,reset_enable_show, reset_enable_store);
-#endif
 
-#ifdef EXT_RSTN_VOLUME_DOWN
+
 static ssize_t reset_enable_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	pr_info("[KEY] reset_enable_show :\n");
@@ -248,17 +250,16 @@ static ssize_t reset_enable_store(struct device *dev, struct device_attribute *a
 	}
 	return count;
 }
-#endif
 
 static ssize_t key_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	uint8_t keys_pressed;
 	uint8_t default_press = 0x80;
 	int is_key_checked = 0;
-unsigned long value=1;
-#ifdef EXT_RSTN_VOLUME_DOWN
-value = !(gpio_get_value(VOLUME_DOWN_INT));
-#endif
+	unsigned long value=1;
+
+	value = !(gpio_get_value(VOLUME_DOWN_INT));
+
 	keys_pressed = __raw_readl(KPD_KEY_STATUS);
 	if((keys_pressed & default_press) || !value)
 		is_key_checked = sprintf(buf,"%s\n","PRESS");
@@ -283,8 +284,6 @@ static ssize_t powerkey_show(struct device *dev, struct device_attribute *attr, 
 
 	return is_key_checked;
 }
-
-/* sys fs */
 
 #if	DEBUG_KEYPAD
 static void dump_keypad_register(void)
@@ -343,92 +342,104 @@ static irqreturn_t sci_keypad_isr(int irq, void *dev_id)
 		col = KPD_INT0_COL(key_status);
 		row = KPD_INT0_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
+		if (key == KEY_HOMEPAGE)
+			/*When press homekey, don't make to enter ap sleep to handle key*/
+			wake_lock_timeout(&keypad_wake_lock, HZ * 1);
 
+		input_report_key(sci_kpd->input_dev, key, 1);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03dD\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 1);
-		input_sync(sci_kpd->input_dev);
 	}
 	if (int_status & KPD_RELEASE_INT0) {
 		col = KPD_INT0_COL(key_status);
 		row = KPD_INT0_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
 
+		input_report_key(sci_kpd->input_dev, key, 0);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03dU\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 0);
-		input_sync(sci_kpd->input_dev);
 	}
 
 	if ((int_status & KPD_PRESS_INT1)) {
 		col = KPD_INT1_COL(key_status);
 		row = KPD_INT1_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
+		if (key == KEY_HOMEPAGE)
+			/*When press homekey, don't make to enter ap sleep to handle key*/
+			wake_lock_timeout(&keypad_wake_lock, HZ * 1);
 
+		input_report_key(sci_kpd->input_dev, key, 1);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03dD\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 1);
-		input_sync(sci_kpd->input_dev);
 	}
 	if (int_status & KPD_RELEASE_INT1) {
 		col = KPD_INT1_COL(key_status);
 		row = KPD_INT1_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
 
+		input_report_key(sci_kpd->input_dev, key, 0);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03dU\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 0);
-		input_sync(sci_kpd->input_dev);
 	}
 
 	if ((int_status & KPD_PRESS_INT2)) {
 		col = KPD_INT2_COL(key_status);
 		row = KPD_INT2_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
+		if (key == KEY_HOMEPAGE)
+			/*When press homekey, don't make to enter ap sleep to handle key*/
+			wake_lock_timeout(&keypad_wake_lock, HZ * 1);
 
+		input_report_key(sci_kpd->input_dev, key, 1);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03d\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 1);
-		input_sync(sci_kpd->input_dev);
 	}
 	if (int_status & KPD_RELEASE_INT2) {
 		col = KPD_INT2_COL(key_status);
 		row = KPD_INT2_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
 
+		input_report_key(sci_kpd->input_dev, key, 0);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03d\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 0);
-		input_sync(sci_kpd->input_dev);
 	}
 
 	if (int_status & KPD_PRESS_INT3) {
 		col = KPD_INT3_COL(key_status);
 		row = KPD_INT3_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
+		if (key == KEY_HOMEPAGE)
+			/*When press homekey, don't make to enter ap sleep to handle key*/
+			wake_lock_timeout(&keypad_wake_lock, HZ * 1);
 
+		input_report_key(sci_kpd->input_dev, key, 1);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03d\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 1);
-		input_sync(sci_kpd->input_dev);
 	}
 	if (int_status & KPD_RELEASE_INT3) {
 		col = KPD_INT3_COL(key_status);
 		row = KPD_INT3_ROW(key_status);
 		key = keycodes[MATRIX_SCAN_CODE(row, col, row_shift)];
 
+		input_report_key(sci_kpd->input_dev, key, 0);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%03d\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, 0);
-		input_sync(sci_kpd->input_dev);
 	}
 
 	return IRQ_HANDLED;
@@ -443,34 +454,37 @@ static irqreturn_t sci_powerkey_isr(int irq, void *dev_id)
 
 	if (last_value == value) {
 		/* seems an event is missing, just report it */
+		input_report_key(sci_kpd->input_dev, key, last_value);
+		input_sync(sci_kpd->input_dev);
 #if PRINT_KEY_LOG
 		printk("%dX\n", key);
 #endif
-		input_report_key(sci_kpd->input_dev, key, last_value);
-		input_sync(sci_kpd->input_dev);
 	}
 
 	if (value) {
 		/* Release : low level */
-#if PRINT_KEY_LOG
-		printk("Powerkey:%dU\n", key);
-#endif
 #ifdef HOOK_POWER_KEY
 		input_report_key_hook(sci_kpd->input_dev, key, 0);
 #endif
 		input_report_key(sci_kpd->input_dev, key, 0);
 		input_sync(sci_kpd->input_dev);
+#if PRINT_KEY_LOG
+		printk("Powerkey:%dU\n", key);
+#endif
 		irq_set_irq_type(irq, IRQF_TRIGGER_HIGH);
 	} else {
 		/* Press : high level */
-#if PRINT_KEY_LOG
-		printk("Powerkey:%dD\n", key);
-#endif
+		/*When press powerkey, don't make to enter ap sleep to handle key*/
+		wake_lock_timeout(&keypad_wake_lock, HZ * 1);
+
 #ifdef HOOK_POWER_KEY
 		input_report_key_hook(sci_kpd->input_dev, key, 1);
 #endif
 		input_report_key(sci_kpd->input_dev, key, 1);
 		input_sync(sci_kpd->input_dev);
+#if PRINT_KEY_LOG
+		printk("Powerkey:%dD\n", key);
+#endif
 		irq_set_irq_type(irq, IRQF_TRIGGER_LOW);
 	}
 
@@ -478,7 +492,7 @@ static irqreturn_t sci_powerkey_isr(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-#ifdef EXT_RSTN_VOLUME_DOWN
+
 static irqreturn_t sci_volumedownkey_isr(int irq, void *dev_id)
 {				//TODO: if usign gpio(eic), need add row , cols to platform data.
 	static unsigned long last_value = 1;
@@ -523,7 +537,7 @@ static irqreturn_t sci_volumedownkey_isr(int irq, void *dev_id)
 
 	return IRQ_HANDLED;
 }
-#endif
+
 #ifdef CONFIG_OF
 static struct sci_keypad_platdata *sci_keypad_parse_dt(
                 struct device *dev)
@@ -552,13 +566,13 @@ static struct sci_keypad_platdata *sci_keypad_parse_dt(
 		dev_err(dev, "no gpios of property specified\n");
 		return NULL;
 	}
-#ifdef EXT_RSTN_VOLUME_DOWN
+
 	VOLUME_DOWN_INT = of_get_gpio(np, 1);
 	if(VOLUME_DOWN_INT < 0){
 		dev_err(dev, "no gpios volume down of property specified\n");
 		return NULL;
 	}
-#endif
+
 	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 	if (!pdata) {
 		dev_err(dev, "could not allocate memory for platform data\n");
@@ -766,6 +780,8 @@ static int sci_keypad_probe(struct platform_device *pdev)
 	__raw_writel(0xc, KPD_LONG_KEY_CNT);
 	__raw_writel(0x5, KPD_DEBOUNCE_CNT);
 
+	wake_lock_init(&keypad_wake_lock, WAKE_LOCK_SUSPEND,"sc-keypad-wakelock");
+
 	sci_kpd->irq = platform_get_irq(pdev, 0);
 	if (sci_kpd->irq < 0) {
 		error = -ENODEV;
@@ -801,9 +817,7 @@ static int sci_keypad_probe(struct platform_device *pdev)
 
 	/* there are keys from hw other than keypad controller */
 	__set_bit(KEY_POWER, input_dev->keybit);
-#ifdef EXT_RSTN_VOLUME_DOWN
 	__set_bit(KEY_VOLUMEDOWN, input_dev->keybit);
-#endif
 	__set_bit(EV_KEY, input_dev->evbit);
 	if (pdata->repeat)
 		__set_bit(EV_REP, input_dev->evbit);
@@ -860,7 +874,6 @@ static int sci_keypad_probe(struct platform_device *pdev)
 		goto out3;
 	}
 
-#ifdef EXT_RSTN_VOLUME_DOWN
 	gpio_request(VOLUME_DOWN_INT, "volume down");
 	gpio_direction_input(VOLUME_DOWN_INT);
 	error = request_irq(gpio_to_irq(VOLUME_DOWN_INT), sci_volumedownkey_isr,
@@ -871,18 +884,17 @@ static int sci_keypad_probe(struct platform_device *pdev)
 			gpio_to_irq(VOLUME_DOWN_INT));
 		goto out3;
 	}
-#endif
+
+
 	/* sys fs */
-	key_dev = device_create(sec_class, NULL, 0, "%s", "sec_key");
+	key_dev = device_create(sec_class, NULL, (dev_t)&key_dev, "%s", "sec_key");
 	if(device_create_file(key_dev, &dev_attr_sec_key_pressed) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_sec_key_pressed.attr.name);
 
-#ifdef EXT_RSTN_VOLUME_DOWN
 	if(device_create_file(key_dev, &dev_attr_reset_enabled) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_reset_enabled.attr.name);
-#endif		
 
-	powerkey_dev = device_create(sec_class, NULL, 0, NULL, "sec_power_key");
+	powerkey_dev = device_create(sec_class, NULL, (dev_t)&powerkey_dev, NULL, "sec_power_key");
 	if (device_create_file(powerkey_dev, &dev_attr_sec_power_key_pressed) < 0)
 		pr_err("Failed to create device file(%s)!\n", dev_attr_sec_power_key_pressed.attr.name);
 
@@ -891,18 +903,17 @@ static int sci_keypad_probe(struct platform_device *pdev)
 	return 0;
 
 out3:
-#ifdef EXT_RSTN_VOLUME_DOWN
-        free_irq(gpio_to_irq(VOLUME_DOWN_INT), pdev);
-#endif
-	free_irq(gpio_to_irq(PB_INT), pdev);
 	free_irq(sci_kpd->irq, pdev);
+	free_irq(gpio_to_irq(PB_INT), pdev);
+	free_irq(gpio_to_irq(VOLUME_DOWN_INT), pdev);
 out2:
 	platform_set_drvdata(pdev, NULL);
-	input_unregister_device(input_dev);
 out1:
 	kfree(sci_kpd);
 	input_free_device(input_dev);
 out0:
+	wake_lock_destroy(&keypad_wake_lock);
+
 	return error;
 }
 
@@ -930,6 +941,9 @@ static int sci_keypad_remove(struct
 		kfree(pdata->keymap_data);
 		kfree(pdata);
 	}
+	
+	wake_lock_destroy(&keypad_wake_lock);
+
 	return 0;
 }
 

@@ -39,9 +39,26 @@
 
 	sprd_sensor {
 		compatible  = "sprd,sprd_sensor";
-		gpios = <&d_gpio_gpio 186 0   /*reset*/
-		        &d_gpio_gpio 188 0    /*main*/
-		        &d_gpio_gpio 187 0>;  /*sub */
+		gpios = <&d_gpio_gpio 186 0    /* 0: main reset*/
+			     &d_gpio_gpio 188 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 187 0    /* 2:sub reset*/
+			     &d_gpio_gpio 0 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 0 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 0 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 		clock-names ="clk_mm_i","clk_sensor","clk_ccir","clk_dcam","clk_dcam_mipi";
 		clocks = <&clk_mm>, <&clk_sensor>,<&clk_ccir>, <&clk_dcam>, <&clk_dcam_mipi>;
 	};
@@ -167,7 +184,9 @@
 		#size-cells = <1>;
 		/* segnr=2 */
 		ranges = <0x300000 0x88300000 0x00800000>,
-				<0x20000 0x88020000 0x00220000>;
+			 <0x20000 0x88020000 0x00220000>,
+                         <0x240000 0x88240000 0x40000>,
+                         <0x280000 0x88280000 0x60000>;
 		modem@0x300000 {
 			cproc,name = "modem";
 			reg = <0x300000 0x00800000>; /* <modem_addr size> */
@@ -175,6 +194,14 @@
 		dsp@0x20000 {
 			cproc,name = "dsp";
 			reg = <0x20000 0x00220000>; /* <dsp_addr size>*/
+		};
+		fixnv@0x240000 {
+			cproc,name = "fixnv";
+			reg = <0x240000 0x40000>;
+		};
+		runnv@0x280000 {
+			cproc,name = "runnv";
+			reg = <0x280000 0x60000>;
 		};
 	};
 

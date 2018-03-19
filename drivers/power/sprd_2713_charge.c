@@ -84,6 +84,24 @@ static unsigned long timer_base = 0;
 #endif
 #define SPRD_APTIMER1_BASE timer_base
 
+#if defined (CONFIG_ADIE_SC2731)
+#define TIMER_VERSION ((__iomem void *)ANA_TIMER_BASE + 0x0000)
+#define TIMER_LOAD_LOW ((__iomem void *)ANA_TIMER_BASE + 0x0004)
+#define TIMER_LOAD_HIGH ((__iomem void *)ANA_TIMER_BASE + 0x0008)
+#define TIMER_CTL ((__iomem void *)ANA_TIMER_BASE + 0x000C)
+#define TIMER_INT ((__iomem void *)ANA_TIMER_BASE + 0x0010)
+
+#define	ONETIME_MODE	(0)
+#define	PERIOD_MODE	(1)
+
+#define	TIMER_DISABLE	(0 << 1)
+#define	TIMER_ENABLE	(1 << 1)
+
+#define	TIMER_INT_EN	(1 << 0)
+#define	TIMER_INT_STS	(1 << 2)
+#define	TIMER_INT_CLR	(1 << 3)
+
+#else
 #define TIMER_LOAD ((__iomem void *)SPRD_APTIMER1_BASE + 0x0000)
 #define TIMER_VALUE ((__iomem void *)SPRD_APTIMER1_BASE + 0x0004)
 #define TIMER_CTL ((__iomem void *)SPRD_APTIMER1_BASE + 0x0008)
@@ -99,22 +117,36 @@ static unsigned long timer_base = 0;
 #define	TIMER_INT_STS	(1 << 2)
 #define	TIMER_INT_CLR	(1 << 3)
 #define	TIMER_INT_BUSY	(1 << 4)
+#endif
 
 void sprdchg_timer_enable(uint32_t cycles)
 {
+#if defined (CONFIG_ADIE_SC2731)
+	sci_adi_write(TIMER_CTL, PERIOD_MODE , 0);
+	int value = 32768 * cycles;
+	sci_adi_write(TIMER_LOAD_LOW,value & 0xffff, ~0);
+	sci_adi_write(TIMER_LOAD_HIGH,value >> 16, ~0);
+	sci_adi_write(TIMER_CTL, TIMER_ENABLE, 0);
+	sci_adi_write(TIMER_INT, TIMER_INT_EN, 0);
+#else
 //#if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8)) //mingwei TODO
 	__raw_writel(TIMER_DISABLE | PERIOD_MODE, TIMER_CTL);
 	__raw_writel(32768 * cycles, TIMER_LOAD);
 	__raw_writel(TIMER_ENABLE | PERIOD_MODE, TIMER_CTL);
 	__raw_writel(TIMER_INT_EN, TIMER_INT);
 //#endif
+#endif
 }
 
 void sprdchg_timer_disable(void)
 {
 //#if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8)) //mingwei TODO
+#if defined (CONFIG_ADIE_SC2731)
+	sci_adi_write(TIMER_CTL, TIMER_DISABLE, 0);
+#else
 	__raw_writel(TIMER_DISABLE | PERIOD_MODE, TIMER_CTL);
 //#endif
+#endif
 }
 
 static int (*sprdchg_tm_cb) (void *data) = NULL;
@@ -124,10 +156,14 @@ static irqreturn_t _sprdchg_timer_interrupt(int irq, void *dev_id)
 	unsigned int value;
 
 	printk("_sprdchg_timer_interrupt\n");
-
+	
+#if defined (CONFIG_ADIE_SC2731)
+	sci_adi_write(TIMER_INT, TIMER_INT_CLR,0);
+#else
 	value = __raw_readl(TIMER_INT);
 	value |= TIMER_INT_CLR;
 	__raw_writel(value, TIMER_INT);
+#endif
 	if (sprdchg_tm_cb) {
 		sprdchg_tm_cb(dev_id);
 	}
@@ -138,6 +174,10 @@ extern int sprd_request_timer(int timer_id,int sub_id,unsigned long *base);
 int sprdchg_timer_init(int (*fn_cb) (void *data), void *data)
 {
 	int ret = -ENODEV;
+#if defined (CONFIG_ADIE_SC2731)
+	sci_adi_set(ANA_REG_GLB_MODULE_EN1,BIT_ANA_TMR_EN);
+	sci_adi_set(ANA_REG_GLB_RTC_CLK_EN1,BIT_RTC_TMR_EN);
+#else
 #if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8))    //mingwei TODO
 	if(sprd_request_timer(1,1,&timer_base))
 		BUG_ON(1);
@@ -146,6 +186,7 @@ int sprdchg_timer_init(int (*fn_cb) (void *data), void *data)
 #endif
 
 	sci_glb_set(REG_AON_APB_APB_EB1, BIT_AP_TMR1_EB);
+#endif
 	sprdchg_timer_disable();
 	sprdchg_tm_cb = fn_cb;
 
@@ -166,6 +207,39 @@ struct sprdbat_auxadc_cal adc_cal = {
 	3600, 2832,
 	SPRDBAT_AUXADC_CAL_NO,
 };
+
+struct sprdbat_auxadc_cal temp_adc_cal = {
+	1000, 3413,
+	100, 341,
+	SPRDBAT_AUXADC_CAL_NO,
+};
+
+static void sprdchg_get_temp_efuse_cal(void)
+{
+	extern int sci_temp_efuse_calibration_get(unsigned int *p_cal_data);
+	unsigned int efuse_cal_data[2] = { 0 };
+	if (sci_temp_efuse_calibration_get(efuse_cal_data)) {
+		temp_adc_cal.p0_vol = efuse_cal_data[0] & 0xffff;
+		temp_adc_cal.p0_adc = (efuse_cal_data[0] >> 16) & 0xffff;
+		temp_adc_cal.p1_vol = efuse_cal_data[1] & 0xffff;
+		temp_adc_cal.p1_adc = (efuse_cal_data[1] >> 16) & 0xffff;
+		temp_adc_cal.cal_type = SPRDBAT_AUXADC_CAL_CHIP;
+	}
+	printk("sprdchg_temp_adc_to_vol %d,%d,%d,%d,cal_type:%d\n",
+	       temp_adc_cal.p0_vol, temp_adc_cal.p0_adc, temp_adc_cal.p1_vol,
+	       temp_adc_cal.p1_adc, temp_adc_cal.cal_type);
+}
+
+uint16_t sprdchg_small_scale_to_vol(uint16_t adcvalue)
+{
+	int32_t temp;
+	temp = temp_adc_cal.p0_vol - temp_adc_cal.p1_vol;
+	temp = temp * (adcvalue - temp_adc_cal.p0_adc);
+	temp = temp / (temp_adc_cal.p0_adc - temp_adc_cal.p1_adc);
+	temp = temp + temp_adc_cal.p0_vol;
+
+	return temp;
+}
 
 static int __init adc_cal_start(char *str)
 {
@@ -196,6 +270,8 @@ void sprdchg_init(struct sprd_battery_platform_data *pdata)
 	pbat_data = pdata;
 
 	BUG_ON(NULL == pbat_data);
+#if defined (CONFIG_ADIE_SC2731)
+#else
 #if defined(CONFIG_ADIE_SC2723S) ||defined(CONFIG_ADIE_SC2723)
 	sci_adi_write(ANA_REG_GLB_CHGR_CTRL0, BIT_CHGLDO_DIS, BIT_CHGLDO_DIS);
 #endif
@@ -213,7 +289,11 @@ void sprdchg_init(struct sprd_battery_platform_data *pdata)
 			BITS_CHGR_DPM(3), BITS_CHGR_DPM(~0));
 	}
 #endif
-
+#if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8)) //mingwei TODO
+	sci_adi_write((ANA_CTL_EIC_BASE + 0x50), 1, (0xFFF));	//eic debunce
+	printk("ANA_CTL_EIC_BASE0x%x\n", sci_adi_read(ANA_CTL_EIC_BASE + 0x50));
+#endif
+#endif
 	if (adc_cal.cal_type == SPRDBAT_AUXADC_CAL_NO) {
 
 		#ifdef CONFIG_OTP_SPRD
@@ -231,29 +311,32 @@ void sprdchg_init(struct sprd_battery_platform_data *pdata)
 		}
 		#endif
 	}
-#if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8)) //mingwei TODO
-	sci_adi_write((ANA_CTL_EIC_BASE + 0x50), 1, (0xFFF));	//eic debunce
-	printk("ANA_CTL_EIC_BASE0x%x\n", sci_adi_read(ANA_CTL_EIC_BASE + 0x50));
-#endif
-
+	sprdchg_get_temp_efuse_cal();
 }
 
 static uint16_t sprdchg_adc_to_vol(uint16_t channel, int scale,
 				   uint16_t adcvalue)
 {
 	uint32_t result;
-	uint32_t vbat_vol = sprdchg_bat_adc_to_vol(adcvalue);
+	uint32_t vol;
 	uint32_t m, n;
 	uint32_t bat_numerators, bat_denominators;
 	uint32_t numerators, denominators;
 
+#if defined(CONFIG_ADIE_SC2723S) ||defined(CONFIG_ADIE_SC2723)
+	vol = sprdchg_small_scale_to_vol(adcvalue);
+	bat_numerators = 1;
+	bat_denominators = 1;
+#else
+	vol = sprdchg_bat_adc_to_vol(adcvalue);
 	sci_adc_get_vol_ratio(ADC_CHANNEL_VBAT, 0, &bat_numerators,
 			      &bat_denominators);
+#endif
 	sci_adc_get_vol_ratio(channel, scale, &numerators, &denominators);
 
 	///v1 = vbat_vol*0.268 = vol_bat_m * r2 /(r1+r2)
 	n = bat_denominators * numerators;
-	m = vbat_vol * bat_numerators * (denominators);
+	m = vol * bat_numerators * (denominators);
 	result = (m + n / 2) / n;
 	return result;
 }
@@ -413,9 +496,17 @@ int sprdchg_charger_is_adapter(void)
 {
 	int ret = ADP_TYPE_SDP;
 	int charger_status;
+	int cnt = 10;
 
-	charger_status = sci_adi_read(ANA_REG_GLB_CHGR_STATUS)
-	    & (BIT_CDP_INT | BIT_DCP_INT | BIT_SDP_INT);
+	while ((!(sci_adi_read(ANA_REG_GLB_CHGR_STATUS)&BIT_CHG_DET_DONE)) && cnt--) {
+	       msleep(200);
+	}
+
+	charger_status = sci_adi_read(ANA_REG_GLB_CHGR_STATUS);
+	printk("charger_status:0x%x,cnt:%d\n",charger_status, cnt);
+
+	charger_status &= (BIT_CDP_INT | BIT_DCP_INT | BIT_SDP_INT);
+
 
 	switch (charger_status) {
 	case BIT_CDP_INT:
@@ -433,7 +524,7 @@ int sprdchg_charger_is_adapter(void)
 	}
 	return ret;
 }
-
+#if !defined (CONFIG_ADIE_SC2731)
 void sprdchg_set_chg_ovp(uint32_t ovp_vol)
 {
 	uint32_t temp;
@@ -489,7 +580,18 @@ void sprdchg_set_cccvpoint(unsigned int cvpoint)
 		      BITS_CHGR_CV_V(cvpoint), BITS_CHGR_CV_V(~0));
 
 }
-
+uint32_t sprdchg_get_chg_cur(void)
+{
+	int rawdata = 0;
+	if(sci_adi_read(ANA_REG_GLB_CHGR_CTRL2) & 0x2) {
+		 rawdata = sci_adi_read(ANA_REG_GLB_CHGR_CTRL1) ;
+		 rawdata = (rawdata >> 10 & 0x1f);//& BITS_CHGR_CC_I(~0);
+		 printk("sprdchg_get_chg_cur rawdata * 50+300=%d\n",rawdata * 50+300);
+		 return (rawdata * 50+300);
+	}else{
+		return 0;
+	}
+}
 uint32_t sprdchg_get_cccvpoint(void)
 {
 	int shft = __ffs(BITS_CHGR_CV_V(~0));
@@ -611,7 +713,7 @@ int sprdchg_get_cccvstate(void)
 	printk("sprdbat:cv state:0x%x, iterm:0x%x", sci_adi_read(ANA_REG_GLB_CHGR_STATUS),sci_adi_read(ANA_REG_GLB_CHGR_CTRL2));
 	return ((sci_adi_read(ANA_REG_GLB_CHGR_STATUS) & BIT_CHGR_CV_STATUS) ? 1 : 0);
 }
-
+#endif
 static uint32_t _sprdchg_read_chg_current(void)
 {
 	uint32_t vbat, isense;
@@ -642,7 +744,7 @@ static uint32_t _sprdchg_read_chg_current(void)
 
 uint32_t sprdchg_read_chg_current(void)
 {
-#define CUR_RESULT_NUM 9
+#define CUR_RESULT_NUM 4
 
 	int i, temp;
 	volatile int j;

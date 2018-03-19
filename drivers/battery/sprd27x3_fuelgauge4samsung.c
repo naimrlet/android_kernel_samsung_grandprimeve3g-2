@@ -32,6 +32,9 @@
 #include "sprd_battery.h"
 
 int soc_val = 0;
+#if defined(CONFIG_MACH_J1POP3G) || defined(CONFIG_BATTERY_JXX_LTE)
+#define SPRDFGU_TEMP_COMP_SOC
+#endif
 
 #if defined(CONFIG_CHARGER_SMB328) || defined(CONFIG_CHARGER_SMB358)
 bool should_reset_fgu = 0;
@@ -98,7 +101,8 @@ static void print_pdata(struct sprd_battery_platform_data *pdata)
 		PDATA_LOG("temp_tab_size i=%d x:%d,y:%d\n", i,
 			  pdata->temp_tab[i].x, pdata->temp_tab[i].y);
 	}
-#if defined(CONFIG_MACH_GRANDPRIMEVE3G)
+
+#if defined(CONFIG_MACH_J1POP3G) || defined(CONFIG_BATTERY_JXX_LTE)
 	for (i = 0; i < pdata->cnom_temp_tab_size; i++) {
 		PDATA_LOG("cnom_temp_tab i=%d x:%d,y:%d\n", i, pdata->cnom_temp_tab[i].x,
 			  pdata->cnom_temp_tab[i].y);
@@ -111,10 +115,16 @@ static void print_pdata(struct sprd_battery_platform_data *pdata)
 }
 
 static uint32_t init_flag = 0;
+static uint32_t init_temp_flag = 0;
+#if defined(CONFIG_MACH_J1POP3G) || defined(CONFIG_BATTERY_JXX_LTE)
+#define SPRDBAT_ONE_PERCENT_TIME_DISCHG	(40)
+#define SPRDBAT_ONE_PERCENT_TIME_CHG	(50)
+#else
 //when discharge, the time interval is 40S
 #define SPRDBAT_ONE_PERCENT_TIME_DISCHG	(40)
 //when charge, the time interval is 60S
 #define SPRDBAT_ONE_PERCENT_TIME_CHG	(60)
+#endif
 static int SPRDBAT_ONE_PERCENT_TIME = SPRDBAT_ONE_PERCENT_TIME_DISCHG;
 #define SPRDBAT_AVOID_JUMPING_TEMI  (SPRDBAT_ONE_PERCENT_TIME)
 
@@ -156,6 +166,12 @@ static uint32_t sprdbat_update_capacty(void)
 	struct timespec cur_time;
 	union power_supply_propval value;
 
+	int temp_degree;
+	union power_supply_propval temp_value;
+
+	psy_do_property("battery", get, POWER_SUPPLY_PROP_TEMP, temp_value);
+	temp_degree = temp_value.intval / 10;
+
 	psy_do_property("battery", get, POWER_SUPPLY_PROP_STATUS, value);
 
 	get_monotonic_boottime(&cur_time);
@@ -166,17 +182,75 @@ static uint32_t sprdbat_update_capacty(void)
 	pr_info("fgu_capacity: = %d,flush_time: = %d,period_time:=%d\n",
 		      fgu_capacity, flush_time, period_time);
 
-	switch (value.intval) {
-	case POWER_SUPPLY_STATUS_CHARGING:
-		SPRDBAT_ONE_PERCENT_TIME = SPRDBAT_ONE_PERCENT_TIME_CHG;
-		if (fgu_capacity < update_capacity) {
-			if (sprdfgu_read_batcurrent() > 0) {
-				pr_info("avoid vol jumping\n");
-			fgu_capacity = update_capacity;
+	if ((!init_temp_flag) && (temp_degree < 16)) {
+		pr_info("temp init skip\n");
+		init_temp_flag = 1;
+		return update_capacity;
+		/* if temperature is not ready, return last capacity immediately,
+		   and skip following code, UI soc can not be save to RTC reg. */
+	} else {
+		switch (value.intval) {
+		case POWER_SUPPLY_STATUS_CHARGING:
+			SPRDBAT_ONE_PERCENT_TIME = SPRDBAT_ONE_PERCENT_TIME_CHG;
+#ifdef SPRDFGU_TEMP_COMP_SOC
+			if ((fgu_capacity < update_capacity) && ((temp_degree > 15) || \
+			(update_capacity >= 2))) {
+#else
+			if (fgu_capacity < update_capacity) {
+#endif
+				if (sprdfgu_read_batcurrent() > 0) {
+					pr_info("avoid vol jumping\n");
+				fgu_capacity = update_capacity;
+				} else {
+					if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
+						fgu_capacity =update_capacity - 1;
+						pr_info("avoid jumping! fgu_capacity: = %d\n", fgu_capacity);
+					}
+					if ((update_capacity - fgu_capacity) >=
+					    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
+						fgu_capacity =
+						    update_capacity -
+						    flush_time / SPRDBAT_ONE_PERCENT_TIME;
+					}
+				}
+			} else if (fgu_capacity > update_capacity) {
+				if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
+					fgu_capacity =
+						update_capacity + 1;
+					pr_info("avoid  jumping! fgu_capacity: = %d\n",fgu_capacity);
+				}
+				if ((fgu_capacity - update_capacity) >=
+				    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
+					fgu_capacity =
+					    update_capacity +
+					    flush_time / SPRDBAT_ONE_PERCENT_TIME;
+				}
+			}
+			/*when soc=100 and adp plugin occur, keep on 100, */
+			if (100 == update_capacity) {
+				sprdbat_update_capacity_time = cur_time.tv_sec;
+				fgu_capacity = 100;
+			}
+#if 0
+			else {
+				if (fgu_capacity >= 100) {
+					fgu_capacity = 99;
+				}
+			}
+#endif
+			break;
+		case POWER_SUPPLY_STATUS_NOT_CHARGING:
+		case POWER_SUPPLY_STATUS_DISCHARGING:
+			SPRDBAT_ONE_PERCENT_TIME = SPRDBAT_ONE_PERCENT_TIME_DISCHG;
+			if (fgu_capacity >= update_capacity) {
+				fgu_capacity = update_capacity;
 			} else {
 				if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
-					fgu_capacity =update_capacity - 1;
-					pr_info("avoid jumping! fgu_capacity: = %d\n", fgu_capacity);
+					fgu_capacity =
+					    update_capacity - 1;
+					pr_info
+					    ("avoid jumping! fgu_capacity: = %d\n",
+					     fgu_capacity);
 				}
 				if ((update_capacity - fgu_capacity) >=
 				    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
@@ -185,89 +259,22 @@ static uint32_t sprdbat_update_capacty(void)
 					    flush_time / SPRDBAT_ONE_PERCENT_TIME;
 				}
 			}
-		} else if (fgu_capacity > update_capacity) {
-			if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
-				fgu_capacity =
-					update_capacity + 1;
-				pr_info("avoid  jumping! fgu_capacity: = %d\n",fgu_capacity);
-			}
-			if ((fgu_capacity - update_capacity) >=
-			    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
-				fgu_capacity =
-				    update_capacity +
-				    flush_time / SPRDBAT_ONE_PERCENT_TIME;
-			}
-		}
-		/*when soc=100 and adp plugin occur, keep on 100, */
-		if (100 == update_capacity) {
-			sprdbat_update_capacity_time = cur_time.tv_sec;
-			fgu_capacity = 100;
-		}
 #if 0
-		else {
-			if (fgu_capacity >= 100) {
-				fgu_capacity = 99;
+			if (sprdfgu_read_vbat_vol() < bat_pdata->soft_vbat_uvlo) {
+				pr_info("soft uvlo vol 0...\n");
+				fgu_capacity = 0;
 			}
-		}
 #endif
-		break;
-	case POWER_SUPPLY_STATUS_NOT_CHARGING:
-	case POWER_SUPPLY_STATUS_DISCHARGING:
-		SPRDBAT_ONE_PERCENT_TIME = SPRDBAT_ONE_PERCENT_TIME_DISCHG;
-		if (fgu_capacity >= update_capacity) {
-			fgu_capacity = update_capacity;
-		} else {
-			if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
-				fgu_capacity =
-				    update_capacity - 1;
-				pr_info
-				    ("avoid jumping! fgu_capacity: = %d\n",
-				     fgu_capacity);
+			break;
+		case POWER_SUPPLY_STATUS_FULL:
+			sprdbat_update_capacity_time = cur_time.tv_sec;
+			if (fgu_capacity != 100) {
+				fgu_capacity = 100;
 			}
-			if ((update_capacity - fgu_capacity) >=
-			    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
-				fgu_capacity =
-				    update_capacity -
-				    flush_time / SPRDBAT_ONE_PERCENT_TIME;
-			}
+			break;
+		default:
+			break;
 		}
-
-		if (sprdfgu_read_vbat_vol() < bat_pdata->soft_vbat_uvlo) {
-			pr_info("soft uvlo vol 0...\n");
-			/* avoid soc jumping, under 3.05v */
-			fgu_capacity = 0;
-			if (period_time <= SPRDBAT_AVOID_JUMPING_TEMI) {
-				fgu_capacity =
-				    update_capacity - 1;
-				pr_info
-				    ("avoid jumping! fgu_capacity: = %d\n",
-				     fgu_capacity);
-			}
-			if ((update_capacity - fgu_capacity) >=
-			    (flush_time / SPRDBAT_ONE_PERCENT_TIME)) {
-				fgu_capacity =
-				    update_capacity -
-				    flush_time / SPRDBAT_ONE_PERCENT_TIME;
-			}
-			if (fgu_capacity != update_capacity) {
-				update_capacity = fgu_capacity;
-				sprdbat_update_capacity_time = cur_time.tv_sec;
-			}
-			if (update_capacity < 0)
-				update_capacity = 0;
-
-			return update_capacity;
-		}
-
-		break;
-	case POWER_SUPPLY_STATUS_FULL:
-		sprdbat_update_capacity_time = cur_time.tv_sec;
-		if (fgu_capacity != 100) {
-			fgu_capacity = 100;
-		}
-		break;
-	default:
-		break;
 	}
 
 	if (fgu_capacity != update_capacity) {
@@ -319,6 +326,7 @@ bool sec_hal_fg_fuelalert_process(void *irq_data, bool is_fuel_alerted)
 {
 	return true;
 }
+
 bool sec_hal_fg_get_property(fuelgauge_variable_t * fg_var,
 			       enum power_supply_property psp,
 			       union power_supply_propval *val)
@@ -334,10 +342,10 @@ bool sec_hal_fg_get_property(fuelgauge_variable_t * fg_var,
 	/* Additional Voltage Information (mV) */
 	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
 		switch (val->intval) {
-		case SEC_BATTEY_VOLTAGE_AVERAGE:
+		case SEC_BATTERY_VOLTAGE_AVERAGE:
 			val->intval = sprdfgu_read_vbat_vol();
 			break;
-		case SEC_BATTEY_VOLTAGE_OCV:
+		case SEC_BATTERY_VOLTAGE_OCV:
 			val->intval = sprdfgu_read_vbat_ocv();
 			break;
 		}
@@ -350,7 +358,7 @@ bool sec_hal_fg_get_property(fuelgauge_variable_t * fg_var,
 
 	/* Average Current (mA) */
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
-		val->intval = sprdfgu_read_batcurrent();
+		val->intval = sprdfgu_read_current_avg();
 		break;
 
 	/* SOC (%) */
@@ -413,6 +421,18 @@ bool sec_hal_fg_set_property(fuelgauge_variable_t * fg_var,
 	/* Target Temperature */
 	case POWER_SUPPLY_PROP_TEMP_AMBIENT:
 		break;
+#if defined(CONFIG_FUELGAUGE_SPRD4SAMSUNG27X3)
+	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+	{
+		int fgu_capacity = sprdfgu_read_capacity();
+		if (fgu_capacity != val->intval) {
+			pr_info("Update Fuelgauge Cap(%d -> %d)\n",
+				fgu_capacity, val->intval);
+			sprdfgu_set_capacity(val->intval);
+		}
+		break;
+	}
+#endif
 	default:
 		return false;
 	}

@@ -37,6 +37,8 @@ void sprd_set_reboot_mode(const char *cmd)
 		sci_adi_raw_write(ANA_RST_STATUS, HWRST_STATUS_AUTODLOADER);
 	} else if (cmd && !strncmp(cmd, "iqmode", 6)) {
 		sci_adi_raw_write(ANA_RST_STATUS, HWRST_STATUS_IQMODE);
+	} else if (cmd && !strncmp(cmd, "sprdisk", 7)) {
+		sci_adi_raw_write(ANA_RST_STATUS, HWRST_STATUS_SPRDISK);
 	} else if(cmd){
 		sci_adi_raw_write(ANA_RST_STATUS, HWRST_STATUS_NORMAL);
 	}else{

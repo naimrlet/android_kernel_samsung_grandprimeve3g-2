@@ -193,6 +193,11 @@ typedef struct rndis_params
 	void			(*resp_avail)(void *v);
 	void			*v;
 	struct list_head	resp_queue;
+	spinlock_t		lock;
+	u32			host_rndis_major_ver;
+	u32			host_rndis_minor_ver;
+	u32			ul_max_xfer_size;
+	u32			dl_max_xfer_size;
 } rndis_params;
 
 /* RNDIS Message parser and other useless functions */

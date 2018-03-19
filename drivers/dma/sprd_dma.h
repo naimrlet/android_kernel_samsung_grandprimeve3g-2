@@ -18,6 +18,7 @@
 #define DMA_UID_SOFTWARE		0
 
 #define CHN_PRIORITY_OFFSET		12
+#define CHN_WAIT_BDONE			24
 #define CHN_PRIORITY_MASK		0x3
 #define LLIST_EN_OFFSET			4
 
@@ -38,6 +39,11 @@
 #define DEST_FRAG_STEP_OFFSET	16
 #define SRC_FRAG_STEP_OFFSET	0
 
+#define MASTER_CHN_OFFSET		0
+#define SLAVE_CHN_OFFSET		8
+#define START_MODE_OFFSET		16
+#define CHN_START_CHN			BIT(24)
+
 #define TRSF_STEP_MASK			0xffff
 #define FRAG_STEP_MASK			0xffff
 
@@ -51,15 +57,37 @@
 #define LLIST_END_MASK			0x1
 #define BLK_LEN_REC_H_MASKT		0x3
 #define FRG_LEN_MASK			0x1ffff
-
 #define BLK_LEN_MASK			0x1ffff
-#define TRSC_LEN_MASK			0xfffffff
+#define TRSC_LEN_MASK			0x1fffffff
+
+#define AON_DMA_GLB_PAUSE		BIT(16)
+#define AON_DMA_CHN_PAUSE		BIT(16)
+
+#ifdef CONFIG_AON_DMA_SPRD
+#define AON_DMA_GLB_PAUSE		BIT(16)
+#define AON_DMA_CHN_PAUSE		BIT(16)
+#endif
+
+#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+#define DMA_GLB_PAUSE			BIT(2)
+#define DMA_CHN_PAUSE			BIT(2)
+#else
+#define DMA_GLB_PAUSE			BIT(16)
+#define DMA_CHN_PAUSE			BIT(16)
+#endif
 
 typedef enum {
-	BYTE_WIDTH = 0x01,
+	BYTE_WIDTH = 0x0,
 	SHORT_WIDTH,
 	WORD_WIDTH,
 } dma_datawidth;
+
+typedef enum {
+	NONE_STEP = 0x0,
+	BYTE_STEP = 0x1,
+	SHORT_STEP = 0x2,
+	WORD_STEP = 0x4,
+} dma_step;
 
 typedef enum {
 	FRAG_REQ_MODE = 0x0,
@@ -85,12 +113,29 @@ typedef enum {
 } dma_pri_level;
 
 typedef enum {
+	DMA_WAIT_BDONE = 0,
+	DMA_DONOT_WAIT_BDONE,
+} dma_wait_bdone;
+
+typedef enum {
+	AP_DMA_ENABLE = 0x1,
+	AON_DMA_ENABLE = 0x2,
+	AGCP_DMA_ENABLE = 0x4,
+} dma_pwr_st;
+
+typedef enum {
 	SET_IRQ_TYPE = 0x0,
 	SET_WRAP_MODE,
 	SET_REQ_MODE,
 	SET_CHN_PRIO,
 	SET_INT_TYPE,
 } dma_cmd;
+
+enum group_idx{
+	DMA_CHN_GROUP_1 = 0,
+	DMA_CHN_GROUP_2,
+	MAX_CHN_GROUP
+};
 
 struct sprd_dma_glb_reg {
 	u32 pause;
@@ -103,6 +148,8 @@ struct sprd_dma_glb_reg {
 	u32 en_sts;
 	u32 debug_sts;
 	u32 arb_sel_sts;
+	u32 cfg_group1;		/*channel start channel config*/
+	u32 cfg_group2;
 };
 
 struct sprd_dma_cfg {
@@ -110,8 +157,8 @@ struct sprd_dma_cfg {
 	unsigned long link_cfg_p;
 	u32 dev_id;
 	dma_datawidth datawidth;
-	u32 src_addr;
-	u32 des_addr;
+	unsigned long src_addr;
+	unsigned long des_addr;
 	u32 fragmens_len;
 	u32 block_len;
 	u32 src_step;
@@ -126,7 +173,7 @@ struct sprd_dma_cfg {
 	u32 wrap_to;
 	u32 src_blk_step;
 	u32 dst_blk_step;
-	u32 linklist_ptr;
+	unsigned long linklist_ptr;
 	u32 is_end;
 };
 
@@ -140,6 +187,7 @@ enum dma_filter_param {
 	AP_FULL_DMA = 0x22,
 	AON_STANDARD_DMA = 0x33,
 	AON_FULL_DMA = 0x44,
+	AGCP_FULL_DMA = 0x55,
 	NUM_REQUEST_DMA = 0x100,
 };
 
@@ -155,7 +203,7 @@ enum dma_link_list {
 
 enum request_mode {
 	SOFTWARE_REQ,
-	HARDWARE_REQ,	
+	HARDWARE_REQ,
 };
 
 enum dma_flags {
@@ -166,7 +214,7 @@ enum dma_flags {
 
 enum config_type {
 	CONFIG_DESC,
-	CONFIG_LINKLIST,	
+	CONFIG_LINKLIST,
 };
 
 enum addr_type {

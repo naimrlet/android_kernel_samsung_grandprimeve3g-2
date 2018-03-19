@@ -1282,6 +1282,15 @@ static struct ctl_table vm_table[] = {
 	},
 
 #endif /* CONFIG_COMPACTION */
+#ifdef CONFIG_ZSWAP
+	{
+		.procname	= "zswap_compact",
+		.data		= &sysctl_zswap_compact,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_zswap_compaction_handler,
+	},
+#endif
 	{
 		.procname	= "min_free_kbytes",
 		.data		= &min_free_kbytes,
@@ -1483,6 +1492,22 @@ static struct ctl_table vm_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
 	},
+#ifdef CONFIG_MEM_PAGE_ORDER_TRACE
+	{
+		.procname	= "porder_trace",
+		.data		= &sysctl_mem_porder_trace,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_mem_porder_trace_handler,
+	},
+	{
+		.procname	= "app_order",
+		.data		= &page_order_trace,
+		.maxlen		= (MAX_ORDER * sizeof(int)),
+		.mode		= 0644,
+		.proc_handler	= proc_dointvec,
+	},
+#endif/*  CONFIG_MEM_PAGE_ORDER_TRACE */    
 	{ }
 };
 

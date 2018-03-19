@@ -32,16 +32,30 @@ enum {
 	L_SLEEP,      /* Light Sleep, WFI & DDR Self-refresh & MCU_SYS_SLEEP */
 	CORE_PD,	  /* Core power down & Lightsleep */
 	CLUSTER_PD,   /* Cluster power down & Lightsleep */
-#ifdef CONFIG_ARCH_SCX35LT8
 	TOP_PD,	      /* Top Power Down & Lightsleep */
-#endif
 };
+#define LITTLE_CORE_STATUS_MASK   0x000ffff0
+#define BIG_CORE_STATUS_MASK      0x0ffff000
 
+static int idx_max = 3;
 static int cpuidle_debug = 0;
-module_param_named(cpuidle_debug, cpuidle_debug, int, S_IRUGO | S_IWUSR);
+static int cpuidle_count;
+static volatile void *pmu_status;
 
+/* Cpuidle states debug, set a max state for every cpu can be enter */
+module_param_named(idx_max, idx_max, int, S_IRUGO | S_IWUSR);
+/* For cpuidle debug, set 1 to view every cpu idle states */
+module_param_named(cpuidle_debug, cpuidle_debug, int, S_IRUGO | S_IWUSR);
 extern void light_sleep_en(void);
 extern void light_sleep_dis(void);
+static int just_core_0_power_on(void)
+{
+	if ((sci_glb_read(REG_PMU_APB_PWR_STATUS0_DBG, LITTLE_CORE_STATUS_MASK) == 0x77700) &&
+			(sci_glb_read(REG_PMU_APB_PWR_STATUS3_DBG, BIG_CORE_STATUS_MASK) == 0x7777000))
+		return 1;
+	else
+		return 0;
+}
 /*
  * arm_enter_idle_state - Programs CPU to enter the specified state
  *
@@ -58,8 +72,10 @@ static int arm_enter_idle_state(struct cpuidle_device *dev,
 	int ret = 0;
 	struct timeval start_time, end_time;
 	long usec_elapsed;
-	if (cpuidle_debug) {
-		do_gettimeofday(&start_time);
+	do_gettimeofday(&start_time);
+	cpuidle_count++;
+	if (idx > idx_max) {
+		idx = idx_max;
 	}
 	switch (idx) {
 	case STANDBY:
@@ -80,33 +96,48 @@ static int arm_enter_idle_state(struct cpuidle_device *dev,
 	case CLUSTER_PD:
 		light_sleep_en();
 		cpu_pm_enter();
+#ifdef CONFIG_ARCH_SCX35L64
 		cpu_cluster_pm_enter();
+#endif
 		ret = cpu_suspend(idx);
+#ifdef CONFIG_ARCH_SCX35L64
 		cpu_cluster_pm_exit();
+#endif
 		cpu_pm_exit();
 		light_sleep_dis();
 		break;
-#ifdef CONFIG_ARCH_SCX35LT8
 	case TOP_PD:
 		light_sleep_en();
 		cpu_pm_enter();
-		cpu_cluster_pm_enter();
-		ret = cpu_suspend(idx);
-		cpu_cluster_pm_exit();
+		if (just_core_0_power_on()) {
+			cpu_cluster_pm_enter();
+			ret = cpu_suspend(idx);
+			cpu_cluster_pm_exit();
+		} else
+			ret = cpu_suspend(--idx);
 		cpu_pm_exit();
 		light_sleep_dis();
 		break;
-#endif
 	default:
 		cpu_do_idle();
 		WARN(1, "[CPUIDLE]: NO THIS IDLE LEVEL!!!");
 	}
+	if (cpuidle_count % 5000 == 0) {
+		do_gettimeofday(&end_time);
+		usec_elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000 +
+			(end_time.tv_usec - start_time.tv_usec);
+		pr_info("[CPUIDLE] Enter idle state: %d ,usec_elapsed = %ld \n",
+				idx, usec_elapsed);
+	 }
 	if (cpuidle_debug) {
 		do_gettimeofday(&end_time);
 		usec_elapsed = (end_time.tv_sec - start_time.tv_sec) * 1000000 +
 			(end_time.tv_usec - start_time.tv_usec);
 		pr_info("[CPUIDLE] Enter idle state: %d ,usec_elapsed = %ld \n",
 				idx, usec_elapsed);
+		if (cpuidle_count % 500 == 0) {
+			cpuidle_debug = 0;
+		}
 	}
 	return ret ? -1 : idx;
 }
@@ -153,7 +184,11 @@ int __init arm64_idle_sprd_init(void)
 	 */
 	drv->states[0].exit_latency = 1;
 	drv->states[0].target_residency = 1;
+#ifdef CONFIG_ARCH_SCX35LT8
+	drv->states[0].flags = CPUIDLE_FLAG_TIME_VALID;
+#else
 	drv->states[0].flags = CPUIDLE_FLAG_TIME_VALID | CPUIDLE_FLAG_TIMER_STOP;
+#endif
 	strncpy(drv->states[0].name, "ARM WFI", CPUIDLE_NAME_LEN);
 	strncpy(drv->states[0].desc, "ARM WFI", CPUIDLE_DESC_LEN);
 

@@ -26,7 +26,6 @@
 #include <asm/cputime.h>
 #include <asm/div64.h>
 #include <asm/uaccess.h>
-#include <linux/sysrq.h>
 #ifdef CONFIG_VM_EVENT_COUNTERS
 #include <../../../kernel/sched/sched.h>
 #include <linux/mm.h>
@@ -172,7 +171,9 @@ static unsigned long long each_time = 0;
  * */
 extern long simple_strtol(const char *cp, char **endp, unsigned int base);
 extern void dump_stack(void);
-
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+extern void iodebug_get_io_info_anr(void);
+#endif
 
 /*
  * Functions Start
@@ -657,8 +658,11 @@ static void print_usage(struct seq_file *p, void *v)
 {
 	unsigned long flags;
 	unsigned long i;
-        /*trigger sysrq when print usage for extra debug info*/
-        __handle_sysrq('w' , false);
+
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+	iodebug_get_io_info_anr();
+#endif
+
 	/*lock*/
 	spin_lock_irqsave(&usage_lock, flags);
 

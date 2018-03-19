@@ -15,6 +15,9 @@
 #define __SIPC_H
 
 #include <linux/poll.h>
+#ifdef CONFIG_SPRD_MAILBOX
+#include <soc/sprd/mailbox.h>
+#endif
 
 /* ****************************************************************** */
 /* SMSG interfaces */
@@ -27,7 +30,7 @@ enum {
 	SIPC_ID_WCN,		/* Wireless Connectivity */
 	SIPC_ID_GGE, 		/* Gsm Gprs Edge processor */
 	SIPC_ID_LTE, 		/* LTE processor */
-        SIPC_ID_PMIC,
+	SIPC_ID_PM_SYS,		/* Power management processor */
 	SIPC_ID_NR,		/* total processor number */
 };
 
@@ -63,6 +66,13 @@ enum {
 	SMSG_CH_DATA4,		/* 2G/3G wirleless data */
 	SMSG_CH_DATA5,		/* 2G/3G wirleless data */
 	SMSG_CH_DIAG,		/* pipe for debug log/dump */
+	SMSG_CH_PM_CTRL, 	/* power management control */
+	SMSG_CH_DUAL_SIM_PLUG,	/* dual sim plug channel */
+#ifdef CONFIG_ARCH_WHALE
+	SMSG_CH_PMSYS_DBG,	/* PM sys debug channel */
+#endif
+	SMSG_CH_DATA6,		/* 2G/3G wirleless data */
+	SMSG_CH_DATA7,		/* 2G/3G wirleless data */
 	SMSG_CH_NR,		/* total channel number */
 };
 
@@ -275,6 +285,10 @@ int sbuf_register_notifier(uint8_t dst, uint8_t channel, uint32_t bufid,
 struct sblock {
 	void		*addr;
 	uint32_t	length;
+#ifdef CONFIG_ZERO_COPY_SIPX
+        uint16_t        index;
+        uint16_t        offset;
+#endif
 };
 
 /**
@@ -413,6 +427,385 @@ int sblock_get_free_count(uint8_t dst, uint8_t channel);
 void sblock_put(uint8_t dst, uint8_t channel, struct sblock *blk);
 
 /* ****************************************************************** */
+
+/**
+ * seblock_create -- create seblock manager on a channel
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @txblocknum: tx block number
+ * @txblocksize: tx block size
+ * @txpoolsize: tx private pool size
+ * @rxblocknum: rx block number
+ * @rxblocksize: rx block size
+ * @txpoolsize: rx private pool size
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_create(uint8_t dst, uint8_t channel,
+		uint32_t txblocknum, uint32_t txblocksize,uint32_t txpoolsize,
+		uint32_t rxblocknum, uint32_t rxblocksize,uint32_t rxpoolsize);
+
+/**
+ * seblock_destroy -- destroy seblock manager on a channel
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ */
+int seblock_destroy(uint8_t dst, uint8_t channel);
+
+/**
+ * seblock_get  -- get a free sblock for sender
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: return a gotten sblock pointer
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_get(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * seblock_register_notifier -- register a callback that's called
+ * 		when a tx sblock is available or a rx block is received.
+ * 		non-blocked sblock_get or sblock_receive can be called.
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @handler: a callback handler
+ * @event: SBLOCK_NOTIFY_GET, SBLOCK_NOTIFY_RECV, or both
+ * @data: opaque data passed to the receiver
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_register_notifier(uint8_t dst, uint8_t channel,
+		void (*handler)(int event, void *data), void *data);
+
+/**
+ * seblock_send  -- send a sblock with smsg, it should be from seblock_get
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: the sblock to be sent
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_send(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * seblock_flush  -- trigger an smsg to notify that sblock has been sent
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_flush(uint8_t dst, uint8_t channel);
+
+/**
+ * seblock_receive  -- receive a sblock, it should be released after it's handled
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: return a received sblock pointer
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_receive(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * sblock_release  -- release a sblock from reveiver
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: 0 on success, <0 on failue
+ */
+int seblock_release(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * sblock_get_arrived_count  -- get the count of sblock(s) arrived at AP (sblock_send on CP)
+ *                              but not received (sblock_receive on AP).
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: >=0  the count of blocks
+ */
+int seblock_get_arrived_count(uint8_t dst, uint8_t channel);
+
+/**
+ * seblock_get_free_count  -- get the count of available sblock(s) resident in both
+ * public pool and private pool on AP.
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: >=0  the count of blocks
+ */
+int seblock_get_free_count(uint8_t dst, uint8_t channel);
+
+/**
+ * seblock_put  -- put a free sblock for sender
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: sblock pointer
+ * @return: void
+ */
+int seblock_put(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/* ****************************************************************** */
+
+/* ****************************************************************** */
+
+#define SIPX_ACK_BLK_LEN                (100)
+
+/**
+ * sipx_chan_create -- create a sipx channel
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_chan_create(uint8_t dst, uint8_t channel);
+
+/**
+ * sipx_chan_destroy -- destroy seblock manager on a channel
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ */
+int sipx_chan_destroy(uint8_t dst, uint8_t channel);
+
+/**
+ * sipx_get_ack_blk_len  -- get sipx ack block max length
+ *
+ * @dst: dest processor ID
+ * @return: length
+ */
+uint32_t sipx_get_ack_blk_len(uint8_t dst);
+
+/**
+ * sipx_get  -- get a free sblock for sender
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: return a gotten sblock pointer
+ * @is_ack: if want to get block for ack packet 
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_get(uint8_t dst, uint8_t channel, struct sblock *blk, int is_ack);
+
+/**
+ * sipx_chan_register_notifier -- register a callback that's called
+ * 		when a tx sblock is available or a rx block is received.
+ * 		non-blocked sblock_get or sblock_receive can be called.
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @handler: a callback handler
+ * @event: SBLOCK_NOTIFY_GET, SBLOCK_NOTIFY_RECV, or both
+ * @data: opaque data passed to the receiver
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_chan_register_notifier(uint8_t dst, uint8_t channel,
+		void (*handler)(int event, void *data), void *data);
+
+/**
+ * sipx_send  -- send a sblock with smsg, it should be from seblock_get
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: the sblock to be sent
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_send(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * sipx_flush  -- trigger an smsg to notify that sblock has been sent
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_flush(uint8_t dst, uint8_t channel);
+
+/**
+ * sipx_receive  -- receive a sblock, it should be released after it's handled
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: return a received sblock pointer
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_receive(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * sipx_release  -- release a sblock from reveiver
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: 0 on success, <0 on failue
+ */
+int sipx_release(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/**
+ * sipx_get_arrived_count  -- get the count of sblock(s) arrived at AP (sblock_send on CP)
+ *                              but not received (sblock_receive on AP).
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: >=0  the count of blocks
+ */
+int sipx_get_arrived_count(uint8_t dst, uint8_t channel);
+
+/**
+ * sipx_get_free_count  -- get the count of available sblock(s) resident in 
+ * normal pool on AP.
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @return: >=0  the count of blocks
+ */
+int sipx_get_free_count(uint8_t dst, uint8_t channel);
+
+/**
+ * sipx_put  -- put a free sblock for sender
+ *
+ * @dst: dest processor ID
+ * @channel: channel ID
+ * @blk: sblock pointer
+ * @return: void
+ */
+int sipx_put(uint8_t dst, uint8_t channel, struct sblock *blk);
+
+/* ****************************************************************** */
+
+#ifdef CONFIG_ZERO_COPY_SIPX
+
+#define SBLOCK_CREATE(dst, channel,\
+                txblocknum, txblocksize,txpoolsize, \
+                rxblocknum, rxblocksize,rxpoolsize)  \
+        sipx_chan_create(dst, channel)
+
+
+#define SBLOCK_DESTROY(dst, channel) \
+        sipx_chan_destroy(dst, channel)
+
+#define SBLOCK_GET(dst, channel, blk, ack, timeout) \
+        sipx_get(dst, channel, blk, ack)
+
+#define SBLOCK_REGISTER_NOTIFIER(dst, channel, handler, data) \
+        sipx_chan_register_notifier(dst, channel, handler, data)
+
+#define SBLOCK_SEND(dst, channel, blk) \
+        sipx_send(dst, channel, blk)
+
+#define SBLOCK_SEND_PREPARE(dst, channel, blk) \
+        sipx_send(dst, channel, blk)
+
+#define SBLOCK_SEND_FINISH(dst, channel)\
+        sipx_flush(dst, channel)
+
+#define SBLOCK_RECEIVE(dst, channel, blk, timeout) \
+        sipx_receive(dst, channel, blk)
+
+#define SBLOCK_RELEASE(dst, channel, blk) \
+        sipx_release(dst, channel, blk)
+
+#define SBLOCK_GET_ARRIVED_COUNT(dst, channel) \
+        sipx_get_arrived_count(dst, channel)
+
+#define SBLOCK_GET_FREE_COUNT(dst, channel) \
+        sipx_get_free_count(dst, channel)
+
+#define SBLOCK_PUT(dst, channel, blk) \
+        sipx_put(dst, channel, blk)
+
+
+#else /* CONFIG_ZERO_COPY_SIPX */
+
+#ifdef CONFIG_SBLOCK_SHARE_BLOCKS
+
+#define SBLOCK_CREATE(dst, channel,\
+                txblocknum, txblocksize,txpoolsize, \
+                rxblocknum, rxblocksize,rxpoolsize)  \
+        seblock_create(dst, channel,\
+		txblocknum, txblocksize,txpoolsize,\
+		rxblocknum, rxblocksize,rxpoolsize)
+
+
+#define SBLOCK_DESTROY(dst, channel) \
+        seblock_destroy(dst, channel)
+
+#define SBLOCK_GET(dst, channel, blk, ack, timeout) \
+        seblock_get(dst, channel, blk)
+
+#define SBLOCK_REGISTER_NOTIFIER(dst, channel, handler, data) \
+        seblock_register_notifier(dst, channel, handler, data)
+
+#define SBLOCK_SEND(dst, channel, blk) \
+        seblock_send(dst, channel, blk)
+
+#define SBLOCK_SEND_PREPARE(dst, channel, blk) \
+        seblock_send(dst, channel, blk)
+
+#define SBLOCK_SEND_FINISH(dst, channel)\
+        seblock_flush(dst, channel)
+
+#define SBLOCK_RECEIVE(dst, channel, blk, timeout) \
+        seblock_receive(dst, channel, blk)
+
+#define SBLOCK_RELEASE(dst, channel, blk) \
+        seblock_release(dst, channel, blk)
+
+#define SBLOCK_GET_ARRIVED_COUNT(dst, channel) \
+        seblock_get_arrived_count(dst, channel)
+
+#define SBLOCK_GET_FREE_COUNT(dst, channel) \
+        seblock_get_free_count(dst, channel)
+
+#define SBLOCK_PUT(dst, channel, blk) \
+        seblock_put(dst, channel, blk)
+
+#else /* CONFIG_SBLOCK_SHARE_BLOCKS */
+
+#define SBLOCK_CREATE(dst, channel,\
+                txblocknum, txblocksize,txpoolsize, \
+                rxblocknum, rxblocksize,rxpoolsize)  \
+        sblock_create(dst, channel,\
+		txblocknum, txblocksize,\
+		rxblocknum, rxblocksize)
+
+#define SBLOCK_DESTROY(dst, channel) \
+        sblock_destroy(dst, channel)
+
+#define SBLOCK_GET(dst, channel, blk, ack, timeout) \
+        sblock_get(dst, channel, blk, timeout)
+
+#define SBLOCK_REGISTER_NOTIFIER(dst, channel, handler, data) \
+                sblock_register_notifier(dst, channel, handler, data)
+
+#define SBLOCK_SEND(dst, channel, blk) \
+        sblock_send(dst, channel, blk)
+
+#define SBLOCK_SEND_PREPARE(dst, channel, blk) \
+        sblock_send_prepare(dst, channel, blk)
+
+#define SBLOCK_SEND_FINISH(dst, channel)\
+        sblock_send_finish(dst, channel)
+
+#define SBLOCK_RECEIVE(dst, channel, blk, timeout) \
+        sblock_receive(dst, channel, blk, timeout)
+
+#define SBLOCK_RELEASE(dst, channel, blk) \
+        sblock_release(dst, channel, blk)
+
+#define SBLOCK_GET_ARRIVED_COUNT(dst, channel) \
+        sblock_get_arrived_count(dst, channel)
+
+#define SBLOCK_GET_FREE_COUNT(dst, channel) \
+        sblock_get_free_count(dst, channel)
+
+#define SBLOCK_PUT(dst, channel, blk) \
+        sblock_put(dst, channel, blk)
+
+#endif /* CONFIG_SBLOCK_SHARE_BLOCKS */
+
+#endif /* CONFIG_ZERO_COPY_SIPX */
+
 /* TODO: SRPC interfaces */
 
 enum {
@@ -468,6 +861,21 @@ static inline void *unalign_memcpy(void *to, const void *from, size_t n)
 			n--;
 		}
 		memcpy(to, from, n);
+	} else if (((unsigned long)to & 3) == ((unsigned long)from & 3)) {
+                while (((unsigned long)from & 3) && n) {
+			*(char *)(to++) = *(char*)(from++);
+			n--;
+		}
+                while (n >= 4) {
+			*(uint32_t *)(to) = *(uint32_t *)(from);
+                        to += 4;
+                        from += 4;
+			n -= 4;
+		}
+		while (n) {
+			*(char *)(to++) = *(char*)(from++);
+			n--;
+		}
 	} else {
 		while (n) {
 			*(char *)(to++) = *(char*)(from++);

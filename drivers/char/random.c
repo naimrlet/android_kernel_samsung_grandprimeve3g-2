@@ -283,7 +283,7 @@
  * The minimum number of bits of entropy before we wake up a read on
  * /dev/random.  Should be enough to do a significant reseed.
  */
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 static int random_read_wakeup_thresh = 256;
 #else
 static int random_read_wakeup_thresh = 64;
@@ -293,10 +293,10 @@ static int random_read_wakeup_thresh = 64;
  * should wake up processes which are selecting or polling on write
  * access to /dev/random.
  */
-#ifdef CONFIG_CRYPTO_FIPS
+#if defined(CONFIG_CRYPTO_FIPS) && !defined(CONFIG_FORCE_DISABLE_FIPS)
 static int random_write_wakeup_thresh = 320;
 #else
-static int random_write_wakeup_thresh = 28 * OUTPUT_POOL_WORDS;
+static int random_write_wakeup_thresh = 128;
 #endif
 
 /*

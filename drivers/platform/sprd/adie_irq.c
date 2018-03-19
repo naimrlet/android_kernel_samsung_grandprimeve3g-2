@@ -36,21 +36,20 @@
 //#include <mach/irqs.h>
 
 /* registers definitions for controller ANA_CTL_INT */
-#define ANA_REG_INT_MASK_STATUS         (ANA_CTL_INT_BASE + 0x0000)
-#define ANA_REG_INT_RAW_STATUS          (ANA_CTL_INT_BASE + 0x0004)
-#define ANA_REG_INT_EN                  (ANA_CTL_INT_BASE + 0x0008)
-#define ANA_REG_INT_MASK_STATUS_SYNC    (ANA_CTL_INT_BASE + 0x000c)
+#define ANA_REG_INT_MASK_STATUS         (ANA_INTC_BASE + 0x0000)
+#define ANA_REG_INT_RAW_STATUS          (ANA_INTC_BASE + 0x0004)
+#define ANA_REG_INT_EN                  (ANA_INTC_BASE + 0x0008)
+#define ANA_REG_INT_MASK_STATUS_SYNC    (ANA_INTC_BASE + 0x000c)
 
 /* bits definitions for register REG_INT_MASK_STATUS */
-#if defined(CONFIG_ARCH_SC8825)
-/* vars definitions for controller ANA_CTL_INT */
-#define MASK_ANA_INT                    ( 0xFF )
-#elif defined(CONFIG_ARCH_SCX15)
-/* vars definitions for controller ANA_CTL_INT */
-#define MASK_ANA_INT                    ( 0x3FF )
-#elif defined(CONFIG_ARCH_SCX35)
+/*using PMIC MACRO to switch PMIC code*/
+#if defined(CONFIG_ADIE_SC2713) || defined(CONFIG_ADIE_SC2713S)\
+	|| defined(CONFIG_ADIE_SC2723) || defined(CONFIG_ADIE_SC2723S)
 /* vars definitions for controller ANA_CTL_INT */
 #define MASK_ANA_INT                    ( 0x7FF )
+#elif defined(CONFIG_ADIE_SC2731)
+/* vars definitions for controller ANA_CTL_INT */
+#define MASK_ANA_INT                    ( 0xFFFF )
 #else
 #error "pls define interrupt number mask value"
 #endif

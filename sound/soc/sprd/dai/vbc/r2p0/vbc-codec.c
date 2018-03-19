@@ -28,6 +28,7 @@
 #include <linux/firmware.h>
 #include <linux/workqueue.h>
 #include <linux/io.h>
+#include <linux/wakelock.h>
 #include <sound/core.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
@@ -39,6 +40,7 @@
 
 #define FUN_REG(f) ((unsigned short)(-((f) + 1)))
 #define SOC_REG(r) ((unsigned short)(r))
+#define VBC_EQ_IDX_FM 10
 
 struct vbc_fw_header {
 	char magic[VBC_EQ_FIRMWARE_MAGIC_LEN];
@@ -347,6 +349,173 @@ static const u32 vbc_ad_eq_profile_default[VBC_AD_EFFECT_PARAS_LEN] = {
 	0x00000000,
 };
 
+static const u32 vbc_da_eq_profile_default_fm[VBC_DA_EFFECT_PARAS_LEN] = {
+	0x00000000,
+	0x00000d7f,
+	0x000001e0,
+	0x00002000,
+	0x000004fe,
+	0x00000000,
+	0xffffffe2,
+	0x0000671e,
+	0x0000028c,
+	0x00000010,
+	0x000004dd,
+	0x00000000,
+	0x00000062,
+	0x00000183,
+	0x00000183,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00002702,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0xfffff986,
+	0x00000000,
+	0x0000336c,
+	0x00000000,
+	0xffffdff5,
+	0x00000000,
+	0x00000888,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00003e8c,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0xffff82eb,
+	0x00000000,
+	0x00007d15,
+	0x00000000,
+	0x00003e8a,
+	0x00000000,
+	0xffffc2e9,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00003e68,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0xffff8369,
+	0x00000000,
+	0x00007c97,
+	0x00000000,
+	0x00003e32,
+	0x00000000,
+	0xffffc365,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00003d48,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0xffff96f4,
+	0x00000000,
+	0x0000690c,
+	0x00000000,
+	0x0000302a,
+	0x00000000,
+	0xffffd28d,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x0000140d,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00004000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00000000,
+	0x00001000,
+	0x00000000
+};
+
 struct vbc_equ {
 	struct device *dev;
 	struct snd_soc_codec *codec;
@@ -439,6 +608,7 @@ struct vbc_codec_priv {
 	struct snd_soc_codec *codec;
 	struct vbc_equ vbc_eq_setting;
 	struct mutex load_mutex;
+	struct wake_lock wake_lock;
 	int vbc_control;
 	int vbc_loop_switch[SPRD_VBC_SWITCH_IDX(VBC_LOOP_SWITCH_MAX)];
 	struct vbc_dg dg[VBC_IDX_MAX];
@@ -1057,10 +1227,11 @@ static int sprd_vbc_mux_put(struct snd_kcontrol *kcontrol,
 	unsigned int mask = (1 << fls(max)) - 1;
 	struct sprd_vbc_mux_op *mux = &(vbc_codec->sprd_vbc_mux[reg]);
 	int ret = 0;
-
-	if (mux->val == ucontrol->value.enumerated.item[0])
-		return 0;
-
+	if (reg != SPRD_VBC_DFM_DA0_ADDFM_INMUX &&
+		reg != SPRD_VBC_DFM_DA1_ADDFM_INMUX) {
+		if (mux->val == ucontrol->value.enumerated.item[0])
+			return 0;
+	}
 	sp_asoc_pr_info("Set MUX[%s] to %d\n", vbc_mux_debug_str[reg],
 			ucontrol->value.enumerated.item[0]);
 
@@ -1579,8 +1750,15 @@ static void vbc_eq_reg_apply(struct snd_soc_codec *codec, void *data,
 	u32 reg;
 	void *effect_paras;
 	int val;
+
+	sp_asoc_pr_info("%s vbc_idx=%d,\n", __func__, vbc_idx);
+
 	if (vbc_idx == VBC_PLAYBACK) {
 		val = ((u32 *) data)[vbc_da_eq_reg_offset(DAHPCTL)];
+
+		sp_asoc_pr_info("%s EQ6_EN=%d,VBDAC_ALC_EN=%d\n",
+			__func__, (val & VBDAC_EQ6_EN), (val & VBDAC_ALC_EN));
+
 		/*DA EQ6 set */
 		/*s6-s0 clear */
 		for (reg = HPCOEF42_H; reg >= HPCOEF0_H; reg -= 0x38) {
@@ -1746,10 +1924,15 @@ static void vbc_eq_try_apply(struct snd_soc_codec *codec, int vbc_idx)
 	struct vbc_equ *p_eq_setting = &vbc_codec->vbc_eq_setting;
 	u32 *data;
 
-	sp_asoc_pr_dbg("%s 0x%x\n", __func__, (int)p_eq_setting->vbc_eq_apply);
+	sp_asoc_pr_info("%s 0x%x\n", __func__, (int)p_eq_setting->vbc_eq_apply);
 	if (p_eq_setting->vbc_eq_apply) {
 		mutex_lock(&vbc_codec->load_mutex);
 		if (vbc_idx < SPRD_VBC_PLAYBACK_COUNT) {
+			if (p_eq_setting->now_profile[vbc_idx] == VBC_EQ_IDX_FM) {
+				data = vbc_da_eq_profile_default_fm;
+				sp_asoc_pr_info("VBC %s EQ Apply '%s'\n",
+						vbc_get_name(vbc_idx), "FM EQ!");
+			} else {
 			struct vbc_da_eq_profile *now =
 			    &(((struct vbc_da_eq_profile
 				*)(p_eq_setting->data[VBC_PLAYBACK]))
@@ -1757,6 +1940,7 @@ static void vbc_eq_try_apply(struct snd_soc_codec *codec, int vbc_idx)
 			data = now->effect_paras;
 			sp_asoc_pr_info("VBC %s EQ Apply '%s'\n",
 					vbc_get_name(vbc_idx), now->name);
+			}
 		} else {
 			struct vbc_ad_eq_profile *now =
 			    &(((struct vbc_ad_eq_profile
@@ -1809,6 +1993,8 @@ static int vbc_eq_profile_put(struct snd_kcontrol *kcontrol,
 
 	if (ret < profile_max) {
 		p_eq_setting->now_profile[vbc_idx] = ret;
+	} else if (vbc_idx == VBC_PLAYBACK && ret == VBC_EQ_IDX_FM) {
+		p_eq_setting->now_profile[vbc_idx] = ret;
 	}
 
 	if (p_eq_setting->is_active[vbc_idx]
@@ -1837,13 +2023,16 @@ static int vbc_eq_loading(struct snd_soc_codec *codec)
 	sp_asoc_pr_dbg("%s\n", __func__);
 	mutex_lock(&vbc_codec->load_mutex);
 	p_eq_setting->is_loading = 1;
-
+	/* get wake lock avoid suspend */
+	wake_lock(&vbc_codec->wake_lock);
 	/* request firmware for VBC EQ */
 	ret = request_firmware(&fw, "vbc_eq", p_eq_setting->dev);
 	if (ret != 0) {
 		pr_err("ERR:Failed to load firmware: %d\n", ret);
+		wake_unlock(&vbc_codec->wake_lock);
 		goto req_fw_err;
 	}
+	wake_unlock(&vbc_codec->wake_lock);
 	fw_data = fw->data;
     old_num_profile = p_eq_setting->hdr.num_profile;
     if (fw_data == NULL) {
@@ -2356,6 +2545,13 @@ static int dac_iismux_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+int vbc_close_fm_dggain(void)
+{
+	vbc_da0_addfm_set(0);
+	vbc_da1_addfm_set(0);
+	vbc_reg_update(ADDG01CTL, 0x7F7F, 0x7F7F); // cut down the dggain of fm input
+}
+
 static int vbc_switch_reg_val[] = {
 	AUDIO_TO_CP0_DSP_CTRL,
 	AUDIO_TO_CP1_DSP_CTRL,
@@ -2576,6 +2772,7 @@ static int sprd_vbc_codec_probe(struct platform_device *pdev)
 	vbc_codec->dg[2].dg_set[0] = vbc_ad2_dg_set;
 	vbc_codec->dg[2].dg_set[1] = vbc_ad3_dg_set;
 	mutex_init(&vbc_codec->load_mutex);
+	wake_lock_init(&vbc_codec->wake_lock, WAKE_LOCK_SUSPEND, "vbc-eq-loading");
 
 	return ret;
 }
@@ -2583,6 +2780,7 @@ static int sprd_vbc_codec_probe(struct platform_device *pdev)
 static int sprd_vbc_codec_remove(struct platform_device *pdev)
 {
 	struct vbc_codec_priv *vbc_codec = platform_get_drvdata(pdev);
+	wake_lock_destroy(&vbc_codec->wake_lock);
 	vbc_codec->vbc_eq_setting.dev = 0;
 
 	snd_soc_unregister_codec(&pdev->dev);

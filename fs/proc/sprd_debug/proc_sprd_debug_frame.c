@@ -71,6 +71,9 @@ extern struct file_operations userstack_info_proc_fops;
 extern struct file_operations proc_cpu_usage_fops;
 #endif
 
+#ifdef CONFIG_SPRD_EIRQSOFF_DEBUG
+extern const struct file_operations eirqsoff_interval_fops;
+#endif
 static struct sprd_debug_entry sprd_debug_array[] = {
 #ifdef CONFIG_SPRD_DEBUG_PHYMEM_INFO
 	NOD(MEM,   "phymemdist", 0, &phymem_dist_proc_fops),
@@ -93,6 +96,9 @@ static struct sprd_debug_entry sprd_debug_array[] = {
 
 #ifdef CONFIG_SPRD_DEBUG_CPU_RATE
 	NOD(CPU,    "cpu_usage", 0444, &proc_cpu_usage_fops),
+#endif
+#ifdef CONFIG_SPRD_EIRQSOFF_DEBUG
+	NOD(IRQ,    "warning_interval", 0, &eirqsoff_interval_fops),
 #endif
 };
 

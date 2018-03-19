@@ -165,16 +165,17 @@
 #define DCAM_PATH_FRAME_HEIGHT_MAX                     4092
 #define DCAM_CAP_X_DECI_FAC_MAX                        4 // cap deci: 0 - 1/8
 #define DCAM_CAP_Y_DECI_FAC_MAX                        4 // cap deci: 0 - 1/8
-#define DCAM_PATH_FRAME_ROT_MAX			               4
+#define DCAM_PATH_FRAME_ROT_MAX			       4
 #define DCAM_JPG_BUF_UNIT                              (1 << 15)
 #define DCAM_JPG_UNITS                                 (1 << 10)
 #define DCAM_SC_COEFF_UP_MAX                           4 // path scaling: 1/8 - 4
+#define DCAM_SC_COEFF_UP_CAPTURE_MODE_MAX              2
 #define DCAM_SC_COEFF_DOWN_MAX                         7 // path scaling: 1/8 - 4
 #define DCAM_PATH_DECI_FAC_MAX                         4 // path deci: 1/2 - 1/16
 #define DCAM_PATH1_LINE_BUF_LENGTH                     2048
 #define DCAM_PATH2_LINE_BUF_LENGTH                     4096
 #define DCAM_ISP_LINE_BUF_LENGTH                       3280
-#define DCAM_SCALING_THRESHOLD                         2600
+#define DCAM_SCALING_THRESHOLD                         2300
 #define DCAM_IRQ                                       IRQ_DCAM_INT
 
 #define DCAM_PIXEL_ALIGN_WIDTH                         4

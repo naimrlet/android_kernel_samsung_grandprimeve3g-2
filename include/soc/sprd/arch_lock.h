@@ -31,8 +31,11 @@
 #define HWLOCK_AGPIO				(2)
 #define HWLOCK_AEIC					(3)
 #define HWLOCK_ADC					(4)
+#if defined CONFIG_ARCH_SCX35LT8
+#define HWLOCK_DVFS					(5)
+#endif
 #define HWLOCK_EFUSE				(8)
-
+#define HWLOCK_AVS				(9)
 /* untoken lock value */
 #define HWSPINLOCK_NOTTAKEN_V1		(0x55aa10c5)
 #define HWSPINLOCK_NOTTAKEN_V0		(0x524c534c)
@@ -64,7 +67,9 @@ static void early_fast_hwlock_init(unsigned int lock_id)
 	static int early_hwlock_init = 0;
 
 	if (early_hwlock_init == 0){
+#ifndef CONFIG_ARCH_WHALE
 		writel_relaxed(BIT_SPINLOCK_EB, (void __iomem *)(REG_GLB_SET(REG_AP_AHB_AHB_EB)));
+#endif
 		writel_relaxed(BIT_SPLK_EB, (void __iomem *)(REG_GLB_SET(REG_AON_APB_APB_EB0)));
 	}
 
@@ -159,8 +164,8 @@ static void __arch_default_lock(unsigned int lock_id, unsigned long *flags)
 /* for the hwspinlock not in the bitfile */
 #else
 	if (hwlocks[lock_id])
-		WARN_ON(IS_ERR_VALUE
-			(hwspin_lock_timeout_irqsave(hwlocks[lock_id], -1, flags)));
+		BUG_ON(IS_ERR_VALUE
+			(hwspin_lock_timeout_irqsave(hwlocks[lock_id], 3000, flags)));
 	else
 		arch_hwlock_fast(lock_id);
 #endif

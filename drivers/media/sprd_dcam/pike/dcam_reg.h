@@ -164,6 +164,7 @@
 #define DCAM_JPG_BUF_UNIT                              (1 << 15)
 #define DCAM_JPG_UNITS                                 (1 << 10)
 #define DCAM_SC_COEFF_UP_MAX                           4 // path scaling: 1/8 - 4
+#define DCAM_SC_COEFF_UP_CAPTURE_MODE_MAX              2
 #define DCAM_SC_COEFF_DOWN_MAX                         7 // path scaling: 1/8 - 4
 #define DCAM_PATH_DECI_FAC_MAX                         4 // path deci: 1/2 - 1/16
 #define DCAM_PATH1_LINE_BUF_LENGTH                     1296

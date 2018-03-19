@@ -336,6 +336,12 @@ config KSM_ASSEMBLY_MEMCMP
 	help
 	  Using memcmp function this uses NEON only for KSM
 
+config ADAPTIVE_KSM
+	bool "Enable Adaptive KSM"
+	depends on KSM
+	help
+	  Enable Adaptive KSM
+
 config DEFAULT_MMAP_MIN_ADDR
         int "Low address space to protect from user allocation"
 	depends on MMU
@@ -528,6 +534,19 @@ config ZSWAP
 	  they have not be fully explored on the large set of potential
 	  configurations and workloads that exist.
 
+config ZSWAP_SAME_PAGE_SHARING
+	bool "Enable same page sharing support in zswap"
+	depends on ZSWAP
+	default n
+	help
+	This option adds a feature to share the compressed pages 
+	written to zswap if the pages are found to be same. 
+
+config ZSWAP_COMPACTION
+	bool "Enable runtime zswap compaction"
+	depends on ZSWAP && ZPOOL && ZSMALLOC
+	default n
+
 config ZPOOL
 	tristate "Common API for compressed memory storage"
 	default n
@@ -559,6 +578,16 @@ config PGTABLE_MAPPING
 
 	  You can check speed with zsmalloc benchmark[1].
 	  [1] https://github.com/spartacus06/zsmalloc
+
+config ZSMALLOC_STAT
+	bool "Export zsmalloc statistics"
+	depends on ZSMALLOC
+	select DEBUG_FS
+	help
+	  This option enables code in the zsmalloc to collect various
+	  statistics about whats happening in zsmalloc and exports that
+	  information to userspace via debugfs.
+	  If unsure, say N.
 
 config DIRECT_RECLAIM_FILE_PAGES_ONLY
 	bool "Reclaim file pages only on direct reclaim path"
@@ -593,12 +622,19 @@ config SWAP_ENABLE_READAHEAD
 config BALANCE_ANON_FILE_RECLAIM
 	bool "During reclaim treat anon and file backed pages equally"
 	depends on SWAP
-	default n
 	help
 	  When performing memory reclaim treat anonymous and file backed pages
 	  equally.
 	  Swapping anonymous pages out to memory can be efficient enough to justify
 	  treating anonymous and file backed pages equally.
+
+config MMAP_READAROUND_LIMIT
+	int "Limit mmap readaround upperbound"
+	default 0
+	help
+	  Inappropriate mmap readaround size can hurt device performance
+	  during the sluggish situation. Add the hard upper-limit for
+	  mmap readaround.
 
 config GENERIC_EARLY_IOREMAP
 	bool
@@ -626,3 +662,10 @@ config CMA_DEBUG
 	  messages for every CMA call as well as various messages while
 	  processing calls such as dma_alloc_from_contiguous().
 	  This option does not affect warning and error messages.
+
+config MEM_PAGE_ORDER_TRACE
+	bool "Tracing page order requests"
+	depends on MMU
+	default n
+	help
+	  track the number of pages requests for each order.

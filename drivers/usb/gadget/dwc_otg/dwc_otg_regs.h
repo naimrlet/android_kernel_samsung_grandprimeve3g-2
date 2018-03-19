@@ -1820,6 +1820,8 @@ typedef struct dwc_otg_dev_if {
 	 * Pointers to the DMA Descriptors for EP0 Control
 	 * transfers (virtual and physical)
 	 */
+	dwc_dma_t ep0_dma_desc_pool;
+	dwc_otg_dev_dma_desc_t *ep0_desc_pool;
 
 	/** 2 descriptors for SETUP packets */
 	dwc_dma_t dma_setup_desc_addr[2];

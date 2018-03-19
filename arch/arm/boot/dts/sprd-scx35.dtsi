@@ -279,17 +279,14 @@
 	usb: usb@f5116000 {
 		compatible  = "sprd,usb";
 		interrupts = <0 55 0x0>;
-		ngpios = <3>;
-		gpios = <&a_eic_gpio 0 0>,<&d_gpio_gpio 72 0>,<&d_gpio_gpio 152 0>;
+		vbus-gpios = <&a_eic_gpio 0 0>;
+		id-gpios = <&d_gpio_gpio 72 0>;
+		boost-gpios = <&d_gpio_gpio 152 0>;
 		reg = <0xf5116000 0x1000>;
 		usb-supply = <&vddusb>;
+		phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
-	};
-
-	usb_notifier {
-		compatible = "samsung,usb-notifier";
-		booster-name = "sm5701_booster";
 	};
 
 	sprd_thermal {
@@ -354,9 +351,8 @@
 		compatible = "sprd,sprd_vsp";
 		reg = <0Xf5300000 0xc000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-		clocks = <&clk_mm>, <&clk_vsp>, <&clk_256m>, <&clk_192m>, <&clk_128m>, <&clk_76m8>;
-		clock-parent-info = <2 4>;
+		clock-names = "clk_mm_i", "clk_vsp";
+		clocks = <&clk_mm>, <&clk_vsp>;
 		version = <0>;
 	};
 

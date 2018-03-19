@@ -63,7 +63,7 @@
 
 extern int in_calibration(void);
 extern int in_autotest(void);
-extern void usb_phy_ahb_rst(void);
+extern void sprd_usb_phy_rst(void);
 static int dwc_otg_setup_params(dwc_otg_core_if_t * core_if);
 
 /**
@@ -1686,6 +1686,11 @@ void dwc_otg_core_dev_init(dwc_otg_core_if_t * core_if)
 	gotgctl.b.bvalidovval = 1;
 	DWC_WRITE_REG32(&global_regs->gotgctl, gotgctl.d32);
 
+	gotgctl.d32 = DWC_READ_REG32(&global_regs->gotgctl);
+	gotgctl.b.bvalidoven = 1;
+	gotgctl.b.bvalidovval = 1;
+	DWC_WRITE_REG32(&global_regs->gotgctl, gotgctl.d32);
+
 	/* Configure data FIFO sizes */
 	if (core_if->hwcfg2.b.dynamic_fifo && params->enable_dynamic_fifo) {
 		DWC_DEBUGPL(DBG_CIL, "Total FIFO Size=%d\n",
@@ -1974,7 +1979,7 @@ void dwc_otg_core_dev_init(dwc_otg_core_if_t * core_if)
 		static uint32_t first_entrance = 1;
 		dctl_data_t dctl = {.d32 = 0 };
 		dctl.d32 = DWC_READ_REG32(&dev_if->dev_global_regs->dctl);
-		if(in_calibration() && first_entrance){
+		if(first_entrance){
 			first_entrance = 0;
 			dctl.b.sftdiscon = 1;
 		}else
@@ -2668,6 +2673,46 @@ void ep_xfer_timeout(void *ptr)
 	}
 	DWC_WRITE_REG32(&xfer_info->core_if->dev_if->dev_global_regs->dctl,
 			dctl.d32);
+
+}
+
+void epin_xfer_timeout(void *ptr)
+{
+	ep_xfer_info_t *xfer_info = NULL;
+	depctl_data_t depctl;
+	deptsiz_data_t	deptsiz;
+	dwc_otg_dev_in_ep_regs_t *in_regs;
+
+	if (ptr)
+		xfer_info = (ep_xfer_info_t *) ptr;
+
+	if (!xfer_info->ep) {
+		DWC_ERROR("xfer_info->ep = %p\n", xfer_info->ep);
+		return;
+	}
+
+	in_regs = xfer_info->core_if->dev_if->in_ep_regs[xfer_info->ep->num];
+
+	/* Put the sate to 2 as it was time outed */
+	xfer_info->state = 2;
+
+	deptsiz.d32 =
+	    DWC_READ_REG32(&(in_regs->dieptsiz));
+	depctl.d32 =
+	    DWC_READ_REG32(&(in_regs->diepctl));
+	if (depctl.b.epena && deptsiz.b.xfersize) {
+		depctl.b.epena = 0;
+		depctl.b.epdis = 1;
+		depctl.b.snak = 1;
+		depctl.b.cnak = 0;
+		DWC_WRITE_REG32(&in_regs->diepctl, depctl.d32);
+		depctl.b.epena = 1;
+		depctl.b.epdis = 0;
+		depctl.b.snak = 0;
+		depctl.b.cnak = 1;
+		DWC_WRITE_REG32(&in_regs->diepctl, depctl.d32);
+
+	}
 
 }
 
@@ -3659,6 +3704,23 @@ static int32_t write_isoc_tx_fifo(dwc_otg_core_if_t * core_if, dwc_ep_t * dwc_ep
 
 	return 1;
 }
+void dwc_otg_ep_reset_ep_pid(dwc_otg_core_if_t * core_if,int is_in,int num)
+{
+	depctl_data_t depctl;
+
+	DWC_PRINTF("%s( %s_ep%d )\n",__func__,is_in?"in":"out",num);
+	if (is_in == 0) {
+		dwc_otg_dev_out_ep_regs_t *out_regs = core_if->dev_if->out_ep_regs[num];
+		depctl.d32 = DWC_READ_REG32(&out_regs->doepctl);
+		depctl.b.setd0pid = 1;
+		DWC_WRITE_REG32(&out_regs->doepctl,depctl.d32);
+	} else {
+		dwc_otg_dev_in_ep_regs_t *in_regs = core_if->dev_if->in_ep_regs[num];
+		depctl.d32 = DWC_READ_REG32(&in_regs->diepctl);
+		depctl.b.setd0pid = 1;
+		DWC_WRITE_REG32(&in_regs->diepctl,depctl.d32);
+	}
+}
 
 /**
  * This function does the setup for a data transfer for an EP and
@@ -3669,7 +3731,6 @@ static int32_t write_isoc_tx_fifo(dwc_otg_core_if_t * core_if, dwc_ep_t * dwc_ep
  * @param core_if Programming view of DWC_otg controller.
  * @param ep The EP to start the transfer on.
  */
-
 void dwc_otg_ep_start_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep,
 			 dwc_otg_pcd_request_t *req)
 {
@@ -3809,6 +3870,15 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep,
 				}
 			}
 		}
+#ifdef CONFIG_ARCH_SCX20
+		if (ep->type == DWC_OTG_EP_TYPE_BULK) {
+			core_if->epin_xfer_info[ep->num].core_if = core_if;
+			core_if->epin_xfer_info[ep->num].ep = ep;
+			core_if->epin_xfer_info[ep->num].state = 1;
+
+			DWC_TIMER_SCHEDULE(core_if->epin_xfer_timer[ep->num], 3000);
+		}
+#endif
 		/* EP enable, IN data in FIFO */
 		depctl.b.cnak = 1;
 		depctl.b.epena = 1;
@@ -3821,7 +3891,6 @@ void dwc_otg_ep_start_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep,
 
 		depctl.d32 = DWC_READ_REG32(&(out_regs->doepctl));
 		deptsiz.d32 = DWC_READ_REG32(&(out_regs->doeptsiz));
-
 		if (!core_if->dma_desc_enable) {
 			if (ep->maxpacket > ep->maxxfer / MAX_PKT_CNT)
 				ep->xfer_len += (ep->maxxfer < (ep->total_len - ep->xfer_len)) ?
@@ -4797,11 +4866,10 @@ void dwc_otg_dump_spram(dwc_otg_core_if_t * core_if)
 	DWC_PRINTF("SPRAM Data:\n");
 	start_addr = (void *)core_if->core_global_regs;
 	DWC_PRINTF("Base Address: 0x%8lX\n", (unsigned long)start_addr);
-	start_addr += 0x00028000;
+	start_addr += SPRAM_START_ADDR;
 	end_addr = (void *)core_if->core_global_regs;
-	end_addr += 0x000280e0;
+	end_addr += SPRAM_END_ADDR;
 
-#if 0 /*Temporarily disable for CTS Approval until SPRD Patch */
 	for (addr = start_addr; addr < end_addr; addr += 16) {
 		DWC_PRINTF
 		    ("0x%8lX:\t%2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X %2X\n",
@@ -4810,7 +4878,7 @@ void dwc_otg_dump_spram(dwc_otg_core_if_t * core_if)
 		     addr[10], addr[11], addr[12], addr[13], addr[14], addr[15]
 		    );
 	}
-#endif
+
 	return;
 }
 
@@ -5086,7 +5154,7 @@ void dwc_otg_core_reset(dwc_otg_core_if_t * core_if)
 		if (++count > 10000) {
 			DWC_WARN("%s() HANG! Soft Reset GRSTCTL=%0x\n",
 				 __func__, greset.d32);
-			usb_phy_ahb_rst();
+			sprd_usb_phy_rst();
 			break;
 		}
 		dwc_udelay(1);

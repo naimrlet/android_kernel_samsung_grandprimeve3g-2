@@ -7,7 +7,7 @@
  * Synopsys HS OTG Linux Software Driver and documentation (hereinafter,
  * "Software") is an Unsupported proprietary work of Synopsys, Inc. unless
  * otherwise expressly agreed to in writing between Synopsys and you.
- * 
+ *
  * The Software IS NOT an item of Licensed Software or Licensed Product under
  * any End User Software License Agreement or Agreement for Licensed Product
  * with Synopsys or any supplement thereto. You are permitted to use and
@@ -17,7 +17,7 @@
  * any information contained herein except pursuant to this license grant from
  * Synopsys. If you do not agree with this notice, including the disclaimer
  * below, then you are not authorized to use the Software.
- * 
+ *
  * THIS SOFTWARE IS BEING DISTRIBUTED BY SYNOPSYS SOLELY ON AN "AS IS" BASIS
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -46,11 +46,19 @@
 struct dwc_otg_pcd;
 struct dwc_otg_hcd;
 
+struct sprd_usb_platform_data {
+	int gpio_boost;
+	int gpio_chgdet;
+	int gpio_otgdet;
+	int gpio_num;
+};
+
 /**
  * This structure is a wrapper that encapsulates the driver components used to
  * manage a single DWC_otg controller.
  */
 typedef struct dwc_otg_device {
+	struct device *dev;
 	/** Structure containing OS-dependent stuff. KEEP THIS STRUCT AT THE
 	 * VERY BEGINNING OF THE DEVICE STRUCT. OSes such as FreeBSD and NetBSD
 	 * require this. */
@@ -75,15 +83,12 @@ typedef struct dwc_otg_device {
 	int host_disabled;
 } dwc_otg_device_t;
 
-/*We must clear S3C24XX_EINTPEND external interrupt register 
- * because after clearing in this register trigerred IRQ from 
+/*We must clear S3C24XX_EINTPEND external interrupt register
+ * because after clearing in this register trigerred IRQ from
  * H/W core in kernel interrupt can be occured again before OTG
  * handlers clear all IRQ sources of Core registers because of
  * timing latencies and Low Level IRQ Type.
  */
-
-struct device *get_hcd_device();
-struct device *get_gadget_wrapper_device();
 
 #ifdef CONFIG_MACH_IPMATE
 #define  S3C2410X_CLEAR_EINTPEND()   \

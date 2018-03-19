@@ -74,26 +74,11 @@
 #define SPRD_SPI_MAX_RECV_BLK	0x1ff
 #define SPRD_SPI_CHIP_CS_NUM 0x4
 #define MAX_BITS_PER_WORD 32
-#ifdef CONFIG_MACH_GRANDPRIMEVE3G_LTN_DTV
-#define SPRD_SPI_FIFO_RX_FULL 8
-#else
-#define SPRD_SPI_FIFO_RX_FULL 16
-#endif
-#define SPRD_SPI_FIFO_TX_EMPTY 2
-#define SPRD_MAX_DATA_PRE  32
-#define SPRD_RX_FIFO_FULL_MASK 0XFFFFFFE0
 
 enum {
 	sprd_spi_0 =0x0,
 	sprd_spi_1,
 	sprd_spi_2,
-};
-enum spi_dma_data{
-	dma_spi_idle = 0,
-	dma_transfer_fail =1,
-	dma_transfer_success = 2,
-	dma_receive_fail = 4,
-	dma_receive_success =8,
 };
 
 #define SPI_TIME_OUT 0xff0000

@@ -1,0 +1,2 @@
+kernel/drivers/leds/leds-sm5701.ko
+kernel/drivers/leds/leds-an30259a-smartglow.ko

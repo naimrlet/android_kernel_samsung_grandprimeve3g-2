@@ -235,6 +235,11 @@ struct lruvec {
 /* Isolate non-CMA pages */
 #define ISOLATE_NO_CMA		((__force isolate_mode_t)0x10)
 
+/* Isolate referenced page if any */
+#ifdef CONFIG_POMEMR_RECLAIM
+#define ISOLATE_REFERENCED	((__force isolate_mode_t)0x20)
+#endif/* CONFIG_POMEMR_RECLAIM */
+
 /* LRU Isolation modes. */
 typedef unsigned __bitwise__ isolate_mode_t;
 

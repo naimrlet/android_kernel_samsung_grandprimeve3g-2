@@ -69,9 +69,6 @@
 struct sprd_leds_bltc_rgb {
         struct platform_device *dev;
         struct mutex mutex;
-        struct work_struct work;
-        struct delayed_work work_bl;
-        struct workqueue_struct *work_bl_q;
         spinlock_t value_lock;
         enum led_brightness value;
         struct led_classdev cdev;
@@ -143,6 +140,8 @@ static void sprd_bltc_rgb_init(struct sprd_leds_bltc_rgb *brgb)
         sci_adi_clr(brgb->sprd_arm_module_en_addr + 0xec, (0x1f<<4));//CURRENT CONTROL DEFAULT
 	sci_adi_set(brgb->sprd_arm_module_en_addr + 0xf0, (0x1<<8));//WHTLED_SERIES_EN=1
 	sci_adi_set(brgb->sprd_arm_module_en_addr + 0xf0, (0x1<<0));//WHTLED POWERDOWN ENABLE
+	sci_adi_clr(brgb->sprd_arm_module_en_addr + 0xec, (0x1<<0));//RGB_CTRL SW ENABLE
+	sci_adi_set(brgb->sprd_arm_module_en_addr + 0xec, (0x1<<5));//RGB_CTRL CURRENT VALUE:BIT[8:4]
 }
 static void sprd_leds_bltc_rgb_enable(struct sprd_leds_bltc_rgb *brgb)
 {
@@ -208,8 +207,8 @@ static void sprd_leds_bltc_rgb_enable(struct sprd_leds_bltc_rgb *brgb)
 						sci_adi_clr(brgb->sprd_bltc_base_addr + BLTC_CTRL, (0x1<<8)|(0x1<<9));
                 }
 
-                sci_adi_write(brgb->bltc_addr_rf,sprd_leds_bltc_rgb_read(brgb->bltc_addr_rf)|(brgb->falling_time<<8)|brgb->rising_time,0xffff);
-                sci_adi_write(brgb->bltc_addr_hl,sprd_leds_bltc_rgb_read(brgb->bltc_addr_hl)|(brgb->low_time<<8)|brgb->high_time,0xffff);
+                sci_adi_write(brgb->bltc_addr_rf,(brgb->falling_time<<8)|brgb->rising_time,0xffff);
+                sci_adi_write(brgb->bltc_addr_hl,(brgb->low_time<<8)|brgb->high_time,0xffff);
                 sci_adi_set(brgb->bltc_addr_onoff,brgb->on_off);
         }
 
@@ -236,12 +235,10 @@ static void sprd_leds_bltc_rgb_disable(struct sprd_leds_bltc_rgb *brgb)
                    sprd_leds_bltc_rgb_read(brgb->sprd_arm_module_en_addr + 0xa0),brgb->value);
 }
 
-static void sprd_leds_rgb_work(struct work_struct *work)
+static void sprd_leds_rgb_work(struct sprd_leds_bltc_rgb *brgb)
 {
-        struct sprd_leds_bltc_rgb *brgb;
         unsigned long flags;
 
-        brgb = container_of(work, struct sprd_leds_bltc_rgb, work);
         mutex_lock(&brgb->mutex);
         spin_lock_irqsave(&brgb->value_lock, flags);
         if (brgb->value == LED_OFF) {
@@ -257,12 +254,10 @@ out:
         mutex_unlock(&brgb->mutex);
 }
 
-static void sprd_leds_bltc_work(struct work_struct *work)
+static void sprd_leds_bltc_work(struct sprd_leds_bltc_rgb *brgb)
 {
-        struct sprd_leds_bltc_rgb *brgb;
         unsigned long flags;
 
-        brgb = container_of(work, struct sprd_leds_bltc_rgb, work_bl.work);
         mutex_lock(&brgb->mutex);
 #if 1
         spin_lock_irqsave(&brgb->value_lock, flags);
@@ -299,9 +294,9 @@ static void sprd_leds_bltc_rgb_set(struct led_classdev *bltc_rgb_cdev,enum led_b
                 if(strcmp(brgb->cdev.name,sprd_leds_rgb_name[SPRD_LED_TYPE_R]) == 0 || \
                     strcmp(brgb->cdev.name,sprd_leds_rgb_name[SPRD_LED_TYPE_G]) == 0 || \
                     strcmp(brgb->cdev.name,sprd_leds_rgb_name[SPRD_LED_TYPE_B]) == 0)
-                        schedule_work(&brgb->work);
+						sprd_leds_rgb_work(brgb);
                 else
-                        queue_delayed_work(brgb->work_bl_q, &brgb->work_bl, msecs_to_jiffies(500));
+						sprd_leds_bltc_work(brgb);
 }
 
 #if 0
@@ -437,11 +432,11 @@ static ssize_t store_on_off(struct device *dev,
         return size;
 }
 
-static DEVICE_ATTR(rising_time,0664,show_rising_time,store_rising_time);
-static DEVICE_ATTR(falling_time,0664,show_falling_time,store_falling_time);
-static DEVICE_ATTR(high_time,0664,show_high_time,store_high_time);
-static DEVICE_ATTR(low_time,0664,show_low_time,store_low_time);
-static DEVICE_ATTR(on_off,0664,show_on_off,store_on_off);
+static DEVICE_ATTR(rising_time,0644,show_rising_time,store_rising_time);
+static DEVICE_ATTR(falling_time,0644,show_falling_time,store_falling_time);
+static DEVICE_ATTR(high_time,0644,show_high_time,store_high_time);
+static DEVICE_ATTR(low_time,0644,show_low_time,store_low_time);
+static DEVICE_ATTR(on_off,0644,show_on_off,store_on_off);
 
 static int sprd_leds_bltc_rgb_probe(struct platform_device *dev)
 {
@@ -502,13 +497,6 @@ static int sprd_leds_bltc_rgb_probe(struct platform_device *dev)
 #endif
                 spin_lock_init(&brgb->value_lock);
                 mutex_init(&brgb->mutex);
-                INIT_WORK(&brgb->work, sprd_leds_rgb_work);
-                INIT_DELAYED_WORK(&brgb->work_bl, sprd_leds_bltc_work);
-                brgb->work_bl_q = create_singlethread_workqueue("leds_bltc");
-                if(brgb->work_bl_q == NULL) {
-                        PRINT_ERR("create_singlethread_workqueue for leds_bltc failed!\n");
-                        goto failed_to_create_singlethread_workqueue_for_leds_bltc;
-                }
 
                 brgb->value = LED_OFF;
                 platform_set_drvdata(dev, brgb);
@@ -527,9 +515,9 @@ static int sprd_leds_bltc_rgb_probe(struct platform_device *dev)
 
                 brgb->value = 15;//set default brightness
                 brgb->suspend = 0;
+                sci_adi_clr(brgb->sprd_arm_module_en_addr + 0x0c,(0x1<<13));//BLTC SOFT RESET
                 ++brgb;
         }
-	sci_adi_clr(brgb->sprd_arm_module_en_addr + 0x0c,(0x1<<13));//BLTC SOFT RESET
         return 0;
 err:
         if (i) {
@@ -542,9 +530,6 @@ err:
                         --brgb;
                 }
         }
-failed_to_create_singlethread_workqueue_for_leds_bltc:
-        cancel_delayed_work_sync(&brgb->work_bl);
-        destroy_workqueue(brgb->work_bl_q);
 
         return ret;
 }
@@ -554,7 +539,6 @@ static int sprd_leds_bltc_rgb_remove(struct platform_device *dev)
         struct sprd_leds_bltc_rgb *brgb = platform_get_drvdata(dev);
 
         led_classdev_unregister(&brgb->cdev);
-        flush_scheduled_work();
         brgb->value = LED_OFF;
         brgb->enable = 1;
         sprd_leds_bltc_rgb_disable(brgb);

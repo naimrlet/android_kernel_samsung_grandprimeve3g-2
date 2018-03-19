@@ -41,27 +41,27 @@ void sec_charger_cb(u8 attached);
 
 enum sec_battery_voltage_mode {
 	/* average voltage */
-	SEC_BATTEY_VOLTAGE_AVERAGE = 0,
+	SEC_BATTERY_VOLTAGE_AVERAGE = 0,
 	/* open circuit voltage */
-	SEC_BATTEY_VOLTAGE_OCV,
+	SEC_BATTERY_VOLTAGE_OCV,
 };
 
 enum sec_battery_current_mode {
 	/* uA */
-	SEC_BATTEY_CURRENT_UA = 0,
+	SEC_BATTERY_CURRENT_UA = 0,
 	/* mA */
-	SEC_BATTEY_CURRENT_MA,
+	SEC_BATTERY_CURRENT_MA,
 };
 
 enum sec_battery_capacity_mode {
 	/* designed capacity */
-	SEC_BATTEY_CAPACITY_DESIGNED = 0,
+	SEC_BATTERY_CAPACITY_DESIGNED = 0,
 	/* absolute capacity by fuel gauge */
-	SEC_BATTEY_CAPACITY_ABSOLUTE,
+	SEC_BATTERY_CAPACITY_ABSOLUTE,
 	/* temperary capacity in the time */
-	SEC_BATTEY_CAPACITY_TEMPERARY,
+	SEC_BATTERY_CAPACITY_TEMPERARY,
 	/* current capacity now */
-	SEC_BATTEY_CAPACITY_CURRENT,
+	SEC_BATTERY_CAPACITY_CURRENT,
 };
 
 /* ADC type */
@@ -474,7 +474,10 @@ struct sec_battery_platform_data {
 	int swelling_high_temp_recov;
 	int swelling_low_temp_block;
 	int swelling_low_temp_recov;
-	int swelling_chg_current;
+	unsigned int swelling_chg_current;
+	unsigned int swelling_high_chg_current;
+	unsigned int swelling_low_chg_current;
+	unsigned int swelling_full_check_current_2nd;
 	unsigned int swelling_normal_float_voltage;
 	unsigned int swelling_drop_float_voltage;
 	unsigned int swelling_high_rechg_voltage;

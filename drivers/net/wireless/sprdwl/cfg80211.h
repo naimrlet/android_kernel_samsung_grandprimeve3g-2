@@ -113,12 +113,14 @@ int sprdwl_open_mac(struct sprdwl_vif *vif, enum nl80211_iftype type);
 int sprdwl_close_mac(struct sprdwl_vif *vif);
 
 void sprdwl_scan_timeout(unsigned long data);
-void sprdwl_event_scan_results(struct sprdwl_priv *priv, bool aborted);
+void sprdwl_event_scan_results(struct sprdwl_priv *priv, int flag);
 void sprdwl_event_connect_result(struct sprdwl_vif *vif);
 void sprdwl_event_disconnect(struct sprdwl_vif *vif);
 void sprdwl_event_ready(struct sprdwl_priv *priv);
 void sprdwl_event_tx_busy(struct sprdwl_vif *vif);
 void sprdwl_event_softap(struct sprdwl_vif *vif);
+void sprdwl_event_report_mic_failure(struct sprdwl_vif *vif);
+void sprdwl_event_report_cqm(struct sprdwl_vif *vif);
 #ifdef CONFIG_SPRDWL_WIFI_DIRECT
 void sprdwl_event_remain_on_channel_expired(struct sprdwl_vif *vif);
 void sprdwl_event_mgmt_deauth(struct sprdwl_vif *vif);

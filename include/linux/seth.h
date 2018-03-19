@@ -19,6 +19,7 @@ struct seth_init_data {
 	uint8_t dst;
 	uint8_t	channel;
 	uint32_t blocknum;
+	uint32_t poolsize;
 };
 
 #endif

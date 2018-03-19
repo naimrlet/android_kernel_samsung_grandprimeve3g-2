@@ -15,6 +15,7 @@ struct usb_notifier_platform_data {
 	int	gpio_booster;
 	char	*booster_name;
 	struct	notifier_block usb_nb;
+	int	can_disable_usb;
 };
 
 #ifdef CONFIG_USB_NOTIFIER

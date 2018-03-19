@@ -19,6 +19,7 @@
 #include <linux/delay.h>
 #include "mipi_dsih_dphy.h"
 
+
 #define L						0
 #define H						1
 #define CLK						0
@@ -59,6 +60,7 @@
 #endif
 
 #define AVERAGE(a, b) (MIN(a, b) + abs((b) - (a)) / 2)
+#define HOP_DELTA_PLL_BPS          (-8)
 
 typedef unsigned int 		u32;
 typedef unsigned short 	u16;
@@ -245,7 +247,6 @@ static int mipi_dsih_dphy_calc_pll_param(dphy_t *phy, struct dphy_pll *pll)
 	const u32 khz = 1000;
 	const u32 mhz = 1000000;
 	int delta_freq;
-	static u32 origin_freq = 0;
 	const unsigned long long factor = 100;
 	unsigned long long tmp;
 
@@ -290,16 +291,13 @@ static int mipi_dsih_dphy_calc_pll_param(dphy_t *phy, struct dphy_pll *pll)
 	pll->cp_s = 0x0;
 	pll->mod_en = false;
 
-	if (0)
+#ifdef CONFIG_HOP_FREQ_SCALING
 		pll->hop_en = true;
-	else
+#else
 		pll->hop_en = false;
-
+#endif
 	if (pll->hop_en) {
-		if (origin_freq == 0)
-			goto FAIL;
-
-		delta_freq = (int)pll->freq - (int)origin_freq;
+		delta_freq = HOP_DELTA_PLL_BPS;/*delta pll bps(M)*/
 		if (delta_freq < 0) {
 			delta_freq = - delta_freq;
 			pll->sign = true;
@@ -307,8 +305,7 @@ static int mipi_dsih_dphy_calc_pll_param(dphy_t *phy, struct dphy_pll *pll)
 		pll->kstep = pll->ref_clk * hopping_period;
 		pll->kdelta = (1 << 20) * delta_freq * pll->out_sel
 				/ pll->kstep / pll->ref_clk;
-	} else
-		origin_freq = pll->freq;
+	}
 
 	return 0;
 
@@ -320,26 +317,60 @@ FAIL:
 	return ERR_DSI_PHY_PLL_NOT_LOCKED;
 }
 
+static int mipi_dsih_dphy_set_pll_reg_hop_freq(dphy_t *phy)
+{
+
+	u8 regs_hop = 0x03;
+	u8 hop_value = 0x9f;
+	u8 unhop_value = 0x1f;
+	static u8 hop = 0;
+
+	if(hop == 0){
+		hop++;
+		mipi_dsih_dphy_write(phy, regs_hop, &hop_value, 1);
+	}
+	else if(hop == 1){
+		hop--;
+		mipi_dsih_dphy_write(phy, regs_hop, &unhop_value, 1);
+	}
+
+	return 0;
+}
+
+/* reg_30_val means Spread Spectrum ± 1.5M*/
 static int mipi_dsih_dphy_set_pll_reg(dphy_t *phy, struct dphy_pll *pll)
 {
 	int i;
 	u8 *val;
 
 	struct pll_regs regs;
-	u8 regs_addr[] = {
+
+	u8 regs_off_addr[] = {
 		0x03, 0x04, 0x06, 0x07, 0x08, 0x09,
 		0x0a, 0x0b, 0x0c, 0x0d, 0x0e
 	};
-
+	u8 regs_on_addr[] = {
+		0x03, 0x04, 0x07, 0x08, 0x09, 0x0a,
+		0x0b, 0x0c, 0x0d, 0x0e, 0x06
+	};
+	int reg_30_val[] = {
+		0x1F, 0x82, 0x99, 0x9E, 0x76, 0x27,
+		0x62, 0x00, 0x18, 0xA0, 0xA6
+	};
+	int reg_14_val[] = {
+		0x1F, 0x82, 0x4C, 0x4E, 0x76, 0x27,
+		0x62, 0x00, 0x18, 0xA0, 0xA6
+	};
 	if (!pll || !pll->fvco)
 		goto FAIL;
 
+#ifdef CONFIG_HOP_FREQ_SCALING
 	memset((u8 *)&regs, '\0', sizeof(regs));
 	regs._03.bits.prbs_bist = 1;
 	regs._03.bits.en_lp_treot = true;
 	regs._03.bits.lpf_sel = pll->lpf_sel;
 	regs._03.bits.txfifo_bypass = 0;
-	regs._03.bits.freq_hopping = pll->hop_en;
+	regs._03.bits.freq_hopping = 0;
 	regs._04.bits.div = pll->div;
 	regs._04.bits.cp_s = pll->cp_s;
 	regs._04.bits.fdk_s = pll->fdk_s;
@@ -363,9 +394,13 @@ static int mipi_dsih_dphy_set_pll_reg(dphy_t *phy, struct dphy_pll *pll)
 
 	val = (u8 *)&regs;
 
-	for (i = 0; i < sizeof(regs_addr); ++i)
-		mipi_dsih_dphy_write(phy, regs_addr[i], &val[i], 1);
+	for (i = 0; i < sizeof(regs_off_addr); ++i)
+		mipi_dsih_dphy_write(phy, regs_off_addr[i], &val[i], 1);
 
+#else
+	for (i = 0; i < sizeof(regs_on_addr); ++i)
+		mipi_dsih_dphy_write(phy, regs_on_addr[i], &reg_14_val[i], 1);
+#endif
 	return 0;
 
 FAIL:
@@ -532,7 +567,7 @@ static int mipi_dsih_dphy_config_lane_timing(dphy_t *phy,
 		range[H] = INFINITY;
 		val[CLK] = ROUND_UP(range[L] * factor - constant, t_half_byteck);
 		range[L] = MAX(8 * t_ui, 60 * scale + 4 * t_ui);
-		val[DATA] = ROUND_UP(range[L] * factor /2 - constant, t_half_byteck);
+		val[DATA] = ROUND_UP(range[L] * 3 / 2 - constant, t_half_byteck);
 		mipi_dsih_dphy_set_timing_regs(phy, TRAIL_TIME, val);
 
 	case EXIT_TIME:
@@ -601,6 +636,29 @@ static int mipi_dsih_dphy_powerup(dphy_t *phy, int enable)
 		mipi_dsih_dphy_test_clear(phy, 1);
 		mipi_dsih_dphy_test_clear(phy, 0);
 	}
+	return 0;
+}
+
+/**
+ * Configure D-PHY and PLL module to hop freq operation mode
+ * @param phy: pointer to structure
+ *  which holds information about the d-phy module
+ * @param no_of_lanes active
+ * @param output_freq desired high speed frequency
+ * @return error code
+ */
+dsih_error_t mipi_dsih_dphy_configure_hop_freq(dphy_t *phy,
+				u8 lane_num,
+				u32 output_freq)
+{
+	if (!phy)
+		return ERR_DSI_INVALID_INSTANCE;
+	if (phy->status < INITIALIZED)
+		return ERR_DSI_INVALID_INSTANCE;
+	if (output_freq < MIN_OUTPUT_FREQ)
+		return ERR_DSI_PHY_FREQ_OUT_OF_BOUND;
+	mipi_dsih_dphy_config_lane_timing(phy, output_freq, NONE);
+	mipi_dsih_dphy_set_pll_reg_hop_freq(phy);
 	return 0;
 }
 

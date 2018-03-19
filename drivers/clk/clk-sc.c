@@ -16,6 +16,7 @@
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
 #include <linux/clk-provider.h>
+#include <linux/clk-private.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/kernel.h>
@@ -23,6 +24,7 @@
 #include <linux/delay.h>
 #include <soc/sprd/hardware.h>
 #include <soc/sprd/sci_glb_regs.h>
+#include <soc/sprd/arch_misc.h>
 #include <soc/sprd/arch_lock.h>
 
 #ifdef CONFIG_OF
@@ -33,6 +35,12 @@
 struct cfg_reg {
 	void __iomem *reg;
 	u32 msk;
+};
+
+
+struct ibias_table {
+	unsigned long rate;
+	u8 ibias;
 };
 
 struct clk_sprd {
@@ -50,6 +58,7 @@ struct clk_sprd {
 		struct cfg_reg div, pre;
 		struct clk_hw *div_hw;
 	} d;
+	struct ibias_table *ibias_table;
 };
 
 #define to_clk_sprd(_hw) container_of(_hw, struct clk_sprd, hw)
@@ -125,29 +134,41 @@ static inline void __glbreg_setclr(struct clk_hw *hw, void *reg, u32 msk,
 static int sprd_clk_prepare(struct clk_hw *hw)
 {
 	struct clk_sprd *c = to_clk_sprd(hw);
-	int set = ! !(c->flags & CLK_GATE_SET_TO_DISABLE);
+	int set = !!(c->flags & CLK_GATE_SET_TO_DISABLE);
 
 	__glbreg_setclr(hw, c->d.pre.reg, (u32) c->d.pre.msk, set ^ 1);
+	return 0;
+}
+
+static int sprd_pll_clk_prepare(struct clk_hw *hw)
+{
+	struct clk_sprd *c = to_clk_sprd(hw);
+	int set = !!(c->flags & CLK_GATE_SET_TO_DISABLE);
+
+	__glbreg_setclr(hw, c->d.pre.reg, (u32) c->d.pre.msk, set ^ 1);
+
+	udelay(1000);
+
 	return 0;
 }
 
 static void sprd_clk_unprepare(struct clk_hw *hw)
 {
 	struct clk_sprd *c = to_clk_sprd(hw);
-	int set = ! !(c->flags & CLK_GATE_SET_TO_DISABLE);
+	int set = !!(c->flags & CLK_GATE_SET_TO_DISABLE);
 	__glbreg_setclr(hw, c->d.pre.reg, (u32) c->d.pre.msk, set ^ 0);
 }
 
 static int sprd_clk_is_prepared(struct clk_hw *hw)
 {
 	struct clk_sprd *c = to_clk_sprd(hw);
-	int ret, set = ! !(c->flags & CLK_GATE_SET_TO_DISABLE);
+	int ret, set = !!(c->flags & CLK_GATE_SET_TO_DISABLE);
 
 	if (!c->d.pre.reg)
 		return 0;
 
 	/* if a set bit prepare this gate, flip it before masking */
-	ret = ! !(__raw_readl(c->d.pre.reg) & BIT(c->d.pre.msk));
+	ret = !!(__raw_readl(c->d.pre.reg) & BIT(c->d.pre.msk));
 	return set ^ ret;
 }
 
@@ -190,7 +211,8 @@ static int sprd_clk_enable(struct clk_hw *hw)
 
 	if (!strcmp(__clk_get_name(hw->clk), "clk_coda7_axi") ||
 			!strcmp(__clk_get_name(hw->clk), "clk_coda7_cc") ||
-			!strcmp(__clk_get_name(hw->clk), "clk_coda7_apb")) {
+			!strcmp(__clk_get_name(hw->clk), "clk_coda7_apb") ||
+			!strcmp(__clk_get_name(hw->clk), "clk_aes")) {
 		__arch_default_lock(HWLOCK_GLB, &flags);
 		if (!strcmp(__clk_get_name(hw->clk), "clk_coda7_apb")) {
 			__raw_writel(__raw_readl(c->enb.reg) & (~((u32)c->enb.msk)), c->enb.reg);
@@ -229,7 +251,7 @@ static void sprd_clk_disable(struct clk_hw *hw)
 static int sprd_clk_is_enable(struct clk_hw *hw)
 {
 	struct clk_sprd *c = to_clk_sprd(hw);
-	int ret = ! !(__raw_readl(c->enb.reg) & BIT(c->enb.msk));
+	int ret = !!(__raw_readl(c->enb.reg) & BIT(c->enb.msk));
 	return ret;
 }
 
@@ -269,6 +291,7 @@ static unsigned long sprd_clk_fixed_pll_recalc_rate(struct clk_hw *hw,
 
 #define SHFT_PLL_KINT                                     ( 0 )
 #define SHFT_PLL_NINT                                     ( 24 )
+#define SHFT_PLL_IBIAS                                    (16)
 
 #else
 #define BITS_MPLL_REFIN(_X_)                              ( (_X_) << 24 & (BIT(24)|BIT(25)) )
@@ -386,11 +409,14 @@ static int sprd_clk_adjustable_pll_set_rate(struct clk_hw *hw,
 
 	clk_debug("%s rate %u, k %u, mn %u\n", __clk_get_name(hw->clk),
 		  (u32) rate, k, mn);
+
 	__pllreg_write(pll->m.mul.reg, cfg1,
 		       BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0) | BIT_PLL_SDM_EN);
 #elif defined(CONFIG_ARCH_SCX35L)
 	u32 k, mn, cfg2;
 	u32 cfg1 = 0;
+	int i = 0;
+	struct ibias_table *itable;
 
 	mn = (rate / 1000000) / 26;
 	k = DIV_ROUND_CLOSEST(((rate / 10000) - 26 * mn * 100) * 1048576,
@@ -405,9 +431,37 @@ static int sprd_clk_adjustable_pll_set_rate(struct clk_hw *hw,
 	clk_debug("%s rate %u, k %u, mn %u\n", __clk_get_name(hw->clk),
 		  (u32) rate, k, mn);
 
-	__pllreg_write((u32 *)pll->m.mul.reg + 1, cfg2, BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
 	/* FIXME: pll clock set should not two-step */
-	__pllreg_write(pll->m.mul.reg, cfg1, BIT_PLL_SDM_EN);
+	if (soc_is_scx9832a_v0()) {
+		for (i = 0; i < 3; i++) {
+			__pllreg_write((u32 *)pll->m.mul.reg + 1, cfg2,
+					BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
+			if ((cfg2 >> SHFT_PLL_KINT) & 0x1) {
+				__pllreg_write((u32 *)pll->m.mul.reg + 1,
+					cfg2 & ~(0x1 >> SHFT_PLL_KINT),
+					BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
+			} else {
+				__pllreg_write((u32 *)pll->m.mul.reg + 1,
+					cfg2 | (0x1 >> SHFT_PLL_KINT),
+					BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
+			}
+			__pllreg_write((u32 *)pll->m.mul.reg + 1, cfg2,
+					BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
+		}
+
+		for (itable = pll->ibias_table; itable; itable++)
+			if (rate < (itable->rate))
+				break;
+
+		cfg1 &= ~BITS_PLL_IBIAS(~0);
+		cfg1 |= itable->ibias << SHFT_PLL_IBIAS;
+		__pllreg_write(pll->m.mul.reg, cfg1,
+			       BIT_PLL_SDM_EN | BITS_PLL_IBIAS(~0));
+	} else {
+		__pllreg_write((u32 *)pll->m.mul.reg + 1, cfg2,
+				BITS_PLL_KINT(~0) | BITS_PLL_NINT(~0));
+		__pllreg_write(pll->m.mul.reg, cfg1, BIT_PLL_SDM_EN);
+	}
 #else
 	u32 refin, mn;
 	refin = __pll_get_refin_rate(pll->m.mul.reg);
@@ -454,6 +508,12 @@ static unsigned long sprd_clk_divider_recalc_rate(struct clk_hw *hw,
 	if (!c->d.div_hw->clk)
 		c->d.div_hw->clk = c->hw.clk;
 	clk_debug("%s %lu\n", __clk_get_name(hw->clk), parent_rate);
+#ifdef CONFIG_CPLL_1024M
+	if (hw->clk->parent != NULL && hw->clk->parent->parent != NULL)
+		if (!strcmp(__clk_get_name(hw->clk->parent->parent), "clk_cpll"))
+			if(!strcmp(__clk_get_name(hw->clk),"clk_dcam") || !strcmp(__clk_get_name(hw->clk), "clk_gpu") || !strcmp(__clk_get_name(hw->clk), "clk_isp"))
+				return hw->clk->rate;
+#endif
 	return clk_divider_ops.recalc_rate(c->d.div_hw, parent_rate);
 }
 
@@ -485,14 +545,14 @@ static int sprd_clk_divider_set_rate(struct clk_hw *hw, unsigned long rate,
 }
 
 const struct clk_ops sprd_clk_fixed_pll_ops = {
-	.prepare = sprd_clk_prepare,
+	.prepare = sprd_pll_clk_prepare,
 	.unprepare = sprd_clk_unprepare,
 	.is_prepared = sprd_clk_is_prepared,
 	.recalc_rate = sprd_clk_fixed_pll_recalc_rate,
 };
 
 const struct clk_ops sprd_clk_adjustable_pll_ops = {
-	.prepare = sprd_clk_prepare,
+	.prepare = sprd_pll_clk_prepare,
 	.unprepare = sprd_clk_unprepare,
 	.round_rate = sprd_clk_adjustable_pll_round_rate,
 	.set_rate = sprd_clk_adjustable_pll_set_rate,
@@ -1003,6 +1063,8 @@ static void __init of_sprd_fixed_pll_clk_setup(struct device_node *node)
  */
 static void __init of_sprd_adjustable_pll_clk_setup(struct device_node *node)
 {
+	int nr;
+	const __be32 *val;
 	struct clk_sprd *c;
 	struct clk *clk = NULL;
 	const char *clk_name = node->name;
@@ -1013,6 +1075,8 @@ static void __init of_sprd_adjustable_pll_clk_setup(struct device_node *node)
 		.num_parents = 0,
 	};
 	const __be32 *mulreg, *prereg;
+	const struct property *prop;
+	struct ibias_table *itable;
 
 	mulreg = of_get_address(node, 0, NULL, NULL);
 	if (!mulreg) {
@@ -1043,6 +1107,59 @@ static void __init of_sprd_adjustable_pll_clk_setup(struct device_node *node)
 	of_read_reg(&c->m.mul, mulreg);
 	of_read_reg(&c->d.pre, prereg);
 
+	/* Flags:
+	 * CLK_GATE_SET_TO_DISABLE - by default this clock sets the bit at bit_idx to
+	 *  enable the clock.  Setting this flag does the opposite: setting the bit
+	 *  disable the clock and clearing it enables the clock
+	 */
+	if ((unsigned long) c->d.pre.reg & 1) {
+		*(u32 *) & c->d.pre.reg &= ~3;
+		c->flags |= CLK_GATE_SET_TO_DISABLE;
+	}
+
+	if (soc_is_scx9832a_v0()) {
+		prop = of_find_property(node, "sprd,ibias_table", NULL);
+		if (!prop) {
+			pr_err
+			("%s: couldn't find sprd,ibias_table prop\n", __func__);
+			goto kfree_c;
+		}
+		if (!prop->value) {
+			pr_err
+			("%s: sprd,ibias_table must have value\n", __func__);
+			goto kfree_c;
+		}
+		nr = prop->length / sizeof(u32);
+		if (nr % 2) {
+			pr_err
+			("%s: invalid sprd,ibias_table value\n", __func__);
+			goto kfree_c;
+		}
+
+		c->ibias_table = kzalloc(sizeof(struct ibias_table)
+					 * (nr / 2 + 1), GFP_KERNEL);
+		if (!c->ibias_table)
+			goto kfree_c;
+
+		itable = c->ibias_table;
+
+		val = prop->value;
+		while (nr) {
+			unsigned long freq = be32_to_cpup(val++) * 1000;
+			u8 ibias = be32_to_cpup(val++);
+
+			itable->rate = freq;
+			itable->ibias = ibias;
+			itable++;
+
+			nr -= 2;
+			if (!nr) {
+				itable->rate = 0xFFFFFFFF;
+				itable->ibias = ibias;
+			}
+		}
+	}
+
 	sprd_clk_register(NULL, node, c, &init);
 
 	if (prereg)
@@ -1055,6 +1172,10 @@ static void __init of_sprd_adjustable_pll_clk_setup(struct device_node *node)
 
 	clk_debug("%s RATE %lu\n", __clk_get_name(c->hw.clk),
 		  clk_get_rate(c->hw.clk));
+	return;
+
+kfree_c:
+	kfree(c);
 }
 
 /**

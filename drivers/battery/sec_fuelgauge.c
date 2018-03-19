@@ -157,6 +157,10 @@ static int sec_fg_get_property(struct power_supply *psy,
 				sec_fg_get_atomic_capacity(fuelgauge, val);
 		}
 		break;
+#if defined(CONFIG_FUELGAUGE_SPRD4SAMSUNG27X3)
+	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+		break;
+#endif
 	default:
 		return -EINVAL;
 	}
@@ -242,6 +246,12 @@ static int sec_fg_set_property(struct power_supply *psy,
 		if (!sec_hal_fg_set_property(fuelgauge_variable, psp, val))
 			return -EINVAL;
 		break;
+#if defined(CONFIG_FUELGAUGE_SPRD4SAMSUNG27X3)
+	case POWER_SUPPLY_PROP_CAPACITY_LEVEL:
+		if (!sec_hal_fg_set_property(fuelgauge_variable, psp, val))
+			return -EINVAL;
+		break;
+#endif
 	default:
 		return -EINVAL;
 	}

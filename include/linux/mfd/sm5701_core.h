@@ -56,16 +56,6 @@
 //FLEDCNTL6
 #define SM5701_FLEDCNTL6_BSTOUT			0x0F
 #define SM5701_BSTOUT_4P5               0x05
-#define SM5701_BSTOUT_4P6               0x06
-#define SM5701_BSTOUT_4P7               0x07
-#define SM5701_BSTOUT_4P8               0x08
-
-#if defined (CONFIG_MACH_VIVALTO3MVEML3G)
-	// Changed for G318H on request of h/w team member sh0061.lee  
-	#define SM5701_BSTOUT_VOLTAGE           SM5701_BSTOUT_4P7
-#else
-	#define SM5701_BSTOUT_VOLTAGE           SM5701_BSTOUT_4P5
-#endif
 #define SM5701_BSTOUT_5P0               0x0A
 
 /**
@@ -95,6 +85,7 @@ struct SM5701_dev {
 struct SM5701_charger_data {
 	struct SM5701_dev *SM5701;
 	struct power_supply	psy_chg;
+	struct power_supply	psy_otg;
 	struct delayed_work	isr_work;
 
 	unsigned int	is_charging;
@@ -144,7 +135,7 @@ enum sm5701_flash_mode {
 			MOVIE_MODE,
 			FLASH_MODE,
 	};
-	
+
 enum sm5701_flash_operation {
 
 		SM5701_FLEDEN_DISABLED = 0,
@@ -181,7 +172,12 @@ extern void SM5701_set_lowbatt(int lowbatt_v);
 extern void SM5701_set_lbdhys(int lbdhys_mv);
 extern void SM5701_set_bstout(int bstout_mv);
 extern void sm5701_set_fleden(int fled_enable);
-
+extern void sm5701_set_ifled(int ifled_ma);
+extern void sm5701_set_imled(int imled_ma);
+extern void sm5701_set_noneshot(int noneshot_enable);
+extern void sm5701_set_onetimer(int onetimer_ms);
+extern void sm5701_get_imled(int *imled_ma);
+extern void sm5701_get_ifled(int *ifled_ma);
 //sm5701_irq
 extern int SM5701_irq_init(struct SM5701_dev *sm5701);
 extern void SM5701_irq_exit(struct SM5701_dev *sm5701);

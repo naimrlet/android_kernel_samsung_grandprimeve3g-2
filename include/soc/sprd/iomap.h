@@ -46,11 +46,19 @@ struct iotable_sprd {
 #define SPRD_MMCKG_BASE		io_addr_sprd.MMCKG.vaddr
 #define SPRD_MMCKG_SIZE		io_addr_sprd.MMCKG.length
 
+
 #if defined(CONFIG_MACH_SP9830I) || defined(CONFIG_ARCH_SCX30G2) || defined(CONFIG_ARCH_SCX35LT8)
 	struct iomap_sprd CODECAHB;
 #define SPRD_CODECAHB_PHYS	io_addr_sprd.CODECAHB.paddr
 #define SPRD_CODECAHB_BASE	io_addr_sprd.CODECAHB.vaddr
 #define SPRD_CODECAHB_SIZE      io_addr_sprd.CODECAHB.length
+#endif
+
+#if defined(CONFIG_ARCH_SCX30G3)
+	struct iomap_sprd CRYPTO;
+#define SPRD_CRYPTO_PHYS	io_addr_sprd.CRYPTO.paddr
+#define SPRD_CRYPTO_BASE	io_addr_sprd.CRYPTO.vaddr
+#define SPRD_CRYPTO_SIZE	io_addr_sprd.CRYPTO.length
 #endif
 
 	struct iomap_sprd APBREG;
@@ -74,11 +82,83 @@ struct iotable_sprd {
 #define SPRD_DMA0_BASE		io_addr_sprd.DMA0.vaddr
 #define SPRD_DMA0_SIZE		io_addr_sprd.DMA0.length
 
+#if defined(CONFIG_ARCH_WHALE)
+	struct iomap_sprd DMA;
+#define SPRD_DMA_PHYS          (io_addr_sprd.DMA.paddr)
+#define SPRD_DMA_BASE          (io_addr_sprd.DMA.vaddr)
+#define SPRD_DMA_SIZE          (io_addr_sprd.DMA.length)
+#endif
+
 	struct iomap_sprd WDG;
 #define SPRD_WDG_PHYS	(io_addr_sprd.WDG.paddr)
 #define SPRD_WDG_BASE	(io_addr_sprd.WDG.vaddr)
 #define SPRD_WDG_SIZE	(io_addr_sprd.WDG.length)
 
+#if defined(CONFIG_ARCH_WHALE)
+	struct iomap_sprd HWSPINLOCK;
+#define SPRD_HWSPINLOCK_PHYS	io_addr_sprd.HWSPINLOCK.paddr
+#define SPRD_HWSPINLOCK_BASE	io_addr_sprd.HWSPINLOCK.vaddr
+#define SPRD_HWSPINLOCK_SIZE	io_addr_sprd.HWSPINLOCK.length
+/*ugly workaround caused by old hwspinlock driver*/
+#define SPRD_HWSPINLOCK0_PHYS	io_addr_sprd.HWSPINLOCK.paddr
+#define SPRD_HWSPINLOCK0_BASE	io_addr_sprd.HWSPINLOCK.vaddr
+#define SPRD_HWSPINLOCK0_SIZE	io_addr_sprd.HWSPINLOCK.length
+#define SPRD_HWSPINLOCK1_PHYS	io_addr_sprd.HWSPINLOCK.paddr
+#define SPRD_HWSPINLOCK1_BASE	io_addr_sprd.HWSPINLOCK.vaddr
+#define SPRD_HWSPINLOCK1_SIZE	io_addr_sprd.HWSPINLOCK.length
+
+	struct iomap_sprd PUB0;
+#define SPRD_PUB0_PHYS		io_addr_sprd.PUB0.paddr
+#define SPRD_PUB0_BASE		io_addr_sprd.PUB0.vaddr
+#define SPRD_PUB0_SIZE		io_addr_sprd.PUB0.length
+
+	struct iomap_sprd PUB1;
+#define SPRD_PUB1_PHYS		io_addr_sprd.PUB1.paddr
+#define SPRD_PUB1_BASE		io_addr_sprd.PUB1.vaddr
+#define SPRD_PUB1_SIZE		io_addr_sprd.PUB1.length
+
+	struct iomap_sprd AGCPAHB;
+#define SPRD_AGCPAHB_PHYS		io_addr_sprd.AGCPAHB.paddr
+#define SPRD_AGCPAHB_BASE		io_addr_sprd.AGCPAHB.vaddr
+#define SPRD_AGCPAHB_SIZE		io_addr_sprd.AGCPAHB.length
+
+	struct iomap_sprd ANAAPB;
+#define SPRD_ANAAPB_PHYS        io_addr_sprd.ANAAPB.paddr
+#define SPRD_ANAAPB_BASE        io_addr_sprd.ANAAPB.vaddr
+#define SPRD_ANAAPB_SIZE        io_addr_sprd.ANAAPB.length
+
+	struct iomap_sprd DISPAHB;
+#define SPRD_DISPAHB_PHYS        io_addr_sprd.DISPAHB.paddr
+#define SPRD_DISPAHB_BASE        io_addr_sprd.DISPAHB.vaddr
+#define SPRD_DISPAHB_SIZE        io_addr_sprd.DISPAHB.length
+
+	struct iomap_sprd DISPCKG;
+#define SPRD_DISPCKG_PHYS        (io_addr_sprd.DISPCKG.paddr)
+#define SPRD_DISPCKG_BASE        (io_addr_sprd.DISPCKG.vaddr)
+#define SPRD_DISPCKG_SIZE        (io_addr_sprd.DISPCKG.length)
+
+	struct iomap_sprd GPUCLK;
+#define SPRD_GPUCLK_PHYS	(io_addr_sprd.GPUCLK.paddr)
+#define SPRD_GPUCLK_BASE	(io_addr_sprd.GPUCLK.vaddr)
+#define SPRD_GPUCLK_SIZE	(io_addr_sprd.GPUCLK.length)
+
+
+	struct iomap_sprd VSPAHB;
+#define SPRD_VSPAHB_PHYS	(io_addr_sprd.VSPAHB.paddr)
+#define SPRD_VSPAHB_BASE	(io_addr_sprd.VSPAHB.vaddr)
+#define SPRD_VSPAHB_SIZE	(io_addr_sprd.VSPAHB.length)
+
+	struct iomap_sprd VSPCKG;
+#define SPRD_VSPCKG_PHYS	(io_addr_sprd.VSPCKG.paddr)
+#define SPRD_VSPCKG_BASE	(io_addr_sprd.VSPCKG.vaddr)
+#define SPRD_VSPCKG_SIZE	(io_addr_sprd.VSPCKG.length)
+
+		struct iomap_sprd CAMAHB;
+#define SPRD_CAMAHB_PHYS		io_addr_sprd.CAMAHB.paddr
+#define SPRD_CAMAHB_BASE		io_addr_sprd.CAMAHB.vaddr
+#define SPRD_CAMAHB_SIZE		io_addr_sprd.CAMAHB.length
+
+#else
 	struct iomap_sprd HWSPINLOCK0;
 #define SPRD_HWSPINLOCK0_PHYS	io_addr_sprd.HWSPINLOCK0.paddr
 #define SPRD_HWSPINLOCK0_BASE	io_addr_sprd.HWSPINLOCK0.vaddr
@@ -88,6 +168,7 @@ struct iotable_sprd {
 #define SPRD_HWSPINLOCK1_PHYS	io_addr_sprd.HWSPINLOCK1.paddr
 #define SPRD_HWSPINLOCK1_BASE	io_addr_sprd.HWSPINLOCK1.vaddr
 #define SPRD_HWSPINLOCK1_SIZE	io_addr_sprd.HWSPINLOCK1.length
+#endif
 
 /************** 64BIT private map **************/
 #ifdef CONFIG_64BIT
@@ -156,10 +237,12 @@ struct iotable_sprd {
 #define SPRD_GPUCKG_BASE        io_addr_sprd.GPUCKG.vaddr
 #define SPRD_GPUCKG_SIZE        io_addr_sprd.GPUCKG.length
 
+#if !defined(CONFIG_ARCH_WHALE)
 		struct iomap_sprd INT;
 #define SPRD_INT_PHYS           io_addr_sprd.INT.paddr
 #define SPRD_INT_BASE           io_addr_sprd.INT.vaddr
 #define SPRD_INT_SIZE           io_addr_sprd.INT.length
+#endif
 
 		struct iomap_sprd INTC0;
 #define SPRD_INTC0_PHYS         io_addr_sprd.INTC0.paddr
@@ -175,6 +258,17 @@ struct iotable_sprd {
 #define SPRD_INTC3_PHYS         io_addr_sprd.INTC3.paddr
 #define SPRD_INTC3_BASE         io_addr_sprd.INTC3.vaddr
 #define SPRD_INTC3_SIZE         io_addr_sprd.INTC3.length
+#if defined(CONFIG_ARCH_WHALE)
+		struct iomap_sprd INTC4;
+#define SPRD_INTC4_PHYS         (io_addr_sprd.INTC4.paddr)
+#define SPRD_INTC4_BASE         (io_addr_sprd.INTC4.vaddr)
+#define SPRD_INTC4_SIZE         (io_addr_sprd.INTC4.length)
+
+		struct iomap_sprd INTC5;
+#define SPRD_INTC5_PHYS         (io_addr_sprd.INTC5.paddr)
+#define SPRD_INTC5_BASE         (io_addr_sprd.INTC5.vaddr)
+#define SPRD_INTC5_SIZE         (io_addr_sprd.INTC5.length)
+#endif
 
 		struct iomap_sprd UIDEFUSE;
 #define SPRD_UIDEFUSE_PHYS      io_addr_sprd.UIDEFUSE.paddr
@@ -339,4 +433,8 @@ struct iotable_sprd {
 #if defined(CONFIG_ARCH_SCX30G2) || defined(CONFIG_MACH_SP9830I) || defined(CONFIG_ARCH_SCX35LT8) 
 #define REGS_CODEC_AHB_BASE	SPRD_CODECAHB_BASE
 #endif
+#if defined(CONFIG_ARCH_SCX30G3)
+#define REGS_CRYPTO_APB_RF_BASE	SPRD_CRYPTO_BASE
+#endif
+
 #endif /* __SCI_IOMAP_H__ */

@@ -16,17 +16,19 @@
 #include <linux/switch.h>
 #include <linux/input.h>
 #include <linux/platform_device.h>
+#include <linux/timer.h> //KSND
+#include <linux/time.h>  //KSND
 
 //KSND
 #define SEC_USE_HS_SYSFS
-#define SEC_SYSFS_ADC_EARJACK
+//#define SEC_SYSFS_ADC_EARJACK
 
 //====================  debug  ====================
 #define ENTER \
-do{ if(debug_level >= 1) printk(KERN_INFO "[SPRD_HEADSET_DBG][%d] func: %s  line: %04d\n", adie_type, __func__, __LINE__); }while(0)
+do{ if (debug_level >= 1) printk(KERN_INFO "[SPRD_HEADSET_DBG][%d] func: %s  line: %04d\n", adie_type, __func__, __LINE__); } while (0)
 
 #define PRINT_DBG(format,x...)  \
-do{ if(debug_level >= 1) printk(KERN_INFO "[SPRD_HEADSET_DBG][%d] " format, adie_type, ## x); }while(0)
+do{ if (debug_level >= 1) printk(KERN_INFO "[SPRD_HEADSET_DBG][%d] " format, adie_type, ## x); } while (0)
 
 #define PRINT_INFO(format,x...)  \
 do{ printk(KERN_INFO "[SPRD_HEADSET_INFO][%d] " format, adie_type, ## x); }while(0)
@@ -35,7 +37,7 @@ do{ printk(KERN_INFO "[SPRD_HEADSET_INFO][%d] " format, adie_type, ## x); }while
 do{ printk(KERN_INFO "[SPRD_HEADSET_WARN][%d] " format, adie_type, ## x); }while(0)
 
 #define PRINT_ERR(format,x...)  \
-do{ printk(KERN_ERR "[SPRD_HEADSET_ERR][%d] func: %s  line: %04d  info: " format, adie_type, __func__, __LINE__, ## x); }while(0)
+do{ printk(KERN_ERR "[SPRD_HEADSET_ERR][%d] func: %s  line: %04d  info: " format, adie_type, __func__, __LINE__, ## x); } while (0)
 //====================  debug  ====================
 
 #define headset_reg_read(addr)	\
@@ -85,8 +87,12 @@ struct sprd_headset_platform_data {
         int gpio_switch;
         int gpio_detect;
         int gpio_button;
+        int gpio_detect_mic;
         int irq_trigger_level_detect;
         int irq_trigger_level_button;
+        int irq_trigger_level_detect_mic;
+        int adc_threshold_gnd_average;
+        int adc_threshold_left_average;
         int adc_threshold_3pole_detect;
         int adc_threshold_4pole_detect;
         int irq_threshold_buttont;
@@ -101,6 +107,7 @@ struct sprd_headset {
         int type;
         int irq_detect;
         int irq_button;
+        int irq_detect_mic;
         struct sprd_headset_platform_data *platform_data;
         struct switch_dev sdev;
         struct input_dev *input_dev;
@@ -108,5 +115,8 @@ struct sprd_headset {
         struct workqueue_struct *detect_work_queue;
         struct work_struct work_button;
         struct workqueue_struct *button_work_queue;
+
+        struct timespec ts;             /* Get Current time for KSND */
+        struct timespec ts_after;       /* Get Current time After Event */
 };
 #endif

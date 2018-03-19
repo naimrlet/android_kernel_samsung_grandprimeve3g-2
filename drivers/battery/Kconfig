@@ -8,7 +8,7 @@ config BATTERY_SAMSUNG
 	 refer to sec_charging_common.h
 
 config BATTERY_SWELLING
-	bool "prevent battery swellin "
+	bool "prevent battery swelling"
 	help
 	  Say Y to include support for prevent battery swelling
 
@@ -26,7 +26,7 @@ config SAMSUNG_LPM_MODE
 	default n
 	help
 	 Say Y to include support for sec off charging support
-	 This value defiend at bootloader.
+	 This value defined at bootloader.
 	 Before enable this feature,
 	 implement power off charging in the bootloader.
 
@@ -47,6 +47,15 @@ config STBC_SAMSUNG
 	 for fuelgauge driver with mfd.
 	 This driver source code implemented
 	 fuelgauge driver with mfd.
+
+config BATTERY_JXX_LTE
+	bool "JXX project LTE model feature"
+	default n
+	help
+	  Say Y to include support for JXX models.
+	  enable this feature only JXX models.
+	  This value defined for SM5701 charger
+	  and SPRD inner fuelgauge driver.
 
 # Fuel Gauge
 
@@ -365,6 +374,15 @@ config CHARGER_SM5414
 	 for SM5414 charger driver.
 	 This driver source code implemented
 	 all functions for SMB5414 charger.
+
+config CHARGER_SM5418
+	tristate "SM5418 charger driver"
+	default n
+	help
+	 Say Y to include support
+	 for SM5418 charger driver.
+	 This driver source code implemented
+	 all functions for SMB5418 charger.
 
 # IF PMIC
 

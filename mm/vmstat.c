@@ -621,6 +621,29 @@ int fragmentation_index(struct zone *zone, unsigned int order)
 }
 #endif
 
+#ifdef CONFIG_POMEMR_RECLAIM
+int get_buddyinfo_higherorder(long reclaim_size[MAX_ORDER_RECLAIM])
+{
+	unsigned int order;
+	struct zone *zone;
+    int ret = 0;
+	for_each_populated_zone(zone) {
+		if(zone->name[0] == 'H') {
+			for (order = MIN_ORDER_RECLAIM; order < MAX_ORDER_RECLAIM; order++) {
+				pr_debug(" kpomemr %6lu ", zone->free_area[order].nr_free);
+				reclaim_size[order] -=  zone->free_area[order].nr_free;
+                if (reclaim_size[order] > 0)
+                    ret = 1;
+			}
+		pr_debug("\n");
+		}
+	}
+	return ret;
+}
+
+EXPORT_SYMBOL(get_buddyinfo_higherorder);
+#endif /* CONFIG_POMEMR_RECLAIM */
+
 #if defined(CONFIG_PROC_FS) || defined(CONFIG_COMPACTION)
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>

@@ -561,7 +561,8 @@ static LCM_Init_Code init_data[] = {
 {LCM_SEND(2), {0xff,0x04}},
 {LCM_SEND(2), {0xfb,0x01}},
 {LCM_SEND(2), {0xff,0x00}},
-{LCM_SEND(2), {0xD3,0x05}},  //VBP VFP VSPW
+//{LCM_SEND(2), {0xD3,0x05}},  //VBP VFP VSPW
+{LCM_SEND(2), {0xD3,0x06}},  //VBP VFP VSPW
 {LCM_SEND(2), {0xD4,0x04}},
 
 {LCM_SEND(1), {0x11}},       //sleep out
@@ -789,19 +790,19 @@ static struct panel_operations lcd_nt35596h_mipi_operations = {
 };
 
 static struct timing_rgb lcd_nt35596h_mipi_timing = {
-	.hfp = 20,  /* unit: pixel */
-	.hbp = 20,
-	.hsync = 20,//4,
-	.vfp = 10, /*unit: line*/
-	.vbp = 10,
-	.vsync = 6,
+	.hfp = 30,  /* unit: pixel */
+	.hbp = 30,
+	.hsync = 30,//4,
+	.vfp = 8, /*unit: line*/
+	.vbp = 3,
+	.vsync = 3,
 };
 
 static struct info_mipi lcd_nt35596h_mipi_info = {
 	.work_mode  = SPRDFB_MIPI_MODE_VIDEO,
 	.video_bus_width = 24, /*18,16*/
 	.lan_number = 4,
-	.phy_feq = 1000*1000,
+	.phy_feq = 850*1000,
 	.h_sync_pol = SPRDFB_POLARITY_POS,
 	.v_sync_pol = SPRDFB_POLARITY_POS,
 	.de_pol = SPRDFB_POLARITY_POS,
@@ -815,7 +816,7 @@ static struct info_mipi lcd_nt35596h_mipi_info = {
 struct panel_spec lcd_nt35596h_mipi_spec = {
 	.width = 1080,
 	.height = 1920,
-	.fps = 40,
+	.fps = 45,
 	.type = LCD_MODE_DSI,
 	.direction = LCD_DIRECT_NORMAL,
 	.is_clean_lcd = true,

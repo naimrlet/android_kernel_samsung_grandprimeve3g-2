@@ -14,7 +14,7 @@
                 compatible = "sprd,sound";
 		#address-cells = <1>;
 		#size-cells = <1>;
-
+		ranges;
 		/* 1. codecs */
         sprd_codec: sprd-codec {
             compatible = "sprd,sprd-codec";
@@ -47,6 +47,11 @@
 		};
 
 		/* 2. cpu-dais */
+		vbc_r3p0: vbc-r3p0 {
+			compatible = "sprd,vbc-r3p0";
+			status = "disable";
+			sprd,reg_ap_vbc = <0x41480000 0x4c>;
+		};
 		vbc_r2p0: vbc-r2p0 {
 			compatible = "sprd,vbc-r2p0";
 			status = "disable";
@@ -116,10 +121,14 @@
 		/* 3. platform */
 		sprd_pcm: sprd-pcm-audio {
 			compatible = "sprd,sprd-pcm";
+			reg = <0x89200000 0x100000>; /*we have 1M that is available*/
+		};
+		sprd_compr: sprd-compr-audio {
+			compatible = "sprd,sprd-compr-platform";
 		};
 
 		/* 4. machine */
-        vbc_sound0: sound@0 {
+		vbc_sound1: sound@0 {
             compatible = "sprd,vbc-r2p0-sprd-codec";
             sprd,model = "sprdphone";
             sprd,vaudio = <&vaudio>;
@@ -128,7 +137,7 @@
             sprd,pcm = <&sprd_pcm>;
         };
 
-		vbc_sound1: sound@1 {
+		vbc_sound2: sound@1 {
 			compatible = "sprd,vbc-r2p0-sprd-codec-v3";
 			sprd,model = "sprdphone";
 			sprd,vaudio = <&vaudio>;
@@ -145,6 +154,33 @@
 			sprd,pcm = <&sprd_pcm>;
 		};
 
+		/* machine for test codec tlv320aic32x4*/
+		tlv320aic32x4_compr_sound: sound@3 {
+			compatible = "sprd,vbc-r3p0-tlv320aic32x4_machine";
+			sprd,model = "sprdphone4ti";
+			sprd,vaudio = <&vaudio>;
+			sprd,vbc = <&vbc_r3p0>;
+			/* sprd,codec = <&ti_codec>;*/
+			sprd,pcm = <&sprd_pcm>;
+			sprd,sprd-compr-platform = <&sprd_compr>;
+		};
+		/* machine for test codec es755*/
+		es755_sound: sound@4 {
+			compatible = "sprd,vbc-r3p0-es755_machine";
+			sprd,model = "sprdphone4adnc";
+			sprd,vaudio = <&vaudio>;
+			sprd,vbc = <&vbc_r3p0>;
+			/* sprd,codec = <&ti_codec>;*/
+			sprd,pcm = <&sprd_pcm>;
+			sprd,sprd-compr-platform = <&sprd_compr>;
+		};
+		realtek: sound@5 {
+			compatible = "sprd,vbc-r3p0-sprd-codec-realtek";
+			sprd,model = "sprdphone4realtek";
+			sprd,vaudio = <&vaudio>;
+			sprd,vbc = <&vbc_r3p0>;
+			sprd,pcm = <&sprd_pcm>;
+		};
 	};
 
 };

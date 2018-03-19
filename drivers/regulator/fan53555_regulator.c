@@ -37,6 +37,7 @@
 #include <linux/of_address.h>
 #include <linux/regulator/of_regulator.h>
 #endif
+#include <linux/clk.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
@@ -51,6 +52,7 @@
 #define debug0(format, arg...)	//pr_debug("regu: " "@@@%s: " format, __func__, ## arg)
 #define debug2(format, arg...)	pr_debug("regu: " "@@@%s: " format, __func__, ## arg)
 #define FAIRCHILD_DCDC_NAME			"fairchild_fan53555"
+#define DEF_VOL 1020000
 enum fan53555_regs {
 	FAN53555_REG_VSEL_0 = 0x0,
 	FAN53555_REG_VSEL_1 = 0x1,
@@ -76,6 +78,7 @@ struct fan5xx_regulator_info {
 	struct i2c_client *client;
 };
 static struct dentry *debugfs_root = NULL;
+static struct regulator_dev *rdev_glb;
 static atomic_t idx = ATOMIC_INIT(1);	/* 0: dummy */
 static int fan5xx_write_reg(struct fan5xx_regulator_info *fan5xx_dcdc, u8 addr,
 			    u8 para)
@@ -261,7 +264,7 @@ static int debugfs_voltage_get(void *data, u64 * val)
 	if (rdev)
 		if (0 == strcmp(rdev->desc->name, "vddbigarm"))
 			if (rdev->desc->ops->get_voltage)
-				*val = rdev->desc->ops->get_voltage(rdev);
+				*val = rdev->desc->ops->get_voltage(rdev)/1000;
 			else
 				*val = -1;
 	return 0;
@@ -294,10 +297,20 @@ static int debugfs_voltage_set(void *data, u64 val)
 		if (0 != strcmp(rdev->desc->name, "vddbigarm"))
 			min_uV = (u32) val *1000;
 		else
-			min_uV = (u32) val;
-		min_uV += rdev->constraints->uV_offset;
+			min_uV = (u32) val*1000;
 		rdev->desc->ops->set_voltage(rdev, min_uV, min_uV, 0);
 	}
+	return 0;
+}
+
+static int debugfs_cal_get(void *data, u64* val)
+{
+            *val = 1;
+	return 0;
+}
+
+static int debugfs_cal_set(void *data, u64 val)
+{
 	return 0;
 }
 
@@ -305,6 +318,8 @@ DEFINE_SIMPLE_ATTRIBUTE(fops_enable,
 			debugfs_enable_get, debugfs_enable_set, "%llu\n");
 DEFINE_SIMPLE_ATTRIBUTE(fops_ldo,
 			debugfs_voltage_get, debugfs_voltage_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(fops_cal,
+			debugfs_cal_get, debugfs_cal_set, "%llu\n");
 static void ext_dcdc_init_debugfs(struct regulator_dev *rdev)
 {
 	struct fan5xx_regulator_info *fan5xx_dcdc = rdev_get_drvdata(rdev);
@@ -318,11 +333,14 @@ static void ext_dcdc_init_debugfs(struct regulator_dev *rdev)
 		return;
 	}
 
-	debugfs_create_file("enable", S_IRUGO | S_IWUSR,
+	debugfs_create_file("enable", 0666,
 			    regu_debugfs, rdev, &fops_enable);
 
-	debugfs_create_file("voltage", S_IRUGO | S_IWUSR,
+	debugfs_create_file("voltage", 0666,
 			    regu_debugfs, rdev, &fops_ldo);
+
+	debugfs_create_file("calibrated", 0666,
+			    regu_debugfs, rdev, &fops_cal);
 }
 
 static const unsigned short fan5xx_addr_list[] = {
@@ -463,6 +481,23 @@ static int fan53555_parse_dt(struct device *dev)
 	return 0;
 }
 
+static void big_core_set_clk_default(void)
+{
+	struct clk *mcu_clk, *mpll, *twpll;
+
+#define T8_MPLL_CLOCK_1500M 1500000000
+	mcu_clk = clk_get_sys(NULL, "clk_big_mcu");
+	WARN(!mcu_clk, "%s: can't get clk\n", __func__);
+	mpll = clk_get_sys(NULL, "clk_mpll");
+	WARN(!mpll, "%s: can't get clk\n", __func__);
+	twpll = clk_get_sys(NULL, "clk_twpll");
+	WARN(!twpll, "%s: can't get clk\n", __func__);
+
+	clk_set_parent(mcu_clk,twpll);
+	clk_set_rate(mpll, T8_MPLL_CLOCK_1500M);
+	clk_set_parent(mcu_clk,mpll);
+}
+
 static int fan53335_probe(struct i2c_client *client,
 			  const struct i2c_device_id *id)
 {
@@ -519,7 +554,6 @@ static int fan53335_probe(struct i2c_client *client,
 
 	fan5xx_dcdc->desc.type = REGULATOR_VOLTAGE;
 	fan5xx_dcdc->desc.ops = &fan5xx_dcdc_ops;
-
 	config.dev = &client->dev;
 	config.init_data = fan5xx_dcdc->init_data;	//&init_data;
 	config.driver_data = fan5xx_dcdc;
@@ -529,10 +563,14 @@ static int fan53335_probe(struct i2c_client *client,
 		pr_info("%s regulator vddbigarm ok!\n", __func__);
 		rdev->reg_data = fan5xx_dcdc;
 		ext_dcdc_init_debugfs(rdev);
+                rdev_glb = rdev;
 		fan5xx_dcdc->desc.ops->set_voltage(rdev,
 						   fan5xx_dcdc->regs.vol_def,
 						   fan5xx_dcdc->regs.vol_def,
 						   0);
+	#if defined(CONFIG_ARCH_SCX35LT8)
+		big_core_set_clk_default();
+	#endif
 	}
 
 	pr_info("%s -- exit probe -->\n", __func__);

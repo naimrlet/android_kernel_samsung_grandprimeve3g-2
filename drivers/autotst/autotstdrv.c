@@ -17,6 +17,7 @@
 #include <linux/major.h>
 #include <linux/module.h>
 #include <linux/types.h>
+#include <soc/sprd/pinmap.h>
 
 #include <asm/io.h>
 #include <asm/uaccess.h>
@@ -211,12 +212,14 @@ static int i2c_ioctl( unsigned int cmd, unsigned long arg )
 static int gpio_ioctl( unsigned int cmd, unsigned long arg )
 {
     int ret = 0;
+    int pull = 0;
     struct autotst_gpio_info_t git;
 
     if( copy_from_user(&git, (const void __user *)arg, sizeof(struct autotst_gpio_info_t)) ) {
         printk(KERN_ERR "copy_from_user fail: arg = %lu\n", arg);
         return -EFAULT;
     }
+    printk("[autotst] git up_enb:%d==down_enb:%d\n", git.pup_enb, git.pdwn_enb);
 
     switch( cmd ) {
     case AUTOTST_IOCTL_GPIO_INIT:
@@ -229,6 +232,10 @@ static int gpio_ioctl( unsigned int cmd, unsigned long arg )
         if( git.pdwn_enb ) {
         }
 */
+	pull = ( (git.pdwn_enb << 6) & (BIT_PIN_WPD) ) | ((git.pup_enb << 7) & (BIT_PIN_WPU));
+	printk("[autotst] gpio init gpio:%d, name:%s, pull:%d, dir:%d, val:%d \n", git.gpio, name, pull, git.dir, git.val);
+
+	autotst_pin_ctrl(DISPC_PIN_FUNC3, git.gpio, pull);
         gpio_request(git.gpio, name);
         if( AUTOTST_GPIO_DIR_IN == git.dir ) {
             gpio_direction_input(git.gpio);
@@ -241,6 +248,8 @@ static int gpio_ioctl( unsigned int cmd, unsigned long arg )
 		int gv = gpio_get_value(git.gpio);
 
         git.val = (gv > 0) ? 1 : 0;
+	printk("[autotst] gpio get, val:%d\n", git.val);
+
         if( copy_to_user((void __user *)arg, &git, sizeof(struct autotst_gpio_info_t)) ) {
             printk(KERN_ERR "copy_to_user fail: arg = %lu\n", arg);
             ret = -EFAULT;
@@ -250,6 +259,9 @@ static int gpio_ioctl( unsigned int cmd, unsigned long arg )
     case AUTOTST_IOCTL_GPIO_SET:
         gpio_set_value(git.gpio, git.val);
         break;
+    case AUTOTST_IOCTL_GPIO_CLOSE:
+	 autotst_pin_ctrl(DISPC_PIN_FUNC0, git.gpio, pull);
+	 break;
     default:
         ret = -EINVAL;
         break;
@@ -298,10 +310,9 @@ static int key_ioctl( unsigned int cmd, unsigned long arg )
 static long autotst_ioctl( struct file *filp, unsigned int cmd, unsigned long arg )
 {
     long ret = -1;
+    FUN_ENTER;
 
-	FUN_ENTER;
-
-	DBG_INFO("cmd = 0x%X\n", cmd);
+    DBG_INFO("cmd = 0x%X\n", cmd);
     switch( cmd ) {
     case AUTOTST_IOCTL_I2C_READ:
     case AUTOTST_IOCTL_I2C_WRITE:
@@ -310,6 +321,7 @@ static long autotst_ioctl( struct file *filp, unsigned int cmd, unsigned long ar
     case AUTOTST_IOCTL_GPIO_INIT:
     case AUTOTST_IOCTL_GPIO_GET:
     case AUTOTST_IOCTL_GPIO_SET:
+    case AUTOTST_IOCTL_GPIO_CLOSE:
         ret = gpio_ioctl(cmd, arg);
         break;
     case AUTOTST_IOCTL_LCD_DATA:
@@ -367,6 +379,7 @@ static struct file_operations autotst_fops =
 {
     .owner          = THIS_MODULE,
     .unlocked_ioctl = autotst_ioctl,
+    .compat_ioctl = autotst_ioctl,
     .open           = autotst_open,
     .release        = autotst_release,
 };

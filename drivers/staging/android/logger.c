@@ -29,6 +29,7 @@
 #include <linux/time.h>
 #include <linux/vmalloc.h>
 #include <linux/aio.h>
+#include <asm/setup.h>
 #include "logger.h"
 
 #include <asm/ioctls.h>
@@ -40,6 +41,9 @@
 #include <soc/sprd/sec_bsp.h>
 #endif
 
+#if defined(CONFIG_SEC_LOG64)
+#include <soc/sprd/sec_log64.h>
+#endif
 /**
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
  * @buffer:	The actual ring buffer
@@ -462,7 +466,7 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 			 */
 			return -EFAULT;
 
-#if defined(CONFIG_SEC_DEBUG)
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 	/* print as kernel log if the log string starts with "!@" */
 	if (count >= 2) {
 		if (log->buffer[log->w_off] == '!'
@@ -781,7 +785,7 @@ static int __init create_log(char *log_name, int size)
 	struct logger_log *log;
 	unsigned char *buffer;
 
-#if defined(CONFIG_SEC_DEBUG)
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 	buffer = kmalloc(size, GFP_KERNEL);
 #else
 	buffer = vmalloc(size);
@@ -837,7 +841,7 @@ out_free_buffer:
 	return ret;
 }
 
-#if defined(CONFIG_SEC_DEBUG)
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
 unsigned char *get_main_log_buf_addr(void)
 {
 	struct logger_log *log;
@@ -881,25 +885,40 @@ unsigned char *get_system_log_buf_addr(void)
 
 static int __init logger_init(void)
 {
-	int ret;
+	int ret, i;
+	unsigned long memsize = 0;
 
-	ret = create_log(LOGGER_LOG_MAIN, 512*1024);
-	if (unlikely(ret))
-		goto out;
+	struct logger_size
+	{
+		int sz;
+		char *log_name;
+	} logger_info[4] = {
+		{SZ_512K, LOGGER_LOG_MAIN},
+		{SZ_512K, LOGGER_LOG_EVENTS},
+		{SZ_512K, LOGGER_LOG_RADIO},
+		{SZ_512K, LOGGER_LOG_SYSTEM},
+	};
 
-	ret = create_log(LOGGER_LOG_EVENTS, 512*1024);
-	if (unlikely(ret))
-		goto out;
+	for (i = 0; i < meminfo.nr_banks; i++)
+		memsize += meminfo.bank[i].size;
 
-	ret = create_log(LOGGER_LOG_RADIO, 512*1024);
-	if (unlikely(ret))
-		goto out;
+	if(memsize > SZ_1G) {
+		logger_info[0].sz = SZ_2M;
+		logger_info[1].sz = SZ_1M;
+		logger_info[2].sz = SZ_512K;
+		logger_info[3].sz = SZ_1M;
+	}
 
-	ret = create_log(LOGGER_LOG_SYSTEM, 512*1024);
-	if (unlikely(ret))
-		goto out;
+	for (i = 0; i < 4; i++) {
+#ifdef CONFIG_SEC_FACTORY
+		logger_info[i].sz = SZ_4M;
+#endif
+		ret = create_log(logger_info[i].log_name, logger_info[i].sz);
+		if (unlikely(ret))
+			goto out;
+	}
 
-#if defined(CONFIG_SEC_DEBUG)
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
     /*{{ Mark for GetLog*/
 	sec_getlog_supply_loggerinfo(get_main_log_buf_addr(),
 					get_radio_log_buf_addr(),

@@ -26,7 +26,7 @@ static int __init arch_init(void)
 }
 
 postcore_initcall_sync(arch_init);
-
+#ifndef CONFIG_ARCH_WHALE
 //jian.chen temporary modification
 #ifdef CONFIG_64BIT
 const struct of_device_id of_sprd_late_bus_match_table[] = {
@@ -39,4 +39,5 @@ static void __init sc8830_init_late(void)
 				of_sprd_late_bus_match_table, NULL, NULL);
 }
 core_initcall(sc8830_init_late);
+#endif
 #endif

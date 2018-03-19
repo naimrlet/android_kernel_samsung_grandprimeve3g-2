@@ -25,6 +25,12 @@
 #include "sd.h"
 #include "sd_ops.h"
 
+#ifdef CONFIG_MMC_SUPPORT_STLOG
+#include <linux/stlog.h>
+#else
+#define ST_LOG(fmt,...)
+#endif
+
 static const unsigned int tran_exp[] = {
 	10000,		100000,		1000000,	10000000,
 	0,		0,		0,		0
@@ -764,7 +770,7 @@ try_again:
 	 * Switch procedure. SPI mode doesn't support CMD11.
 	 */
 	if (!mmc_host_is_spi(host) && rocr &&
-	   ((*rocr & 0x41000000) == 0x41000000)) {
+	   ((*rocr & 0x41000000) == 0x41000000) && mmc_host_uhs(host)) {
 		err = mmc_set_signal_voltage(host, MMC_SIGNAL_VOLTAGE_180);
 		if (err == -EAGAIN) {
 			retries--;
@@ -1031,7 +1037,19 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	host->card = card;
-	printk("%s: mmc_sd_init_card  success\n", mmc_hostname(host));
+
+	if(!oldcard){
+		err = mmc_sd_try_test(card);
+		if(err){
+			host->caps &=!(MMC_CAP_UHS_SDR12 | MMC_CAP_UHS_SDR25 |
+			MMC_CAP_UHS_SDR50 | MMC_CAP_UHS_SDR104 |
+			MMC_CAP_UHS_DDR50);
+			goto free_card;
+		}
+	}
+
+	//printk("%s: mmc_sd_init_card  success\n", mmc_hostname(host));
+	ST_LOG("<%s> %s: card init succeed\n", __func__,mmc_hostname(host));
 	return 0;
 
 free_card:

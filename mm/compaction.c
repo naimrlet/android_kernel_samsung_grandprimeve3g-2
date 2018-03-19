@@ -45,7 +45,11 @@ static unsigned long release_freepages(struct list_head *freelist)
 
 	list_for_each_entry_safe(page, next, freelist, lru) {
 		list_del(&page->lru);
+#ifndef CONFIG_SPRD_PAGERECORDER
 		__free_page(page);
+#else
+		__free_page_nopagedebug(page);
+#endif
 		count++;
 	}
 
@@ -1110,6 +1114,43 @@ unsigned long try_to_compact_pages(struct zonelist *zonelist,
 	return rc;
 }
 
+#ifdef CONFIG_POMEMR_RECLAIM
+unsigned long try_to_compact_pages_order(int porder)
+{
+    unsigned long did_some_progress;
+    gfp_t gfp_mask = GFP_HIGHUSER_MOVABLE;
+    bool sync_migration = false;
+    bool contended_compaction = false;
+    struct task_struct *p = current;
+    enum zone_type high_zoneidx = gfp_zone(gfp_mask);
+    struct zone *preferred_zone;
+    struct zonelist *zonelist = node_zonelist(numa_node_id(), gfp_mask);
+    did_some_progress = COMPACT_SKIPPED;
+    if (!porder)
+        return did_some_progress;
+
+    first_zones_zonelist(zonelist, high_zoneidx,
+                NULL, &preferred_zone);
+    if (!preferred_zone)
+        return did_some_progress;
+    if (compaction_deferred(preferred_zone, porder)) {
+        return did_some_progress;
+    }
+
+    p->flags |= PF_MEMALLOC;
+    did_some_progress = try_to_compact_pages(zonelist, porder, gfp_mask,
+                        NULL, sync_migration,
+                        &contended_compaction);
+
+    p->flags &= ~PF_MEMALLOC;
+    if (did_some_progress != COMPACT_SKIPPED)
+        count_vm_event(COMPACTSUCCESS);
+    else
+        count_vm_event(COMPACTFAIL);
+
+    return did_some_progress;
+}
+#endif
 
 /* Compact all zones within a node */
 static void __compact_pgdat(pg_data_t *pgdat, struct compact_control *cc)
@@ -1205,6 +1246,7 @@ int sysctl_compaction_handler(struct ctl_table *table, int write,
 
 	return 0;
 }
+
 
 int sysctl_extfrag_handler(struct ctl_table *table, int write,
 			void __user *buffer, size_t *length, loff_t *ppos)

@@ -112,6 +112,9 @@ static int fat_ent_bread(struct super_block *sb, struct fat_entry *fatent,
 		       (llu)blocknr);
 		return -EIO;
 	}
+#ifdef CONFIG_SPRD_METADATA_BUFFER_RECLAIM
+	set_buffer_metadata(fatent->bhs[0]);
+#endif
 	fatent->nr_bhs = 1;
 	ops->ent_set_ptr(fatent, offset);
 	return 0;
@@ -171,7 +174,7 @@ static void fat12_ent_put(struct fat_entry *fatent, int new)
 	spin_unlock(&fat12_entry_lock);
 
 	mark_buffer_dirty_inode_sync(fatent->bhs[0], fatent->fat_inode);
-	if (fatent->nr_bhs == 2) {
+	if (fatent->nr_bhs == 2){
 		mark_buffer_dirty_inode_sync(fatent->bhs[1], fatent->fat_inode);
 	}
 }

@@ -32,15 +32,7 @@
 
 static struct sblock_mgr *sblocks[SIPC_ID_NR][SMSG_CH_NR];
 
-static inline uint32_t sblock_get_index(uint32_t x, uint32_t y)
-{
-	return (x / y);
-}
 
-static inline uint32_t sblock_get_ringpos(uint32_t x, uint32_t y)
-{
-	return is_power_of_2(y) ? (x & (y - 1)) : (x % y);
-}
 
 void sblock_put(uint8_t dst, uint8_t channel, struct sblock *blk)
 {
@@ -199,7 +191,7 @@ static int sblock_thread(void *data)
 				sblock->handler(SBLOCK_NOTIFY_OPEN, sblock->data);
 			}
 			sblock->state = SBLOCK_STATE_READY;
-			pr_info("sblock-%d-%d is ready!\n", sblock->dst, sblock->channel);
+			pr_info("sblock-%d-%d is ready\n", sblock->dst, sblock->channel);
 			recovery = 1;
 			break;
 		case SMSG_TYPE_EVENT:
@@ -256,6 +248,8 @@ int sblock_create(uint8_t dst, uint8_t channel,
 	sblock->state = SBLOCK_STATE_IDLE;
 	sblock->dst = dst;
 	sblock->channel = channel;
+	txblocksize = SBLOCKSZ_ALIGN(txblocksize,SBLOCK_ALIGN_BYTES);
+	rxblocksize = SBLOCKSZ_ALIGN(rxblocksize,SBLOCK_ALIGN_BYTES);
 	sblock->txblksz = txblocksize;
 	sblock->rxblksz = rxblocksize;
 	sblock->txblknum = txblocknum;
@@ -369,6 +363,8 @@ int sblock_create(uint8_t dst, uint8_t channel,
 		sblock->ring->rxrecord[i] = SBLOCK_BLK_STATE_DONE;
 		poolhd->rxblk_wrptr++;
 	}
+
+        sblock->ring->yell = 1;
 
 	init_waitqueue_head(&sblock->ring->getwait);
 	init_waitqueue_head(&sblock->ring->recvwait);
@@ -609,7 +605,8 @@ int sblock_send_finish(uint8_t dst, uint8_t channel)
 	ring = sblock->ring;
 	ringhd = (volatile struct sblock_ring_header *)(&ring->header->ring);
 
-	if (ringhd->txblk_wrptr != ringhd->txblk_rdptr) {
+	if (ring->yell) {
+                ring->yell = 0;
 		smsg_set(&mevt, channel, SMSG_TYPE_EVENT, SMSG_EVENT_SBLOCK_SEND, 0);
 		rval = smsg_send(dst, &mevt, 0);
 	}

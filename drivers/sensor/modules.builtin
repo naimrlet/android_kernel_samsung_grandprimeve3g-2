@@ -1,0 +1,4 @@
+kernel/drivers/sensor/cm36672p.ko
+kernel/drivers/sensor/bma2x2.ko
+kernel/drivers/sensor/k2hh.ko
+kernel/drivers/sensor/stk3013.ko

@@ -295,6 +295,11 @@
 #include <linux/delay.h>
 #include <linux/jiffies.h>
 #include <linux/interrupt.h>
+#ifdef CONFIG_OF
+#include <linux/of_device.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#endif
 
 #include "dwc_otg_os_dep.h"
 #include "dwc_os.h"
@@ -304,6 +309,10 @@
 #include "dwc_otg_pcd_if.h"
 #include "dwc_otg_hcd_if.h"
 #include "usb_hw.h"
+#ifdef CONFIG_SPRD_EXT_IC_POWER
+extern void sprd_extic_otg_power(int enable);
+#endif
+
 
 //#include <linux/platform_device.h>
 /*
@@ -718,10 +727,27 @@ static ssize_t spramdump_show(struct device *_dev,
 {
 	struct platform_device *lm_dev = to_platform_device(_dev);
 	dwc_otg_device_t *otg_dev = platform_get_drvdata(lm_dev);
+	struct	resource *res_ptr = NULL;
 
-	dwc_otg_dump_spram(otg_dev->core_if);
+	int ret;
+	struct device_node *np = lm_dev->dev.of_node;
+	struct resource res;
 
-	return sprintf(buf, "SPRAM Dump\n");
+	ret = of_address_to_resource(np, 0, &res);
+	if (ret < 0) {
+		dev_err(&lm_dev->dev, "no reg of property specified\n");
+		goto failed;
+	}
+	res_ptr = &res;
+
+	if (res_ptr && (SPRAM_END_ADDR < res_ptr->end - res_ptr->start)
+	    && (SPRAM_START_ADDR < res_ptr->end - res_ptr->start)) {
+		dwc_otg_dump_spram(otg_dev->core_if);
+
+		return sprintf(buf, "SPRAM Dump\n");
+	}
+failed:
+	return sprintf(buf, "SPRAM Dump failed\n");
 }
 
 DEVICE_ATTR(spramdump, S_IRUGO, spramdump_show, 0);
@@ -984,7 +1010,7 @@ static ssize_t otgstatus_show(struct device *_dev,
 		return sprintf(buf, "Not support");
 	}
 	otg_status = usb_get_id_state();
-	return sprintf(buf, "%s\n", (otg_status ? "hign" : "low"));
+	return sprintf(buf, "%s\n", (otg_status ? "high" : "low"));
 }
 
 /**
@@ -1009,12 +1035,17 @@ static ssize_t hostvbus_store(struct device *_dev,
 
 	if (strncmp(buf, "off", 3) == 0) {
 		otg_dev->host_disabled &= ~(0x02);
-		charge_pump_set(pdata->gpio_boost, 0);
-		DWC_PRINTF("gpio_boost = %d  off\n", pdata->gpio_boost);
+#ifdef CONFIG_SPRD_EXT_IC_POWER
+		sprd_extic_otg_power(0);	/*Turn off ext ic otg func*/
+		DWC_PRINTF("vbus off\n");
+#endif
+
 	} else if (strncmp(buf, "on", 2) == 0) {
 		otg_dev->host_disabled |= 0x02;
-		charge_pump_set(pdata->gpio_boost, 1);
-		DWC_PRINTF("gpio_boost = %d  on\n", pdata->gpio_boost);
+#ifdef CONFIG_SPRD_EXT_IC_POWER
+		sprd_extic_otg_power(1);	/*Turn on ext ic otg func*/
+		DWC_PRINTF("vbus on\n");
+#endif
 	}
 
 	return count;
@@ -1061,7 +1092,6 @@ void dwc_otg_attr_create(
 	error = device_create_file(&dev->dev, &dev_attr_hprt0);
 	error = device_create_file(&dev->dev, &dev_attr_remote_wakeup);
 	error = device_create_file(&dev->dev, &dev_attr_regdump);
-	error = device_create_file(&dev->dev, &dev_attr_spramdump);
 	error = device_create_file(&dev->dev, &dev_attr_hcddump);
 	error = device_create_file(&dev->dev, &dev_attr_hcd_frrem);
 	error = device_create_file(&dev->dev, &dev_attr_rd_reg_test);
@@ -1112,7 +1142,6 @@ void dwc_otg_attr_remove(
 	device_remove_file(&dev->dev, &dev_attr_hprt0);
 	device_remove_file(&dev->dev, &dev_attr_remote_wakeup);
 	device_remove_file(&dev->dev, &dev_attr_regdump);
-	device_remove_file(&dev->dev, &dev_attr_spramdump);
 	device_remove_file(&dev->dev, &dev_attr_hcddump);
 	device_remove_file(&dev->dev, &dev_attr_hcd_frrem);
 	device_remove_file(&dev->dev, &dev_attr_rd_reg_test);

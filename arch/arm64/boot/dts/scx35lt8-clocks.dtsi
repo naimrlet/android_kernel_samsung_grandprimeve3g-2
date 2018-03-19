@@ -99,14 +99,14 @@
 		clk_gpll: clk_gpll {
 			compatible = "sprd,adjustable-pll-clock";
 			#clock-cells = <0>;
-			reg = <0x402e0148 0x7ff 0x402b0088 0x1>;	/* mult reg and prepare reg */
+			reg = <0x402e0148 0x7ff 0x402b0089 0x1>;	/* mult reg and prepare reg */
 			clock-output-names = "clk_gpll";
 		};
 
 		clk_usbpll: clk_usbpll {
 			compatible = "sprd,adjustable-pll-clock";
 			#clock-cells = <0>;
-			reg = <0x402e0150 0x7ff 0x402b0088 0x2>;	/* mult reg and prepare reg */
+			reg = <0x402e0150 0x7ff 0x402b0089 0x2>;	/* mult reg and prepare reg */
 			clock-output-names = "clk_usbpll";
 		};
 
@@ -332,12 +332,12 @@
 			clock-output-names = "clk_ca7_big_axi";
 		};
 
-		clk_ca7_little_axi: clk_ca7_little_axi {
+		clk_ca7_lit_axi: clk_ca7_lit_axi {
 			compatible = "sprd,divider-clock";
 			#clock-cells = <0>;
 			reg = <0x20e00038 0x3800>;	/* divider reg */
 			clocks = <&clk_little_mcu>;
-			clock-output-names = "clk_ca7_little_axi";
+			clock-output-names = "clk_ca7_lit_axi";
 		};
 
 		clk_ca7_big_dbg: clk_ca7_big_dbg {
@@ -348,12 +348,12 @@
 			clock-output-names = "clk_ca7_big_dbg";
 		};
 
-		clk_ca7_little_dbg: clk_ca7_little_dbg {
+		clk_ca7_lit_dbg: clk_ca7_lit_dbg {
 			compatible = "sprd,divider-clock";
 			#clock-cells = <0>;
 			reg = <0x20e00038 0xe0000>;	/* divider reg */
 			clocks = <&clk_little_mcu>;
-			clock-output-names = "clk_ca7_little_dbg";
+			clock-output-names = "clk_ca7_lit_dbg";
 		};
 
 		clk_gic: clk_gic {
@@ -910,7 +910,7 @@
 			reg = <0x60d00008 0x80>;	/* enable reg */
 			clocks = <&clk_mm>;
 			clock-output-names = "clk_mm_axi";
-			mm-domain;
+			#mm-domain;
 		};
 
 		clk_mm_mtx_axi: clk_mm_mtx_axi {
@@ -1016,7 +1016,7 @@
 			compatible = "sprd,muxed-clock";
 			#clock-cells = <0>;
 			reg = <0x60e0002c 0x3 0x60d00008 0x8 0x60d00000 0x1>;	/* select reg and ckg enable reg and prepare reg */
-			clocks = <&clk_96m>, <&clk_128m>, <&clk_256m>, <&clk_312m>;
+			clocks = <&clk_96m>, <&clk_128m>, <&clk_256m>, <&clk_384m>;
 			clock-output-names = "clk_dcam";
 			mm-domain;
 		};

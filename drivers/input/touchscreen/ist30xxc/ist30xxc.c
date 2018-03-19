@@ -49,10 +49,14 @@
 #include "ist30xxc_cmcs.h"
 #endif
 
+#if IST30XX_CMCS_JIT_TEST
+#include "ist30xxc_cmcs_jit.h"
+#endif
+
 #include <linux/power_supply.h>
 extern void (*tsp_charger_status_cb)(int);
 
-#define TOUCH_BOOSTER	1
+#define TOUCH_BOOSTER	0
 
 #if TOUCH_BOOSTER
 #include <linux/cpufreq.h>
@@ -78,6 +82,11 @@ int ist30xx_key_code[IST30XX_MAX_KEYS + 1] = { 0, KEY_RECENT, KEY_BACK };
 struct ist30xx_data *ts_data;
 
 DEFINE_MUTEX(ist30xx_mutex);
+
+#ifdef CONFIG_ARM64
+struct class *sec_class;
+EXPORT_SYMBOL(sec_class);
+#endif
 
 int ist30xx_dbg_level = IST30XX_DEBUG_LEVEL;
 void tsp_printk(int level, const char *fmt, ...)
@@ -176,6 +185,8 @@ void ist30xx_start(struct ist30xx_data *data)
 		mod_timer(&event_timer, get_jiffies_64() + EVENT_TIMER_INTERVAL * 2);
 	}
 
+	data->ignore_delay = true;
+
 	ist30xx_write_cmd(data->client, IST30XX_HIB_CMD,
 		((eHCOM_SET_MODE_SPECIAL << 16) | (data->noise_mode & 0xFFFF)));
 /*
@@ -216,6 +227,8 @@ void ist30xx_start(struct ist30xx_data *data)
 	}
 
 	ist30xx_cmd_start_scan(data);
+
+	data->ignore_delay = false;
 }
 
 
@@ -795,6 +808,15 @@ static irqreturn_t ist30xx_irq_thread(int irq, void *ptr)
 	}
 #endif
 
+#if IST30XX_CMCS_JIT_TEST
+	if (((*msg & CMCS_MSG_MASK) == CM_MSG_VALID) || ((*msg & CMCS_MSG_MASK) == CS_MSG_VALID)) {
+		data->status.cmcs = *msg;
+		tsp_info("cmcs status: 0x%08x\n", *msg);
+
+		goto irq_end;
+	}
+#endif
+
 #if IST30XX_GESTURE
 	ret = PARSE_GESTURE_MESSAGE(*msg);
 	if (unlikely(ret > 0)) {
@@ -998,7 +1020,7 @@ void ist30xx_set_ta_mode(int status)
 	if(ts_data->initialized) {
 		tsp_info("%s(), mode = %d\n", __func__, status);
 
-		if (status == POWER_SUPPLY_TYPE_BATTERY || status == POWER_SUPPLY_TYPE_UNKNOWN)
+		if (status == POWER_SUPPLY_TYPE_BATTERY || status == POWER_SUPPLY_TYPE_OTG || status == POWER_SUPPLY_TYPE_UNKNOWN )
 			status = 0;
 		else
 			status = 1;
@@ -1319,6 +1341,12 @@ static struct ist30xx_platform_data *ist30xx_parse_dt(struct device *dev)
 	if (of_property_read_u32(np, "imagis,chip-code", &pdata->chip_code))
 		goto out;
 
+	if (of_property_read_u32(np, "imagis,tkey", &pdata->tkey))
+		goto out;
+
+	if (of_property_read_u32(np, "imagis,octa-hw", &pdata->octa_hw))
+		goto out;
+
 	if (of_property_read_string(np, "imagis,chip-name", &pdata->chip_name))
 		goto out;
 
@@ -1335,6 +1363,8 @@ static struct ist30xx_platform_data *ist30xx_parse_dt(struct device *dev)
 	tsp_info(" max y: %d\n", pdata->max_y);
 	tsp_info(" max w: %d\n", pdata->max_w);
 	tsp_info(" max node: %d\n", pdata->max_node);
+	tsp_info(" touch key: %d\n", pdata->tkey);
+	tsp_info(" octa hw: %d\n", pdata->octa_hw);
 	tsp_info(" tsp power source: %s\n", pdata->pwr_src);
 
 	return pdata;
@@ -1506,14 +1536,25 @@ static int ist30xx_probe(struct i2c_client *client,
 	data->status.event_mode = false;
 
 #if IST30XX_INTERNAL_BIN
+	// Do not update the FW, if its in Factory Calibration mode
+	{
+#if defined (CONFIG_SEC_FACTORY)
+		extern char *saved_command_line;
+		
+		printk("%s\n", saved_command_line);
+		if(strstr(saved_command_line, "calibration") == NULL)
+#endif //CONFIG_SEC_FACTORY
+		{
 #if IST30XX_UPDATE_BY_WORKQUEUE
-	INIT_DELAYED_WORK(&data->work_fw_update, fw_update_func);
-	schedule_delayed_work(&data->work_fw_update, IST30XX_UPDATE_DELAY);
+			INIT_DELAYED_WORK(&data->work_fw_update, fw_update_func);
+			schedule_delayed_work(&data->work_fw_update, IST30XX_UPDATE_DELAY);
 #else
-	ret = ist30xx_auto_bin_update(data);
-	if (unlikely(ret != 0))
-		goto err_irq;
+			ret = ist30xx_auto_bin_update(data);
+			if (unlikely(ret != 0))
+				goto err_irq;
 #endif  // IST30XX_UPDATE_BY_WORKQUEUE
+		} //For saved_command_line check
+	}// FW update Check
 #endif  // IST30XX_INTERNAL_BIN
 
 	ret = ist30xx_init_update_sysfs(data);
@@ -1530,6 +1571,14 @@ static int ist30xx_probe(struct i2c_client *client,
 	ret = ist30xx_init_cmcs_sysfs(data);
 	if (unlikely(ret))
 		goto err_sysfs;
+#endif
+
+#if IST30XX_CMCS_JIT_TEST
+	ret = ist30xx_init_cmcs_jit_sysfs(data);
+	if (unlikely(ret)) {
+		tsp_err("%s: do not init cmcs jitter\n",__func__);
+		goto err_sysfs;
+	}
 #endif
 
 #if IST30XX_TRACKING_MODE
@@ -1677,6 +1726,14 @@ extern unsigned int lpcharge;
 
 static int __init ist30xx_init(void)
 {
+#ifdef CONFIG_ARM64
+	sec_class = class_create(THIS_MODULE, "sec");
+	if (IS_ERR(sec_class)) {
+		pr_err("Failed to create class(sec)!\n");
+		printk("Failed create class \n");
+		return PTR_ERR(sec_class);
+	}
+#endif
 	if (!lpcharge)
 		return i2c_add_driver(&ist30xx_i2c_driver);
 	else

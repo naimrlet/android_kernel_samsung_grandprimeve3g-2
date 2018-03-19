@@ -2,6 +2,7 @@ menu "VBC"
 
 source "sound/soc/sprd/dai/vbc/r1p0/Kconfig"
 source "sound/soc/sprd/dai/vbc/r2p0/Kconfig"
+source "sound/soc/sprd/dai/vbc/r3p0/Kconfig"
 
 config SND_SOC_SPRD_VBC_LR_INVERT
 	bool "VBC Support L/R invert"

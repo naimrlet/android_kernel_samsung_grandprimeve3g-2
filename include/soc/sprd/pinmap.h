@@ -53,7 +53,12 @@
 #if defined(CONFIG_ARCH_SCX15)
 #include "chip_x15/__regs_pinmap.h"
 #elif defined(CONFIG_ARCH_SCX30G)
+    #if defined(CONFIG_ARCH_SCX20)
+    #include "chip_x20/__regs_pinmap.h"
+    #endif
 #include "chip_x30g/__regs_pinmap.h"
+#elif defined(CONFIG_ARCH_SCX35LT8)
+#include "chip_x35lt8/__regs_pinmap.h"
 #elif defined(CONFIG_ARCH_SCX35L)
 #include "chip_x35l/__regs_pinmap.h"
 #elif defined(CONFIG_ARCH_SCX35)

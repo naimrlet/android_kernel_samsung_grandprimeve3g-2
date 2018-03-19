@@ -463,7 +463,7 @@ LOCAL ssize_t mdbg_read(struct file *filp,char __user *buf,size_t count,loff_t *
 	if(mdbg_read_count <= 0){
 		mutex_unlock(&mdbg_dev->mdbg_lock);
 		//MDBG_ERR("data no ready");
-		return 0;
+		return -EAGAIN;
 	}
 
 	read_size = mdbg_receive(mdbg_dev->read_buf , MDBG_MAX_BUFFER_LEN);
@@ -484,7 +484,7 @@ LOCAL ssize_t mdbg_read(struct file *filp,char __user *buf,size_t count,loff_t *
 		mdbg_read_count = 0;
 		mutex_unlock(&mdbg_dev->mdbg_lock);
 		MDBG_LOG("Show no data");
-		return (0);
+		return -EAGAIN;
 	}
 }
 

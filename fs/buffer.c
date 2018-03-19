@@ -69,6 +69,12 @@ static int sleep_on_buffer(void *word)
 
 void __lock_buffer(struct buffer_head *bh)
 {
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	if (bh->b_page->mapping && !((unsigned long)bh->b_page->mapping & 0x1)){
+		current->lock_on_buffer = bh;
+		current->lock_on_page = NULL;
+	}
+#endif
 	wait_on_bit_lock(&bh->b_state, BH_Lock, sleep_on_buffer,
 							TASK_UNINTERRUPTIBLE);
 }
@@ -89,6 +95,12 @@ EXPORT_SYMBOL(unlock_buffer);
  */
 void __wait_on_buffer(struct buffer_head * bh)
 {
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	if (bh->b_page->mapping && !((unsigned long)bh->b_page->mapping & 0x1)){
+		current->lock_on_buffer = bh;
+		current->lock_on_page = NULL;
+	}
+#endif
 	wait_on_bit(&bh->b_state, BH_Lock, sleep_on_buffer, TASK_UNINTERRUPTIBLE);
 }
 EXPORT_SYMBOL(__wait_on_buffer);
@@ -3221,6 +3233,17 @@ static inline int buffer_busy(struct buffer_head *bh)
 		(bh->b_state & ((1 << BH_Dirty) | (1 << BH_Lock)));
 }
 
+#ifdef CONFIG_SPRD_METADATA_BUFFER_RECLAIM
+static inline int buffer_fs_meta(struct buffer_head *bh)
+{
+	if (buffer_metadata(bh) && (current->flags & PF_KSWAPD))
+		return 1;
+
+	/*no skip reclaim*/
+	return 0;
+}
+#endif
+
 static int
 drop_buffers(struct page *page, struct buffer_head **buffers_to_free)
 {
@@ -3240,6 +3263,10 @@ drop_buffers(struct page *page, struct buffer_head **buffers_to_free)
 			if (buffer_busy(bh))
 				goto failed;
 		}
+#ifdef CONFIG_SPRD_METADATA_BUFFER_RECLAIM
+		if (buffer_fs_meta(bh))
+			goto failed;
+#endif
 		bh = bh->b_this_page;
 	} while (bh != head);
 

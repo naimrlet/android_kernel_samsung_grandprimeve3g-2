@@ -31,13 +31,20 @@
 #define SP_AUDIO_CODEC_NUM	(4)
 #define AUDIO_CODEC_2713	(0)
 #define AUDIO_CODEC_2723	(1)
-#define AUDIO_CODEC_2723E	(2)
+#define AUDIO_CODEC_2723E	(1)
 #define AUDIO_CODEC_2723T	(2)
+#define AUDIO_CODEC_2723M	(2)
 
 #define AUDIO_2723_VER_AA	(0)
 #define AUDIO_2723_VER_S	(0x000)
 #define AUDIO_2723_VER_E	(0x090)
 #define AUDIO_2723_VER_T	(0x0C0)
+#define AUDIO_2723_VER_M	(0x0C1)
+
+
+static const char *codec_hw_info[] = {
+	"2713", "2723", "2723E", "2723T"
+};
 
 struct snd_card;
 int sprd_audio_debug_init(struct snd_card *card);

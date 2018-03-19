@@ -157,7 +157,7 @@ static void thermal_zone_trip_update(struct thermal_zone_device *tz, int trip)
 }
 #else
 
-static int get_hyst_target(struct thermal_zone_device *tz)
+static unsigned long get_hyst_target(struct thermal_zone_device *tz, int trip)
 {
 	int count;
 	unsigned long trip_temp, trip_hyst, hyst_temp;
@@ -173,10 +173,14 @@ static int get_hyst_target(struct thermal_zone_device *tz)
 		if (tz->temperature < (long)hyst_temp  + TRIP_TEMP_OFFSET)
 			break;
 	}
-	return count;
+	if (trip == count) {
+		return count;
+	} else {
+		return THERMAL_NO_TARGET;
+	}
 }
 
-static int get_trip_target(struct thermal_zone_device *tz)
+static unsigned long get_trip_target(struct thermal_zone_device *tz, int trip)
 {
 	int count = 0;
 	unsigned long trip_temp;
@@ -184,68 +188,87 @@ static int get_trip_target(struct thermal_zone_device *tz)
 	if (tz->trips == 0 || !tz->ops->get_trip_temp)
 		return 0;
 
-	for (count = 0; count < tz->trips; count++) {
+	for (count = tz->trips - 1; count >= 0; count--) {
 		tz->ops->get_trip_temp(tz, count, &trip_temp);
 		printk("trip:%d, temp:%d, trip_temp:%d\n", count, tz->temperature, trip_temp);
-		if (tz->temperature < (long)trip_temp  - TRIP_TEMP_OFFSET)
+		if (tz->temperature > (long)trip_temp  - TRIP_TEMP_OFFSET)
 			break;
 	}
-	return count;
+	if (trip == count) {
+		return count + 1;
+	} else {
+		return THERMAL_NO_TARGET;
+	}
+
 }
 
-static int get_step_wise_target(struct thermal_instance *instance,
+static unsigned long get_step_wise_target(struct thermal_instance *instance,
 		struct thermal_zone_device *tz, int trip)
 {
 	struct thermal_cooling_device *cdev = instance->cdev;
 	enum thermal_trend trend;
 	unsigned long cur_target;
+	unsigned long cdev_state;
 	unsigned long new_target;
 
 	cur_target = instance->target;
-	printk("%s trip:%d cur_target:%d\n", __func__, trip, cur_target);
-	if (cur_target == THERMAL_NO_TARGET){
-		cur_target = instance->lower;
+	printk("%s:%s trip:%d cur_target:%d\n", __func__, cdev->type, trip, cur_target);
+	cdev->ops->get_cur_state(cdev, &cdev_state);
+	printk("%s:%s trip:%d cdev_state:%d\n", __func__, cdev->type, trip, cdev_state);
+	if (cdev_state == THERMAL_NO_TARGET){
+		cdev_state = instance->lower;
 	}
 	if (tz->ops->get_trend){
 		tz->ops->get_trend(tz, trip, &trend);
 	}else{
-		new_target = get_trip_target(tz);
-		printk("%s trip:%d new_target:%d\n", __func__, trip, new_target);
-		if (new_target < cur_target){
+		new_target = get_trip_target(tz, trip);
+		printk("%s: %s trip:%d new_target:%d\n", __func__, cdev->type, trip, new_target);
+		if (new_target == THERMAL_NO_TARGET) {
+			return THERMAL_NO_TARGET;
+		}
+		if (new_target < cdev_state){
 			trend = THERMAL_TREND_DROPPING;
 			if (!tz->ops->get_trip_hyst){
 				goto dropping;
 			}
-		}else if(new_target >= cur_target){
+		}else if(new_target >= cdev_state){
 			goto raising;
 		}
 	}
 	switch (trend){
 		case THERMAL_TREND_RAISING:
-			new_target = get_trip_target(tz);
-			printk("%s trend raising, target:%d\n", __func__, new_target);
+			new_target = get_trip_target(tz, trip);
+			printk("%s: %s trend raising, target:%d\n", __func__, cdev->type,  new_target);
+			if (new_target == THERMAL_NO_TARGET) {
+				return THERMAL_NO_TARGET;
+			}
 			goto raising;
 		case THERMAL_TREND_DROPPING:
+#if 0
 			if (tz->ops->get_trip_hyst){
-				new_target = get_hyst_target(tz);
+				new_target = get_hyst_target(tz, trip);
 			}else{
-				new_target = get_trip_target(tz);
+				new_target = get_trip_target(tz, trip);
 			}
-			printk("%s trend dropping, target:%d\n", __func__, new_target);
+			printk("%s: %s trend dropping, target:%d\n", cdev->type, __func__, new_target);
+			if (new_target == THERMAL_NO_TARGET) {
+				return THERMAL_NO_TARGET;
+			}
+#endif
 			goto dropping;
 		case THERMAL_TREND_STABLE:
 		default:
-			printk("%s trend stable\n", __func__);
-			return instance->lower;
+			printk("%s: %s trend stable\n", cdev->type, __func__);
+			return THERMAL_NO_TARGET;
 	}
 raising:
-	if (new_target > cur_target){
-		++cur_target;
+	if (cdev_state > trip){
+		cdev_state = trip;
 	}
-	return cur_target;
+	return cdev_state + 1;
 dropping:
-	if (new_target < cur_target){
-		--cur_target;
+	if (cur_target != THERMAL_NO_TARGET && cur_target > 0){
+		return cur_target - 1;
 	}
 	return cur_target;
 
@@ -261,7 +284,7 @@ static void thermal_zone_trip_update(struct thermal_zone_device *tz, int trip)
 		if (instance->trip != trip)
 			continue;
 		target = get_step_wise_target(instance, tz, trip);
-		printk(":%s get target_state: %d\n", instance->name, target);
+		printk("%s: get target_state: %d\n", instance->cdev->type, target);
 		if (target == THERMAL_NO_TARGET){
 			continue;
 		}

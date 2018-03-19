@@ -39,11 +39,18 @@
 #include <asm/pgtable.h>
 #include <linux/mm.h>
 #endif
+#ifdef CONFIG_LCD_ESD_RECOVERY
+#include "esd_detect.h"
+#endif
 #include <linux/gpio.h>
 #include "sprdfb_chip_common.h"
 
 #if defined(CONFIG_SEC_DEBUG)
 #include <soc/sprd/sec_debug.h>
+#endif
+
+#if defined(CONFIG_SEC_LOG64)
+#include <soc/sprd/sec_log64.h>
 #endif
 
 enum{
@@ -86,6 +93,7 @@ extern unsigned long g_dispc_base_addr;
 static unsigned PP[16];
 static int frame_count = 0;
 
+static int sprdfb_blank(int blank, struct fb_info *info);
 static int sprdfb_check_var(struct fb_var_screeninfo *var, struct fb_info *fb);
 static int sprdfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *fb);
 static int sprdfb_ioctl(struct fb_info *info, unsigned int cmd,
@@ -100,6 +108,7 @@ static int sprdfb_mmap(struct fb_info *info, struct vm_area_struct *vma);
 
 static struct fb_ops sprdfb_ops = {
 	.owner = THIS_MODULE,
+	.fb_blank = sprdfb_blank,
 	.fb_check_var = sprdfb_check_var,
 	.fb_pan_display = sprdfb_pan_display,
 	.fb_fillrect = cfb_fillrect,
@@ -114,6 +123,14 @@ static struct fb_ops sprdfb_ops = {
 #endif
 };
 
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+struct sprdfb_device *dev_panel =NULL;
+#endif
+
+#ifdef CONFIG_LCD_ESD_RECOVERY
+	struct delayed_work enable_esd_work;
+	struct sprdfb_device *dev_global = NULL;
+#endif
 #ifdef CONFIG_FB_MMAP_CACHED
 static int sprdfb_mmap(struct fb_info *info,struct vm_area_struct *vma)
 {
@@ -280,8 +297,9 @@ static void setup_fb_info(struct sprdfb_device *dev)
 		PP[r] = 0xffffffff;
 	}
 
-#if defined(CONFIG_SEC_DEBUG)
-	/*{{ Mark for GetLog*/
+#if defined(CONFIG_SEC_DEBUG) || defined(CONFIG_SEC_LOG64)
+	dev->framebuffer_nr = FRAMEBUFFER_NR;
+/*{{ Mark for GetLog*/
 	sec_getlog_supply_fbinfo(phys_to_virt(fb->fix.smem_start) , \
 			fb->var.xres, fb->var.yres, \
 			fb->var.bits_per_pixel, \
@@ -535,7 +553,7 @@ static int sprdfb_power(struct sprdfb_device *dev, int on)
 
 	mutex_lock(&lock);
 	if (dev->enable == !!on) {
-		pr_info("[LCD] %s, already %s\n", __func__,
+		pr_info("%s, already %s\n", __func__,
 				dev->enable ? "on" : "off");
 		mutex_unlock(&lock);
 		return 0;
@@ -543,12 +561,35 @@ static int sprdfb_power(struct sprdfb_device *dev, int on)
 
 	if (on) {
 		dev->ctrl->resume(dev);
+#ifdef CONFIG_LCD_ESD_RECOVERY
+		if (dev->panel_ready)
+			esd_det_enable(dev->panel->esd_info);
+#endif
 		fb_set_suspend(fb, FBINFO_STATE_RUNNING);
 	} else {
 		fb_set_suspend(fb, FBINFO_STATE_SUSPENDED);
+#ifdef CONFIG_LCD_ESD_RECOVERY
+		if (dev->panel_ready)
+			esd_det_disable(dev->panel->esd_info);
+#endif
 		dev->ctrl->suspend(dev);
 	}
 	mutex_unlock(&lock);
+
+	return 0;
+}
+
+static int sprdfb_blank(int blank, struct fb_info *info)
+{
+	struct sprdfb_device *dev = info->par;
+
+	pr_info("%s, %s\n", __func__,
+			blank == FB_BLANK_UNBLANK ? "unblank" : "blank");
+
+	sprdfb_power(dev, blank == FB_BLANK_UNBLANK ? 1 : 0);
+
+	if (blank == FB_BLANK_UNBLANK)
+		dev->ctrl->refresh(dev);
 
 	return 0;
 }
@@ -559,13 +600,13 @@ static void sprdfb_early_suspend (struct early_suspend* es)
 	struct sprdfb_device *dev = container_of(es, struct sprdfb_device, early_suspend);
 	struct fb_info *fb = dev->fb;
 	pr_debug("sprdfb: [%s]\n",__FUNCTION__);
-
+	
 	fb_set_suspend(fb, FBINFO_STATE_SUSPENDED);
 
-	if (!lock_fb_info(fb)) {
+	if (!lock_fb_info(fb))
 		return ;
-	}
-	dev->ctrl->suspend(dev);
+
+	sprdfb_power(dev, 0);
 	unlock_fb_info(fb);
 }
 
@@ -575,10 +616,10 @@ static void sprdfb_late_resume (struct early_suspend* es)
 	struct fb_info *fb = dev->fb;
 	pr_debug("sprdfb: [%s]\n",__FUNCTION__);
 
-	if (!lock_fb_info(fb)) {
+	if (!lock_fb_info(fb))
 		return ;
-	}
-	dev->ctrl->resume(dev);
+
+	sprdfb_power(dev, 1);
 	unlock_fb_info(fb);
 
 	fb_set_suspend(fb, FBINFO_STATE_RUNNING);
@@ -589,9 +630,14 @@ static void sprdfb_late_resume (struct early_suspend* es)
 static int sprdfb_suspend(struct platform_device *pdev,pm_message_t state)
 {
 	struct sprdfb_device *dev = platform_get_drvdata(pdev);
+	struct fb_info *fb = dev->fb;
 	pr_debug("sprdfb: [%s]\n",__FUNCTION__);
 
-	dev->ctrl->suspend(dev);
+	if (!lock_fb_info(fb))
+		return ;
+
+	sprdfb_power(dev, 0);
+	unlock_fb_info(fb);
 
 	return 0;
 }
@@ -599,9 +645,14 @@ static int sprdfb_suspend(struct platform_device *pdev,pm_message_t state)
 static int sprdfb_resume(struct platform_device *pdev)
 {
 	struct sprdfb_device *dev = platform_get_drvdata(pdev);
+	struct fb_info *fb = dev->fb;
 	pr_debug("sprdfb: [%s]\n",__FUNCTION__);
 
-	dev->ctrl->resume(dev);
+	if (!lock_fb_info(fb))
+		return ;
+
+	sprdfb_power(dev, 1);
+	unlock_fb_info(fb);
 
 	return 0;
 }
@@ -612,7 +663,7 @@ static void ESD_work_func(struct work_struct *work)
 {
 	struct sprdfb_device *dev = container_of(work, struct sprdfb_device, ESD_work.work);
 
-	pr_debug("sprdfb: [%s] enter!\n", __FUNCTION__);
+	pr_debug("[LCD] sprdfb: [%s] enter!\n", __FUNCTION__);
 
 	//do real ESD check
 	//mdelay(1000);
@@ -621,14 +672,14 @@ static void ESD_work_func(struct work_struct *work)
 	}
 
 	if(0 != dev->enable){
-		pr_debug("sprdfb: reschedule ESD workqueue!\n");
+		pr_debug("[LCD] sprdfb: reschedule ESD workqueue!\n");
 		schedule_delayed_work(&dev->ESD_work, msecs_to_jiffies(dev->ESD_timeout_val));
 		dev->ESD_work_start = true;
 	}else{
-		printk("sprdfb: DON't reschedule ESD workqueue since device not avialbe!!\n");
+		printk("[LCD] sprdfb: DON't reschedule ESD workqueue since device not avialbe!!\n");
 	}
 
-	pr_debug("sprdfb: [%s] leave!\n", __FUNCTION__);
+	pr_debug("[LCD] sprdfb: [%s] leave!\n", __FUNCTION__);
 }
 #endif
 
@@ -636,15 +687,15 @@ uint32_t sprdfb_get_chip_id(void)
 {
 	uint32_t adie_chip_id = sci_get_chip_id();
 	if((adie_chip_id & 0xffff0000) < 0x50000000) {
-		printk("sprdfb: [%s], chip id 0x%08x is invalidate, try to get it by reading reg directly!\n", __FUNCTION__, adie_chip_id);
+		printk("[LCD] sprdfb: [%s], chip id 0x%08x is invalidate, try to get it by reading reg directly!\n", __FUNCTION__, adie_chip_id);
 
 		adie_chip_id = dispc_glb_read(SPRD_AONAPB_BASE+0xFC);
 		if((adie_chip_id & 0xffff0000) < 0x50000000) {
-			printk("sprdfb: [%s], chip id 0x%08x from reg is invalidate too!\n", __FUNCTION__, adie_chip_id);
+			printk("[LCD] sprdfb: [%s], chip id 0x%08x from reg is invalidate too!\n", __FUNCTION__, adie_chip_id);
 		}
 	}
 
-	printk("sprdfb: return chip id 0x%08x \n", adie_chip_id);
+	printk("[LCD] sprdfb: return chip id 0x%08x \n", adie_chip_id);
 	return adie_chip_id;
 }
 
@@ -676,7 +727,49 @@ static fb_capability sprdfb_config_capability(void)
 	}
 	return s_fb_capability;
 }
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+int sprdfb_panel_update_brightness(struct backlight_device *bd)
+{
+	int ret = 0,brightness=0;
 
+#if defined(CONFIG_MACH_PIKEA_J1_ACE)
+    brightness=bd->props.brightness * 43 /255;   //J1_ACE
+#endif
+#if defined(CONFIG_MACH_TIZENZ3_3G)
+	brightness=bd->props.brightness * 100 /255;  //Z3
+#endif
+#if defined(CONFIG_MACH_SHARKLS_J3LTE)
+    brightness=bd->props.brightness * 100 /255;
+#endif
+
+	if(dev_panel && dev_panel->panel)
+	{
+		if(dev_panel->panel->ops->panel_set_brightness)
+		{           
+			ret = dev_panel->panel->ops->panel_set_brightness(dev_panel->panel, brightness);
+		}
+	}
+
+	return ret;
+}
+#endif
+#ifdef CONFIG_LCD_ESD_RECOVERY
+static int ESD_is_active(struct sprdfb_device *dev)
+{
+    return dev->enable;
+}
+void ESD_recover(struct sprdfb_device *dev)
+{
+    dev->ctrl->ESD_reset(dev);
+}
+static void esd_enable_func(struct work_struct *work)
+{
+	struct sprdfb_device *dev = dev_global;
+	
+	esd_det_init(dev->panel->esd_info);
+	esd_det_enable(dev->panel->esd_info);
+}
+#endif
 static int sprdfb_probe(struct platform_device *pdev)
 {
 	struct fb_info *fb = NULL;
@@ -689,30 +782,38 @@ static int sprdfb_probe(struct platform_device *pdev)
 	uint32_t display_size_array[2];
 #endif
 
-	pr_debug(KERN_INFO "sprdfb: [%s]\n", __FUNCTION__);
+	pr_debug(KERN_INFO "[LCD] sprdfb: [%s]\n", __FUNCTION__);
 #else
-	pr_debug(KERN_INFO "sprdfb: [%s], id = %d\n", __FUNCTION__, pdev->id);
+	pr_debug(KERN_INFO "[LCD] sprdfb: [%s], id = %d\n", __FUNCTION__, pdev->id);
 #endif
 
 	fb = framebuffer_alloc(sizeof(struct sprdfb_device), &pdev->dev);
 	if (!fb) {
-		printk(KERN_ERR "sprdfb: sprdfb_probe allocate buffer fail.\n");
+		printk(KERN_ERR "[LCD] sprdfb: sprdfb_probe allocate buffer fail.\n");
 		ret = -ENOMEM;
 		goto err0;
 	}
 
 	dev = fb->par;
+	if (unlikely(!dev)) {
+		printk(KERN_ERR "[LCD] sprdfb: sprdfb_probe dev is null!!\n");
+		ret = -EINVAL;
+		goto err0;
+	}
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+	dev_panel=dev;
+#endif
 	dev->fb = fb;
 #ifdef CONFIG_OF
 	dev->of_dev = &(pdev->dev);
 
 	dev->dev_id = of_alias_get_id(pdev->dev.of_node, "lcd");
-	printk("sprdfb: [%s] id = %d\n", __FUNCTION__, dev->dev_id);
+	printk("[LCD] sprdfb: [%s] id = %d\n", __FUNCTION__, dev->dev_id);
 #else
 	dev->dev_id = pdev->id;
 #endif
 	if((SPRDFB_MAINLCD_ID != dev->dev_id) &&(SPRDFB_SUBLCD_ID != dev->dev_id)){
-		printk(KERN_ERR "sprdfb: sprdfb_probe fail. (unsupported device id)\n");
+		printk(KERN_ERR "[LCD] sprdfb: sprdfb_probe fail. (unsupported device id)\n");
 		goto err0;
 	}
 
@@ -732,14 +833,14 @@ static int sprdfb_probe(struct platform_device *pdev)
 		dev->ctrl = &sprdfb_dispc_ctrl;
 #ifdef CONFIG_OF
 		if(0 != of_address_to_resource(pdev->dev.of_node, 0, &r)){
-			printk(KERN_ERR "sprdfb: sprdfb_probe fail. (can't get register base address)\n");
+			printk(KERN_ERR "[LCD] sprdfb: sprdfb_probe fail. (can't get register base address)\n");
 			goto err0;
 		}
 		g_dispc_base_addr = (unsigned long)ioremap_nocache(r.start,
 				resource_size(&r));
 		if(!g_dispc_base_addr)
 			BUG();
-		printk("sprdfb: set g_dispc_base_addr = %ld\n", g_dispc_base_addr);
+		printk("[LCD] sprdfb: set g_dispc_base_addr = %ld\n", g_dispc_base_addr);
 #endif
 	}
 
@@ -747,14 +848,21 @@ static int sprdfb_probe(struct platform_device *pdev)
 	dev->logo_buffer_addr_v = 0;
 	dev->capability = sprdfb_config_capability();
 
-	if(sprdfb_panel_get(dev)){
+	if (sprdfb_panel_get(dev)) {
+#if defined(CONFIG_FB_LCD_OLED_BACKLIGHT)
+		if (dev->panel && dev->panel->ops &&
+				dev->panel->ops->panel_dimming_init)
+				dev->panel->ops->panel_dimming_init(dev->panel, &pdev->dev);
+#endif
+		if (dev->panel && dev->panel->ops &&
+				dev->panel->ops->panel_reduced_init)
+			dev->panel->ops->panel_reduced_init(dev->panel);
 		dev->panel_ready = true;
-
 #ifdef CONFIG_OF
 #ifdef CONFIG_FB_LOW_RES_SIMU
 		ret = of_property_read_u32_array(pdev->dev.of_node, "sprd,fb_display_size", display_size_array, 2);
 		if (0 != ret) {
-			printk("sprdfb: read display_size from dts fail (%d)\n", ret);
+			printk("[LCD] sprdfb: read display_size from dts fail (%d)\n", ret);
 			dev->display_width = dev->panel->width;
 			dev->display_height = dev->panel->height;
 		} else {
@@ -763,15 +871,13 @@ static int sprdfb_probe(struct platform_device *pdev)
 		}
 #endif
 #endif
-
 		dev->ctrl->logo_proc(dev);
-	}else{
+	} else {
 		dev->panel_ready = false;
 	}
 
 	dev->ctrl->early_init(dev);
-
-	if(!dev->panel_ready){
+	if (!dev->panel_ready) {
 		if (!sprdfb_panel_probe(dev)) {
 			ret = -EIO;
 			goto cleanup;
@@ -779,15 +885,14 @@ static int sprdfb_probe(struct platform_device *pdev)
 	}
 
 	ret = setup_fb_mem(dev, pdev);
-	if (ret) {
+	if (ret)
 		goto cleanup;
-	}
 
 	setup_fb_info(dev);
 	/* register framebuffer device */
 	ret = register_framebuffer(fb);
 	if (ret) {
-		printk(KERN_ERR "sprdfb: sprdfb_probe register framebuffer fail.\n");
+		pr_err("%s, sprdfb: failed to register fb\n", __func__);
 		goto cleanup;
 	}
 	platform_set_drvdata(pdev, dev);
@@ -802,22 +907,28 @@ static int sprdfb_probe(struct platform_device *pdev)
 #endif
 
 #ifdef CONFIG_FB_ESD_SUPPORT
-	pr_debug("sprdfb: Init ESD work queue!\n");
+	pr_debug("[LCD] sprdfb: Init ESD work queue!\n");
 	INIT_DELAYED_WORK(&dev->ESD_work, ESD_work_func);
-//	sema_init(&dev->ESD_lock, 1);
 
-	if(SPRDFB_PANEL_IF_DPI == dev->panel_if_type){
+	if (SPRDFB_PANEL_IF_DPI == dev->panel_if_type)
 		dev->ESD_timeout_val = SPRDFB_ESD_TIME_OUT_VIDEO;
-	}else{
+	else
 		dev->ESD_timeout_val = SPRDFB_ESD_TIME_OUT_CMD;
-	}
-
 	dev->ESD_work_start = false;
 	dev->check_esd_time = 0;
 	dev->reset_dsi_time = 0;
 	dev->panel_reset_time = 0;
 #endif
-
+#ifdef CONFIG_LCD_ESD_RECOVERY
+	if(dev->panel_ready){
+		dev->panel->esd_info->pdata = dev;
+		dev->panel->esd_info->is_active = ESD_is_active;
+		dev->panel->esd_info->recover = ESD_recover;
+		dev_global = dev;
+		INIT_DELAYED_WORK(&enable_esd_work, esd_enable_func);
+		schedule_delayed_work(&enable_esd_work, msecs_to_jiffies(20000));
+	}
+#endif
 	return 0;
 
 cleanup:
@@ -825,7 +936,7 @@ cleanup:
 	dev->ctrl->uninit(dev);
 	fb_free_resources(dev);
 err0:
-	dev_err(&pdev->dev, "failed to probe sprdfb\n");
+	dev_err(&pdev->dev, "[LCD] failed to probe sprdfb\n");
 	return ret;
 }
 
@@ -833,7 +944,7 @@ static int sprdfb_remove(struct platform_device *pdev)
 {
 	struct sprdfb_device *dev = platform_get_drvdata(pdev);
 
-	printk("sprdfb: [%s]\n",__FUNCTION__);
+	printk("[LCD] sprdfb: [%s]\n",__FUNCTION__);
 	sprdfb_remove_sysfs(dev);
 	sprdfb_panel_remove(dev);
 	dev->ctrl->uninit(dev);
@@ -841,17 +952,24 @@ static int sprdfb_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static void sprdfb_shutdown(struct platform_device *pdev)
+static int sprdfb_shutdown(struct platform_device *pdev)
 {
 	struct sprdfb_device *dev = platform_get_drvdata(pdev);
 	struct fb_info *fb = dev->fb;
+	pr_debug(KERN_INFO "sprdfb: [%s] \n", __FUNCTION__);
 
 	if (!lock_fb_info(fb))
-		return;
+		return ;
 
 	sprdfb_power(dev, 0);
 	unlock_fb_info(fb);
+
+	dev->ctrl->shutdown(dev);
+
+	return 0;
 }
+
+
 
 #ifdef CONFIG_OF
 static const struct of_device_id sprdfb_dt_ids[] = {

@@ -29,7 +29,7 @@
 #include "sprdfb.h"
 #include "sprdfb_panel.h"
 
-#if (defined(CONFIG_FB_SCX30G) || defined(CONFIG_FB_SCX35L))
+#if (defined(CONFIG_FB_SCX30G) || defined(CONFIG_FB_SCX35L) || defined(CONFIG_FB_SC9001))
 #define FB_DSIH_VERSION_1P21A
 #endif
 
@@ -149,7 +149,7 @@ static irqreturn_t dsi_isr1(int irq, void *data)
 			return IRQ_NONE;
 		}
 
-                mipi_dsih_dphy_configure(phy,  mipi->lan_number, mipi->phy_feq);
+		mipi_dsih_dphy_configure(phy,  mipi->lan_number, mipi->phy_feq);
 
 		{/*for debug*/
 			for(i=0;i<256;i+=16){
@@ -195,9 +195,17 @@ static irqreturn_t dsi_isr2(int irq, void *data)
 
 static void dsi_reset(void)
 {
+#ifdef CONFIG_FB_SC9001
+	sci_glb_set(DSI_AHB_SOFT_RST, BIT_DSI1_SOFT_RST);
+#else
 	sci_glb_set(DSI_AHB_SOFT_RST, BIT_DSI_SOFT_RST);
+#endif
  	udelay(10);
+#ifdef CONFIG_FB_SC9001
+	sci_glb_clr(DSI_AHB_SOFT_RST, BIT_DSI1_SOFT_RST);
+#else
 	sci_glb_clr(DSI_AHB_SOFT_RST, BIT_DSI_SOFT_RST);
+#endif
 }
 
 static int32_t dsi_edpi_setbuswidth(struct info_mipi * mipi)
@@ -254,8 +262,13 @@ int32_t dsi_dpi_init(struct sprdfb_device *dev)
 	dpi_param.pixel_clock = 6500;
 #endif
 #ifdef FB_DSIH_VERSION_1P21A
+#ifdef CONFIG_ARCH_SCX20
+	dpi_param.max_hs_to_lp_cycles = 8;//110;
+	dpi_param.max_lp_to_hs_cycles = 47;//10;
+#else
 	dpi_param.max_hs_to_lp_cycles = 4;//110;
 	dpi_param.max_lp_to_hs_cycles = 15;//10;
+#endif
 	dpi_param.max_clk_hs_to_lp_cycles = 4;//110;
 	dpi_param.max_clk_lp_to_hs_cycles = 15;//10;
 #endif
@@ -367,7 +380,6 @@ static int32_t dsi_module_init(struct sprdfb_device *dev)
 	irq_num_1 = IRQ_DSI_INTN0;
 #endif
 	printk("sprdfb: dsi irq_num_1 = %d\n", irq_num_1);
-
 //	ret = request_irq(IRQ_DSI_INTN0, dsi_isr0, IRQF_DISABLED, "DSI_INT0", &dsi_ctx);
 	ret = request_irq(irq_num_1, dsi_isr0, IRQF_DISABLED, "DSI_INT0", &dsi_ctx);
 	if (ret) {
@@ -383,7 +395,6 @@ static int32_t dsi_module_init(struct sprdfb_device *dev)
 	irq_num_2 = IRQ_DSI_INTN1;
 #endif
 	printk("sprdfb: dsi irq_num_2 = %d\n", irq_num_2);
-
 //	ret = request_irq(IRQ_DSI_INTN1, dsi_isr1, IRQF_DISABLED, "DSI_INT1", &dsi_ctx);
 	ret = request_irq(irq_num_2, dsi_isr1, IRQF_DISABLED, "DSI_INT1", &dsi_ctx);
 	if (ret) {
@@ -403,12 +414,12 @@ static int32_t dsi_module_init(struct sprdfb_device *dev)
 #endif
 		printk("sprdfb: dsi irq_num_3 = %d\n", irq_num_3);
 
-		ret = request_irq(irq_num_3, dsi_isr2, IRQF_DISABLED, "DSI_INT2", &dsi_ctx);
+		/*ret = request_irq(irq_num_3, dsi_isr2, IRQF_DISABLED, "DSI_INT2", &dsi_ctx);
 		if (ret) {
 			printk(KERN_ERR "sprdfb: dsi failed to request irq int2!\n");
 		}else{
 			printk(KERN_ERR "sprdfb: dsi request irq int2 OK!\n");
-		}
+		}*/
 
 		if(MIPI_PLL_TYPE_1 == dev->capability.mipi_pll_type) {
 			dsi_core_and_function(SPRD_MIPI_DSIC_BASE + R_DSI_HOST_MIPI_PLL_INT_MSK, 0xFFFFFFFE);
@@ -434,8 +445,13 @@ int sprdfb_dsi_chg_dphy_freq(struct sprdfb_device *fb_dev,
 	if (ctrl->status == INITIALIZED) {
 		pr_info("Let's do update D-PHY frequency(%u)\n", dphy_freq);
 		ctrl->phy_instance.phy_keep_work = true;
+#ifdef CONFIG_HOP_FREQ_SCALING
+		result = mipi_dsih_dphy_configure_hop_freq(&ctrl->phy_instance,
+				mipi->lan_number, dphy_freq);
+#else
 		result = mipi_dsih_dphy_configure(&ctrl->phy_instance,
 				mipi->lan_number, dphy_freq);
+#endif
 		if (result != OK) {
 			pr_err("[%s]: mipi_dsih_dphy_configure fail (%d)\n",
 					__func__, result);
@@ -512,11 +528,8 @@ int32_t sprdfb_dsih_init(struct sprdfb_device *dev)
 			printk("sprdfb: [%s] warning: busy waiting!\n", __FUNCTION__);
 		}
 	}
-
 	if(wait_count >= 100000){
-
 		printk("sprdfb: [%s] Errior: dsi phy can't be locked!!!\n", __FUNCTION__);
-
 	}
 	if(wait_count >= 100000){
 		printk("sprdfb: [%s] Errior: dsi phy can't be locked!!!\n", __FUNCTION__);
@@ -845,23 +858,20 @@ static int32_t sprdfb_dsi_gen_write(uint8_t *param, uint16_t param_length)
 #define LCM_TAG_MASK  ((1 << 24) -1)
 
 static unsigned char set_bl_seq[] = {
-#if defined (CONFIG_MACH_TSHARK2TABE)
-	0xF5, 0x8B
-#elif defined (CONFIG_MACH_GRANDPRIMEVE3G)
-	0xF5, 0x8B
-#elif defined (CONFIG_MACH_COREPRIMEVE3G)
-	0xF5, 0x8B
-#elif defined (CONFIG_MACH_GTEL3G)
-	0xF5, 0x8B
-#else
+#ifndef CONFIG_MACH_TSHARK2TABE
+       0x53, 0x20,
 	0x51, 0xFF
+#else
+	0xF5, 0x8B
 #endif
 };
 
 void backlight_control(int brigtness)
 {
-	set_bl_seq[1] = brigtness;
-	sprdfb_dsi_gen_write(set_bl_seq, LCM_SEND(2) & LCM_TAG_MASK);
+	set_bl_seq[3] = brigtness;
+	sprdfb_dsi_gen_write(&set_bl_seq[0], LCM_SEND(2) & LCM_TAG_MASK);
+	sprdfb_dsi_gen_write(&set_bl_seq[2], LCM_SEND(2) & LCM_TAG_MASK);
+
 }
 EXPORT_SYMBOL(backlight_control);
 
@@ -991,7 +1001,7 @@ static int32_t sprd_dsi_force_read(uint8_t command, uint8_t bytes_to_read, uint8
 		return -1;
 	}
 
-	return 0;
+	return iRtn;
 }
 
 static int32_t sprd_dsi_eotp_set(uint8_t rx_en, uint8_t tx_en)

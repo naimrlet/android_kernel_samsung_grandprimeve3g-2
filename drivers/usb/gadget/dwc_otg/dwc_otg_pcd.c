@@ -58,7 +58,13 @@
 
 extern int init_cfi(cfiobject_t * cfiobj);
 #endif
+extern void dwc_otg_ep_reset_ep_pid(dwc_otg_core_if_t * core_if,int dir,int num);
 
+#ifdef CONFIG_ARCH_SCX20
+static uint32_t *dirty_flush_pkt;
+static dma_addr_t dirty_flush_pkt_dma_handle;
+static uint32_t dirty_data1;
+#endif
 /**
  * Choose endpoint from ep arrays using usb_ep structure.
  */
@@ -108,14 +114,14 @@ void dwc_otg_request_done(dwc_otg_pcd_ep_t * ep, dwc_otg_pcd_request_t * req,
 	ep->stopped = 1;
 	if (GET_CORE_IF(ep->pcd)->dma_enable){
 		if (req->num_mapped_sgs) {
-			dma_unmap_sg(get_gadget_wrapper_device(),
+			dma_unmap_sg(ep->pcd->otg_dev->dev,
 				req->sg, req->num_mapped_sgs,
 				(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 				((ep->dwc_ep.is_in) ? DMA_TO_DEVICE :
 					 DMA_FROM_DEVICE));
 		} else {
 			if (req->mapped) {
-				dma_unmap_single(get_gadget_wrapper_device(),
+				dma_unmap_single(ep->pcd->otg_dev->dev,
 					req->dma, req->length,
 					(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 					((ep->dwc_ep.is_in) ? DMA_TO_DEVICE :
@@ -123,7 +129,7 @@ void dwc_otg_request_done(dwc_otg_pcd_ep_t * ep, dwc_otg_pcd_request_t * req,
 				req->dma = DWC_DMA_ADDR_INVALID;
 				req->mapped = 0;
 			} else {
-				dma_sync_single_for_cpu(get_gadget_wrapper_device(),
+				dma_sync_single_for_cpu(ep->pcd->otg_dev->dev,
 					req->dma, req->length,
 					(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 					((ep->dwc_ep.is_in) ? DMA_TO_DEVICE :
@@ -135,6 +141,12 @@ void dwc_otg_request_done(dwc_otg_pcd_ep_t * ep, dwc_otg_pcd_request_t * req,
 	if (!ep->dwc_ep.is_in) {
 		dump_log(req->buf, req->actual, 0);
 	}
+#ifdef CONFIG_ARCH_SCX20
+	else if (ep->pcd->core_if->epin_xfer_info[ep->dwc_ep.num].state) {
+		DWC_TIMER_CANCEL(ep->pcd->core_if->epin_xfer_timer[ep->dwc_ep.num]);
+		ep->pcd->core_if->epin_xfer_info[ep->dwc_ep.num].state = 0;
+	}
+#endif
 	/* spin_unlock/spin_lock now done in fops->complete() */
 	ep->pcd->fops->complete(ep->pcd, ep->priv, req->priv, status,
 				req->actual);
@@ -278,6 +290,7 @@ static dwc_otg_cil_callbacks_t pcd_callbacks = {
 	.p = 0,			/* Set at registration */
 };
 
+#if 0
 /**
  * This function allocates a DMA Descriptor chain for the Endpoint
  * buffer to be used for a transfer to/from the specified endpoint.
@@ -285,7 +298,7 @@ static dwc_otg_cil_callbacks_t pcd_callbacks = {
 dwc_otg_dev_dma_desc_t *dwc_otg_ep_alloc_desc_chain(dwc_dma_t * dma_desc_addr,
 						    uint32_t count)
 {
-	return DWC_DMA_ALLOC(get_gadget_wrapper_device(), count * sizeof(dwc_otg_dev_dma_desc_t),
+	return DWC_DMA_ALLOC(dev, count * sizeof(dwc_otg_dev_dma_desc_t),
 				    dma_desc_addr);
 }
 
@@ -295,9 +308,10 @@ dwc_otg_dev_dma_desc_t *dwc_otg_ep_alloc_desc_chain(dwc_dma_t * dma_desc_addr,
 void dwc_otg_ep_free_desc_chain(dwc_otg_dev_dma_desc_t * desc_addr,
 				uint32_t dma_desc_addr, uint32_t count)
 {
-	DWC_DMA_FREE(get_gadget_wrapper_device(), count * sizeof(dwc_otg_dev_dma_desc_t), desc_addr,
+	DWC_DMA_FREE(dev, count * sizeof(dwc_otg_dev_dma_desc_t), desc_addr,
 		     dma_desc_addr);
 }
+#endif
 
 #ifdef DWC_EN_ISOC
 
@@ -308,10 +322,10 @@ void dwc_otg_ep_free_desc_chain(dwc_otg_dev_dma_desc_t * desc_addr,
  * @param dwc_ep The EP to start the transfer on.
  *
  */
-void dwc_otg_iso_ep_start_ddma_transfer(dwc_otg_core_if_t * core_if,
+static void dwc_otg_iso_ep_start_ddma_transfer(dwc_otg_pcd_t * pcd,
 					dwc_ep_t * dwc_ep)
 {
-
+	dwc_otg_core_if_t * core_if = pcd->core_if;
 	dsts_data_t dsts = {.d32 = 0 };
 	depctl_data_t depctl = {.d32 = 0 };
 	volatile uint32_t *addr;
@@ -326,10 +340,9 @@ void dwc_otg_iso_ep_start_ddma_transfer(dwc_otg_core_if_t * core_if,
 		    dwc_ep->bInterval;
 
 	/** Allocate descriptors for double buffering */
-	dwc_ep->iso_desc_addr =
-	    dwc_otg_ep_alloc_desc_chain(&dwc_ep->iso_dma_desc_addr,
-					dwc_ep->desc_cnt * 2);
-	if (dwc_ep->desc_addr) {
+	dwc_ep->iso_desc_addr = DWC_DMA_ALLOC(pcd->otg_dev->dev,
+		dwc_ep->desc_cnt * 2, &dwc_ep->iso_dma_desc_addr);
+	if (dwc_ep->iso_desc_addr) {
 		DWC_WARN("%s, can't allocate DMA descriptor chain\n", __func__);
 		return;
 	}
@@ -661,9 +674,11 @@ void dwc_otg_iso_ep_start_buf_transfer(dwc_otg_core_if_t * core_if,
  * @param ep The EP to start the transfer on.
  */
 
-static void dwc_otg_iso_ep_start_transfer(dwc_otg_core_if_t * core_if,
+static void dwc_otg_iso_ep_start_transfer(dwc_otg_pcd_t * pcd,
 					  dwc_ep_t * ep)
 {
+	dwc_otg_core_if_t *core_if = pcd->core_if;
+
 	if (core_if->dma_enable) {
 		if (core_if->dma_desc_enable) {
 			if (ep->is_in) {
@@ -671,7 +686,7 @@ static void dwc_otg_iso_ep_start_transfer(dwc_otg_core_if_t * core_if,
 			} else {
 				ep->desc_cnt = ep->pkt_cnt;
 			}
-			dwc_otg_iso_ep_start_ddma_transfer(core_if, ep);
+			dwc_otg_iso_ep_start_ddma_transfer(pcd, ep);
 		} else {
 			if (core_if->pti_enh_enable) {
 				dwc_otg_iso_ep_start_buf_transfer(core_if, ep);
@@ -702,8 +717,9 @@ static void dwc_otg_iso_ep_start_transfer(dwc_otg_core_if_t * core_if,
  * @param ep The EP to start the transfer on.
  */
 
-void dwc_otg_iso_ep_stop_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
+void dwc_otg_iso_ep_stop_transfer(dwc_otg_pcd_t * pcd, dwc_ep_t * ep)
 {
+	dwc_otg_core_if_t * core_if = pcd->core_if;
 	depctl_data_t depctl = {.d32 = 0 };
 	volatile uint32_t *addr;
 
@@ -723,9 +739,10 @@ void dwc_otg_iso_ep_stop_transfer(dwc_otg_core_if_t * core_if, dwc_ep_t * ep)
 
 	if (core_if->dma_desc_enable &&
 	    ep->iso_desc_addr && ep->iso_dma_desc_addr) {
-		dwc_otg_ep_free_desc_chain(ep->iso_desc_addr,
-					   ep->iso_dma_desc_addr,
-					   ep->desc_cnt * 2);
+		DWC_DMA_FREE(pcd->otg_dev->dev,
+			sizeof(dwc_otg_dev_dma_desc_t) * ep->desc_cnt * 2
+			ep->iso_desc_addr,
+			ep->iso_dma_desc_addr);
 	}
 
 	/* reset varibales */
@@ -851,7 +868,7 @@ int dwc_otg_pcd_iso_ep_start(dwc_otg_pcd_t * pcd, void *ep_handle,
 	ep->iso_req_handle = req_handle;
 
 	DWC_SPINUNLOCK_IRQRESTORE(pcd->lock, flags);
-	dwc_otg_iso_ep_start_transfer(core_if, dwc_ep);
+	dwc_otg_iso_ep_start_transfer(pcd, dwc_ep);
 	return 0;
 }
 
@@ -869,7 +886,7 @@ int dwc_otg_pcd_iso_ep_stop(dwc_otg_pcd_t * pcd, void *ep_handle,
 	}
 	dwc_ep = &ep->dwc_ep;
 
-	dwc_otg_iso_ep_stop_transfer(GET_CORE_IF(pcd), dwc_ep);
+	dwc_otg_iso_ep_stop_transfer(pcd, dwc_ep);
 
 	DWC_FREE(dwc_ep->pkt_info);
 	DWC_SPINLOCK_IRQSAVE(pcd->lock, &flags);
@@ -971,20 +988,31 @@ static void dwc_otg_pcd_init_ep(dwc_otg_pcd_t * pcd, dwc_otg_pcd_ep_t * pcd_ep,
 	pcd_ep->dwc_ep.xfer_count = 0;
 	pcd_ep->dwc_ep.sent_zlp = 0;
 	pcd_ep->dwc_ep.total_len = 0;
-	pcd_ep->dwc_ep.desc_addr =
-		dwc_otg_ep_alloc_desc_chain(
-			&pcd_ep->dwc_ep.dma_desc_addr,
-			MAX_DMA_DESC_CNT);
-	if (!pcd_ep->dwc_ep.desc_addr)
-			DWC_WARN("%s, can't allocate DMA descriptor\n",
-				 __func__);
+
+	if (pcd->core_if->dma_desc_enable && ep_num) {
+		if (is_in) {
+			pcd_ep->dwc_ep.desc_addr =
+				pcd->in_ep_trb_pool + (ep_num - 1) * MAX_DMA_DESC_CNT;
+			pcd_ep->dwc_ep.dma_desc_addr =
+				pcd->in_ep_trb_dma_pool +
+					(ep_num - 1) * MAX_DMA_DESC_CNT *
+						sizeof(dwc_otg_dev_dma_desc_t);
+		} else {
+			pcd_ep->dwc_ep.desc_addr =
+				pcd->out_ep_trb_pool + (ep_num - 1) * MAX_DMA_DESC_CNT;
+			pcd_ep->dwc_ep.dma_desc_addr =
+				pcd->out_ep_trb_dma_pool +
+					(ep_num - 1) * MAX_DMA_DESC_CNT *
+						sizeof(dwc_otg_dev_dma_desc_t);
+		}
+	}
 	DWC_CIRCLEQ_INIT(&pcd_ep->queue);
 }
 
 /**
  * Initialize ep's
  */
-static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
+static int dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 {
 	int i;
 	uint32_t hwcfg1;
@@ -993,6 +1021,24 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 	uint32_t num_in_eps = (GET_CORE_IF(pcd))->dev_if->num_in_eps;
 	uint32_t num_out_eps = (GET_CORE_IF(pcd))->dev_if->num_out_eps;
 
+	if (pcd->core_if->dma_desc_enable) {
+		pcd->in_ep_trb_pool = DWC_DMA_ALLOC(pcd->otg_dev->dev,
+			sizeof(dwc_otg_dev_dma_desc_t) * num_in_eps * MAX_DMA_DESC_CNT,
+			&pcd->in_ep_trb_dma_pool);
+		if (!pcd->in_ep_trb_pool)
+			return -ENOMEM;
+
+		pcd->out_ep_trb_pool = DWC_DMA_ALLOC(pcd->otg_dev->dev,
+			sizeof(dwc_otg_dev_dma_desc_t) * num_out_eps * MAX_DMA_DESC_CNT,
+			&pcd->out_ep_trb_dma_pool);
+		if (!pcd->out_ep_trb_pool) {
+			DWC_DMA_FREE(pcd->otg_dev->dev,
+				sizeof(dwc_otg_dev_dma_desc_t) * num_out_eps * MAX_DMA_DESC_CNT,
+				pcd->in_ep_trb_pool,
+				pcd->in_ep_trb_dma_pool);
+			return -ENOMEM;
+		}
+	}
 	/**
 	 * Initialize the EP0 structure.
 	 */
@@ -1037,6 +1083,8 @@ static void dwc_otg_pcd_reinit(dwc_otg_pcd_t * pcd)
 	pcd->ep0state = EP0_DISCONNECT;
 	pcd->ep0.dwc_ep.maxpacket = MAX_EP0_SIZE;
 	pcd->ep0.dwc_ep.type = DWC_OTG_EP_TYPE_CONTROL;
+
+	return 0;
 }
 
 /**
@@ -1155,8 +1203,9 @@ static void start_xfer_tasklet_func(void *data)
  * This function initialized the PCD portion of the driver.
  *
  */
-dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
+void dwc_otg_pcd_init(dwc_otg_device_t *otg_dev)
 {
+	dwc_otg_core_if_t *core_if = otg_dev->core_if;
 	dwc_otg_pcd_t *pcd = NULL;
 	dwc_otg_dev_if_t *dev_if;
 	int i;
@@ -1167,14 +1216,14 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 	pcd = DWC_ALLOC(sizeof(dwc_otg_pcd_t));
 
 	if (pcd == NULL) {
-		return NULL;
+		return;
 	}
 
 	pcd->lock = DWC_SPINLOCK_ALLOC();
 	if (!pcd->lock) {
 		DWC_ERROR("Could not allocate lock for pcd");
 		DWC_FREE(pcd);
-		return NULL;
+		return;
 	}
 	/* Set core_if's lock pointer to hcd->lock */
 	core_if->lock = pcd->lock;
@@ -1188,7 +1237,11 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 	} else {
 		DWC_PRINTF("Shared Tx FIFO mode\n");
 	}
-
+#ifdef CONFIG_ARCH_SCX20
+	if (dirty_flush_pkt == NULL)
+		dirty_flush_pkt = DWC_DMA_ALLOC(otg_dev->dev, 1024,
+			&dirty_flush_pkt_dma_handle);
+#endif
 	/*
 	 * Initialized the Core for Device mode here if there is nod ADP support.
 	 * Otherwise it will be done later in dwc_otg_adp_start routine.
@@ -1207,88 +1260,72 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 	 */
 	if (GET_CORE_IF(pcd)->dma_enable) {
 		pcd->setup_pkt =
-		    DWC_DMA_ALLOC(get_gadget_wrapper_device(),sizeof(*pcd->setup_pkt) * 5,
+		    DWC_DMA_ALLOC(otg_dev->dev, sizeof(*pcd->setup_pkt) * 5,
 				  &pcd->setup_pkt_dma_handle);
 		if (pcd->setup_pkt == NULL) {
 			DWC_FREE(pcd);
-			return NULL;
+			return;
 		}
 
 		pcd->status_buf =
-		    DWC_DMA_ALLOC(get_gadget_wrapper_device(),sizeof(uint16_t),
+		    DWC_DMA_ALLOC(otg_dev->dev, sizeof(uint16_t),
 				  &pcd->status_buf_dma_handle);
 		if (pcd->status_buf == NULL) {
-			DWC_DMA_FREE(get_gadget_wrapper_device(),sizeof(*pcd->setup_pkt) * 5,
+			DWC_DMA_FREE(otg_dev->dev, sizeof(*pcd->setup_pkt) * 5,
 				     pcd->setup_pkt, pcd->setup_pkt_dma_handle);
 			DWC_FREE(pcd);
-			return NULL;
+			return;
 		}
 
 		if (GET_CORE_IF(pcd)->dma_desc_enable) {
-			dev_if->setup_desc_addr[0] =
-			    dwc_otg_ep_alloc_desc_chain
-			    (&dev_if->dma_setup_desc_addr[0], 1);
-			dev_if->setup_desc_addr[1] =
-			    dwc_otg_ep_alloc_desc_chain
-			    (&dev_if->dma_setup_desc_addr[1], 1);
-			dev_if->in_desc_addr =
-			    dwc_otg_ep_alloc_desc_chain
-			    (&dev_if->dma_in_desc_addr, 1);
-			dev_if->out_desc_addr =
-			    dwc_otg_ep_alloc_desc_chain
-			    (&dev_if->dma_out_desc_addr, 1);
-			pcd->data_terminated = 0;
 
-			if (dev_if->setup_desc_addr[0] == 0
-			    || dev_if->setup_desc_addr[1] == 0
-			    || dev_if->in_desc_addr == 0
-			    || dev_if->out_desc_addr == 0) {
-
-				if (dev_if->out_desc_addr)
-					dwc_otg_ep_free_desc_chain
-					    (dev_if->out_desc_addr,
-					     dev_if->dma_out_desc_addr, 1);
-				if (dev_if->in_desc_addr)
-					dwc_otg_ep_free_desc_chain
-					    (dev_if->in_desc_addr,
-					     dev_if->dma_in_desc_addr, 1);
-				if (dev_if->setup_desc_addr[1])
-					dwc_otg_ep_free_desc_chain
-					    (dev_if->setup_desc_addr[1],
-					     dev_if->dma_setup_desc_addr[1], 1);
-				if (dev_if->setup_desc_addr[0])
-					dwc_otg_ep_free_desc_chain
-					    (dev_if->setup_desc_addr[0],
-					     dev_if->dma_setup_desc_addr[0], 1);
-
-				DWC_DMA_FREE(get_gadget_wrapper_device(),sizeof(*pcd->setup_pkt) * 5,
+			dev_if->ep0_desc_pool = DWC_DMA_ALLOC(otg_dev->dev,
+				sizeof(dwc_otg_dev_dma_desc_t) * 4 * MAX_DMA_DESC_CNT,
+				&dev_if->ep0_dma_desc_pool);
+			if (dev_if->ep0_desc_pool == NULL) {
+				DWC_DMA_FREE(otg_dev->dev, sizeof(*pcd->setup_pkt) * 5,
 					     pcd->setup_pkt,
 					     pcd->setup_pkt_dma_handle);
-				DWC_DMA_FREE(get_gadget_wrapper_device(),sizeof(*pcd->status_buf),
+				DWC_DMA_FREE(otg_dev->dev, sizeof(*pcd->status_buf),
 					     pcd->status_buf,
 					     pcd->status_buf_dma_handle);
 
 				DWC_FREE(pcd);
-
-				return NULL;
+				return;
 			}
+
+			dev_if->setup_desc_addr[0] = dev_if->ep0_desc_pool;
+			dev_if->dma_setup_desc_addr[0] = dev_if->ep0_dma_desc_pool;
+
+			dev_if->setup_desc_addr[1] = dev_if->ep0_desc_pool + MAX_DMA_DESC_CNT;
+			dev_if->dma_setup_desc_addr[1] = dev_if->ep0_dma_desc_pool +
+				sizeof(dwc_otg_dev_dma_desc_t) * MAX_DMA_DESC_CNT;
+
+			dev_if->in_desc_addr = dev_if->ep0_desc_pool + MAX_DMA_DESC_CNT * 2;
+			dev_if->dma_in_desc_addr = dev_if->ep0_dma_desc_pool +
+				sizeof(dwc_otg_dev_dma_desc_t) * MAX_DMA_DESC_CNT * 2;
+
+			dev_if->out_desc_addr = dev_if->ep0_desc_pool + MAX_DMA_DESC_CNT * 3;
+			dev_if->dma_out_desc_addr = dev_if->ep0_dma_desc_pool +
+				sizeof(dwc_otg_dev_dma_desc_t) * MAX_DMA_DESC_CNT * 3;
+
+			pcd->data_terminated = 0;
 		}
 	} else {
 		pcd->setup_pkt = DWC_ALLOC(sizeof(*pcd->setup_pkt) * 5);
 		if (pcd->setup_pkt == NULL) {
 			DWC_FREE(pcd);
-			return NULL;
+			return;
 		}
 
 		pcd->status_buf = DWC_ALLOC(sizeof(uint16_t));
 		if (pcd->status_buf == NULL) {
 			DWC_FREE(pcd->setup_pkt);
 			DWC_FREE(pcd);
-			return NULL;
+			return;
 		}
 	}
 
-	dwc_otg_pcd_reinit(pcd);
 
 	/* Allocate the cfi object for the PCD */
 #ifdef DWC_UTE_CFI
@@ -1300,6 +1337,11 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 		goto fail;
 	}
 #endif
+	pcd->otg_dev = otg_dev;
+	if (dwc_otg_pcd_reinit(pcd))
+		return;
+
+	otg_dev->pcd = pcd;
 
 	/* Initialize tasklets */
 	pcd->start_xfer_tasklet = DWC_TASK_ALLOC("xfer_tasklet",
@@ -1310,6 +1352,13 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 	/* Initialize SRP timer */
 	core_if->srp_timer = DWC_TIMER_ALLOC("SRP TIMER", srp_timeout, core_if);
 
+#ifdef CONFIG_ARCH_SCX20
+	for (i = 0; i < MAX_EPS_CHANNELS; i++) {
+		pcd->core_if->epin_xfer_timer[i] =
+		    DWC_TIMER_ALLOC("epin timer", epin_xfer_timeout,
+				    &pcd->core_if->epin_xfer_info[i]);
+	}
+#endif
 	if (core_if->core_params->dev_out_nak) {
 		/**
 		* Initialize xfer timeout timer. Implemented for
@@ -1322,7 +1371,7 @@ dwc_otg_pcd_t *dwc_otg_pcd_init(dwc_otg_core_if_t * core_if)
 		}
 	}
 
-	return pcd;
+	return;
 #ifdef DWC_UTE_CFI
 fail:
 	if (pcd->setup_pkt)
@@ -1333,7 +1382,7 @@ fail:
 		DWC_FREE(pcd->cfi);
 	if (pcd)
 		DWC_FREE(pcd);
-	return NULL;
+	return;
 #endif
 
 }
@@ -1344,7 +1393,10 @@ fail:
 void dwc_otg_pcd_remove(dwc_otg_pcd_t * pcd)
 {
 	dwc_otg_dev_if_t *dev_if = GET_CORE_IF(pcd)->dev_if;
+	uint32_t num_in_eps = dev_if->num_in_eps;
+	uint32_t num_out_eps = dev_if->num_out_eps;
 	int i;
+
 	if (pcd->core_if->core_params->dev_out_nak) {
 		for (i = 0; i < MAX_EPS_CHANNELS; i++) {
 			DWC_TIMER_CANCEL(pcd->core_if->ep_xfer_timer[i]);
@@ -1353,23 +1405,33 @@ void dwc_otg_pcd_remove(dwc_otg_pcd_t * pcd)
 	}
 
 	if (GET_CORE_IF(pcd)->dma_enable) {
-		DWC_DMA_FREE(get_gadget_wrapper_device(),sizeof(*pcd->setup_pkt) * 5, pcd->setup_pkt,
+		DWC_DMA_FREE(pcd->otg_dev->dev, sizeof(*pcd->setup_pkt) * 5, pcd->setup_pkt,
 			     pcd->setup_pkt_dma_handle);
-		DWC_DMA_FREE(get_gadget_wrapper_device(),sizeof(uint16_t), pcd->status_buf,
+		DWC_DMA_FREE(pcd->otg_dev->dev, sizeof(uint16_t), pcd->status_buf,
 			     pcd->status_buf_dma_handle);
 		if (GET_CORE_IF(pcd)->dma_desc_enable) {
-			dwc_otg_ep_free_desc_chain(dev_if->setup_desc_addr[0],
-						   dev_if->dma_setup_desc_addr
-						   [0], 1);
-			dwc_otg_ep_free_desc_chain(dev_if->setup_desc_addr[1],
-						   dev_if->dma_setup_desc_addr
-						   [1], 1);
-			dwc_otg_ep_free_desc_chain(dev_if->in_desc_addr,
-						   dev_if->dma_in_desc_addr, 1);
-			dwc_otg_ep_free_desc_chain(dev_if->out_desc_addr,
-						   dev_if->dma_out_desc_addr,
-						   1);
+			DWC_DMA_FREE(pcd->otg_dev->dev,
+				sizeof(dwc_otg_dev_dma_desc_t) * 4 * MAX_DMA_DESC_CNT,
+				dev_if->ep0_desc_pool,
+				dev_if->ep0_dma_desc_pool);
+			DWC_DMA_FREE(pcd->otg_dev->dev,
+				sizeof(dwc_otg_dev_dma_desc_t) * num_in_eps * MAX_DMA_DESC_CNT,
+				pcd->in_ep_trb_pool,
+				pcd->in_ep_trb_dma_pool);
+			DWC_DMA_FREE(pcd->otg_dev->dev,
+				sizeof(dwc_otg_dev_dma_desc_t) * num_out_eps * MAX_DMA_DESC_CNT,
+				pcd->out_ep_trb_pool,
+				pcd->out_ep_trb_dma_pool);
+			for (i = 0; i < num_in_eps; i++) {
+				pcd->in_ep[i].dwc_ep.desc_addr = NULL;
+				pcd->in_ep[i].dwc_ep.dma_desc_addr = 0;
+			}
+			for (i = 0; i < num_out_eps; i++) {
+				pcd->out_ep[i].dwc_ep.desc_addr = NULL;
+				pcd->out_ep[i].dwc_ep.dma_desc_addr = 0;
+			}
 		}
+
 	} else {
 		DWC_FREE(pcd->setup_pkt);
 		DWC_FREE(pcd->status_buf);
@@ -1387,7 +1449,17 @@ void dwc_otg_pcd_remove(dwc_otg_pcd_t * pcd)
 			}
 		}
 	}
-
+#ifdef CONFIG_ARCH_SCX20
+	for (i = 0; i < MAX_EPS_CHANNELS; i++) {
+		if (pcd->core_if->epin_xfer_timer[i]) {
+			if (pcd->core_if->epin_xfer_info[i].state) {
+				DWC_TIMER_CANCEL(pcd->core_if->epin_xfer_timer[i]);
+				pcd->core_if->epin_xfer_info[i].state = 0;
+			}
+			DWC_TIMER_FREE(pcd->core_if->epin_xfer_timer[i]);
+		}
+	}
+#endif
 /* Release the CFI object's dynamic memory */
 #ifdef DWC_UTE_CFI
 	if (pcd->cfi->ops.release) {
@@ -1582,6 +1654,7 @@ int dwc_otg_pcd_ep_enable(dwc_otg_pcd_t * pcd,
 	/* Set initial data PID. */
 	if (ep->dwc_ep.type == UE_BULK) {
 		ep->dwc_ep.data_pid_start = 0;
+		dwc_otg_ep_reset_ep_pid(pcd->core_if,ep->dwc_ep.is_in,num);
 	}
 
 	/* Alloc DMA Descriptors */
@@ -2143,17 +2216,27 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 		req->mapped = 0;
 		if (!num_sgs) {
 			if (dma_buf == DWC_DMA_ADDR_INVALID) {
-				dma_buf = dma_map_single(get_gadget_wrapper_device(),
+				dma_buf = dma_map_single(pcd->otg_dev->dev,
 					buf, buflen,
 					(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 					((ep->dwc_ep.is_in) ? DMA_TO_DEVICE : DMA_FROM_DEVICE));
 				req->mapped = 1;
 			} else {
-				dma_sync_single_for_device(get_gadget_wrapper_device(),
+				dma_sync_single_for_device(pcd->otg_dev->dev,
 					dma_buf, buflen,
 					(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 					((ep->dwc_ep.is_in) ? DMA_TO_DEVICE : DMA_FROM_DEVICE));
 			}
+#ifdef CONFIG_ARCH_SCX20
+			if ((buflen < 1024) && ep->dwc_ep.is_in &&
+				dirty_flush_pkt && ep->dwc_ep.num) {
+					int i, cnt;
+					cnt = 16 - buflen / 64;
+					for (i = 0; i < cnt; i++)
+						dirty_flush_pkt[i * 16] = dirty_data1;
+					dirty_data1++;
+			}
+#endif
 			req->buf = buf;
 			req->dma = dma_buf;
 			req->length = buflen;
@@ -2162,8 +2245,7 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 		} else {
 			int 	mapped;
 
-			mapped = dma_map_sg(get_gadget_wrapper_device(),
-					sg, num_sgs,
+			mapped = dma_map_sg(pcd->otg_dev->dev, sg, num_sgs,
 					(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :
 					((ep->dwc_ep.is_in) ? DMA_TO_DEVICE : DMA_FROM_DEVICE));
 			if (mapped == 0) {
@@ -2182,7 +2264,7 @@ int dwc_otg_pcd_ep_queue(dwc_otg_pcd_t * pcd, void *ep_handle,
 	if ((dma_buf & 0x3) && GET_CORE_IF(pcd)->dma_enable
 		&& !GET_CORE_IF(pcd)->dma_desc_enable){
 		req->dw_align_buf = kmalloc(buflen, GFP_KERNEL);
-		req->dw_align_buf_dma = dma_map_single(get_gadget_wrapper_device(),
+		req->dw_align_buf_dma = dma_map_single(pcd->otg_dev->dev,
 				req->dw_align_buf,
 				buflen,
 				(ep->dwc_ep.num == 0) ? DMA_BIDIRECTIONAL :

@@ -40,6 +40,7 @@ typedef struct {
   uint8_t  cap;
 }rom_callback_func_t;
 
+
 unsigned int get_shark_chip_id(void)
 {
    unsigned int code_addr = 0;
@@ -190,7 +191,7 @@ void sr2351_fm_config_xtl(void)
 
 int sr2351_fm_en(void)
 {
-#if defined(CONFIG_ARCH_SCX30G)	
+#if defined(CONFIG_ARCH_SCX30G)|| defined(CONFIG_ARCH_SCX20)	
 
 	//sci_glb_clr(SHARK_PMU_APB_PD_AP_SYS_CFG,BIT_24);
 	sci_glb_clr(SHARK_PIN_U0TXD,BIT_0|BIT_1);
@@ -209,7 +210,7 @@ int sr2351_fm_en(void)
 
 int sr2351_fm_dis(void)
 {
-#if defined(CONFIG_ARCH_SCX30G)	
+#if defined(CONFIG_ARCH_SCX30G)	||  defined(CONFIG_ARCH_SCX20)
 
 	//sci_glb_set(SHARK_PMU_APB_PD_AP_SYS_CFG,BIT_24);
 
@@ -237,20 +238,20 @@ void sr2351_fm_enter_sleep(void)
 {
 	unsigned int chip_ver=0;
 
-	#ifdef CONFIG_ARCH_SCX30G
+	#if defined(CONFIG_ARCH_SCX30G)|| defined(CONFIG_ARCH_SCX20)
 	sci_glb_clr(SHARK_PMU_APB_MEM_PD_CFG0,BIT_5|BIT_4|BIT_3|BIT_2|BIT_1|BIT_0);
 	#endif
 
 	if(fm_rf_ops != NULL)
 	{
-		#if defined(CONFIG_ARCH_SCX15) || defined(CONFIG_ARCH_SCX30G)
+		#if defined(CONFIG_ARCH_SCX15) || defined(CONFIG_ARCH_SCX30G)||defined(CONFIG_ARCH_SCX20)
 		
     /*Disable the RSSI AGC*/
 		sci_glb_clr(FM_REG_FM_EN, BIT_2 | BIT_3);
 		udelay(5);
 
 		/*Switch the mspi clock*/
-		#if defined(CONFIG_ARCH_SCX30G)
+		#if defined(CONFIG_ARCH_SCX30G) || defined(CONFIG_ARCH_SCX20)
 		printk("2351 fm enter sleep switch clock\n");
 		sci_glb_clr(SHARK_MSPI_CLK_SWITCH, BIT_0);
 		#elif defined(CONFIG_ARCH_SCX15)
@@ -300,13 +301,13 @@ void sr2351_fm_exit_sleep(void)
 
 	if(fm_rf_ops != NULL)
 	{
-		#if defined(CONFIG_ARCH_SCX15) || defined(CONFIG_ARCH_SCX30G)
+		#if defined(CONFIG_ARCH_SCX15) || defined(CONFIG_ARCH_SCX30G)|| defined(CONFIG_ARCH_SCX20)
 		/*Disable the RSSI AGC*/
 		sci_glb_clr(FM_REG_FM_EN, BIT_2 | BIT_3);
 		udelay(5);
 
 		/*Switch the mspi clock*/
-		#if defined(CONFIG_ARCH_SCX30G)
+		#if defined(CONFIG_ARCH_SCX30G) || defined(CONFIG_ARCH_SCX20)
 		printk("2351 fm exit sleep switch clock\n");
 		sci_glb_set(SHARK_MSPI_CLK_SWITCH, BIT_0);
 		#elif defined(CONFIG_ARCH_SCX15)
@@ -346,7 +347,7 @@ void sr2351_fm_exit_sleep(void)
 		#endif
 	}
 
-	#ifdef CONFIG_ARCH_SCX30G
+	#if defined(CONFIG_ARCH_SCX30G)||defined(CONFIG_ARCH_SCX20)
 	sci_glb_set(SHARK_PMU_APB_MEM_PD_CFG0,BIT_5|BIT_3|BIT_1);
 	#endif
 }
@@ -434,6 +435,7 @@ int shark_fm_reg_cfg(void)
 		5,		3,			3,		2,		1,
 		1
 	};
+
 #if 0	
 	if (shark_write_reg_cfg(fm_reg_init_des, \
 		ARRAY_SIZE(fm_reg_init_des)) == -1) {
@@ -461,6 +463,9 @@ int shark_fm_reg_cfg(void)
 
 int shark_fm_cfg_rf_reg(void)
 {
+	if (fm_rf_ops == NULL)
+		return 0;
+
 	fm_rf_ops->write_reg(FM_SR2351_DCOC_CAL_TIMER, 0x0FFF);
 	fm_rf_ops->write_reg(FM_SR2351_RC_TUNER, 0xFFFF);
 	fm_rf_ops->write_reg(FM_SR2351_RX_ADC_CLK, 0x001F);
@@ -485,6 +490,10 @@ int sr2351_fm_init(void)
     rf2351_vddwpa_ctrl_power_enable(1);
 #endif
 	sprd_get_rf2351_ops(&fm_rf_ops);
+
+	if (fm_rf_ops == NULL)
+		return -1;
+
 	fm_rf_ops->mspi_enable();
 
 	sr2351_fm_config_xtl();
@@ -553,20 +562,28 @@ void __sr2351_fm_show_status(void)
 	(shark_fm_info.rssi >> 18) & 0x3, \
 	(shark_fm_info.rssi >> 17) & 0x1, \
 	(shark_fm_info.rssi >> 16) & 0x1, shark_fm_info.rssi & 0xff);
+
 }
 
 int sr2351_fm_deinit(void)
 {
-    fm_rf_ops->write_reg(FM_SR2351_MODE, 0x0000);
-    fm_rf_ops->write_reg(FM_SR2351_ADC_CLK, 0x201);
+	sr2351_fm_mute();
 
-	sci_glb_clr(SHARK_PMU_SLEEP_CTRL, BIT_8);
+	if (fm_rf_ops != NULL) {
+		fm_rf_ops->write_reg(FM_SR2351_MODE, 0x0000);
+		fm_rf_ops->write_reg(FM_SR2351_ADC_CLK, 0x201);
 
-    fm_rf_ops->mspi_disable();
-    sprd_put_rf2351_ops(&fm_rf_ops);
+		shark_fm_int_dis();
+
+		sci_glb_clr(SHARK_PMU_SLEEP_CTRL, BIT_8);
+		sci_glb_clr(SHARK_APB_EB0_SET, BIT_20);
+
+		fm_rf_ops->mspi_disable();
+		sprd_put_rf2351_ops(&fm_rf_ops);
 #ifdef CONFIG_ARCH_SCX20
-    rf2351_vddwpa_ctrl_power_enable(0);
+		rf2351_vddwpa_ctrl_power_enable(0);
 #endif
+		}
 
     return 0;
 }
@@ -626,8 +643,22 @@ int sr2351_fm_set_tune(u32 freq)
 	write_fm_reg(FM_REG_FMCTL_STI, FM_CTL_STI_MODE_TUNE);	/* tune mode*/
 #ifdef CONFIG_FM_SEEK_STEP_50KHZ
 	write_fm_reg(FM_REG_CHAN, ((freq-10)/5) & 0xffff);
+	if(freq == 10390)
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,4);
+	}else
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,2);
+	}
 #else
 	write_fm_reg(FM_REG_CHAN, ((freq-1)*2) & 0xffff);
+	if(freq == 1039)
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,4);
+	}else
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,2);
+	}
 #endif
 	shark_fm_int_en();
 	sr2351_fm_en();
@@ -731,8 +762,22 @@ int sr2351_fm_seek(u32 frequency, u32 seek_dir, u32 time_out, u32 *freq_found)
 	/*dump_fm_regs();*/
 #ifdef CONFIG_FM_SEEK_STEP_50KHZ
 	*freq_found = shark_fm_info.freq_seek*5 + 10;
+	if(*freq_found == 10390)
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,4);
+	}else
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,2);
+	}
 #else
 	*freq_found = (shark_fm_info.freq_seek >> 1) + 1;
+	if(*freq_found == 1039)
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,4);
+	}else
+	{
+		write_fm_reg(FM_REG_ADP_LPF_CONF,2);
+	}	
 #endif
 
 	shark_fm_int_clr();
@@ -780,4 +825,35 @@ int sr2351_fm_get_rssi(u32 *rssi)
   SR2351_PRINT("rssi value in sr2351_fm_get_rssi() is %08x\r\n",*rssi);
   
   return 0;
+}
+
+int sr2351_fm_check_status(void *p)
+{
+	u32 reg_data = 0;
+	struct fm_check_status parm;
+
+	read_fm_reg(FM_REG_FM_EN, &reg_data);
+	if (0X1 == (reg_data >> 31))
+		parm.status = 0x00;
+	else if (0X0 == (reg_data >> 31))
+		parm.status = 0x01;
+	else
+		parm.status = 0x02;
+
+	read_fm_reg(FM_REG_INPWR_STS, &reg_data);
+	parm.rssi = 512 - reg_data;
+	if (parm.rssi > 105) {
+		parm.status = 0x01;
+		SR2351_PRINT("invalid rssi: rssi = %d\n", parm.rssi);
+	}
+
+	parm.freq = ((shark_fm_info.freq_seek >> 1) + 1);
+
+	SR2351_PRINT("status = %d; rssi = %d; freq = %d\n",
+		parm.status, parm.rssi, parm.freq);
+
+	if (copy_to_user(p, &parm, sizeof(parm)))
+		return -EFAULT;
+
+	return 0;
 }

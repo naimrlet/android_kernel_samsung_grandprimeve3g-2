@@ -460,8 +460,6 @@ static ssize_t wakeup_count_store(struct kobject *kobj,
 power_attr(wakeup_count);
 
 #ifdef CONFIG_CPU_FREQ_LIMIT_USERSPACE
-static int cpufreq_max_limit_val = -1;
-static int cpufreq_min_limit_val = -1;
 struct cpufreq_limit_handle *cpufreq_max_hd;
 struct cpufreq_limit_handle *cpufreq_min_hd;
 DEFINE_MUTEX(cpufreq_limit_mutex);
@@ -513,7 +511,7 @@ static ssize_t cpufreq_max_limit_show(struct kobject *kobj,
 					struct kobj_attribute *attr,
 					char *buf)
 {
-	return sprintf(buf, "%d\n", cpufreq_max_limit_val);
+	return sprintf(buf, "%d\n", cpufreq_limit_requests_get(CPUFREQ_MAX));
 }
 
 static ssize_t cpufreq_max_limit_store(struct kobject *kobj,
@@ -538,8 +536,6 @@ static ssize_t cpufreq_max_limit_store(struct kobject *kobj,
 	if (val != -1)
 		cpufreq_max_hd = cpufreq_limit_max_freq(val, "user lock(max)");
 
-	cpufreq_max_hd ?
-		(cpufreq_max_limit_val = val) : (cpufreq_max_limit_val = -1);
 	ret = n;
 out:
 	mutex_unlock(&cpufreq_limit_mutex);
@@ -550,7 +546,7 @@ static ssize_t cpufreq_min_limit_show(struct kobject *kobj,
 					struct kobj_attribute *attr,
 					char *buf)
 {
-	return sprintf(buf, "%d\n", cpufreq_min_limit_val);
+	return sprintf(buf, "%d\n", cpufreq_limit_requests_get(CPUFREQ_MIN));
 }
 
 static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
@@ -575,8 +571,6 @@ static ssize_t cpufreq_min_limit_store(struct kobject *kobj,
 	if (val != -1)
 		cpufreq_min_hd = cpufreq_limit_min_freq(val, "user lock(min)");
 
-	cpufreq_min_hd ?
-		(cpufreq_min_limit_val = val) : (cpufreq_min_limit_val = -1);
 	ret = n;
 out:
 	mutex_unlock(&cpufreq_limit_mutex);
@@ -599,8 +593,6 @@ int set_cpufreq_min_limit(int freq)
 	if (freq != -1)
 		cpufreq_min_hd = cpufreq_limit_min_freq(freq, "user lock(min)");
 
-	cpufreq_min_hd ?
-		(cpufreq_min_limit_val = freq) : (cpufreq_min_limit_val = -1);
 out:
 	mutex_unlock(&cpufreq_limit_mutex);
 	return 1;
@@ -714,7 +706,7 @@ power_attr(pm_freeze_timeout);
 
 #endif	/* CONFIG_FREEZER*/
 
-#ifdef CONFIG_ARCH_SC
+#if 0 //def CONFIG_ARCH_SC
 extern void cp_abort(void *debug_info);
 static ssize_t restart_cpc_show(struct kobject *kobj, struct kobj_attribute *attr,
                           char *buf)
@@ -730,12 +722,13 @@ static ssize_t restart_cpc_store(struct kobject *kobj, struct kobj_attribute *at
 {
 	int val;
 	char *cp_assert_info[1]={0};
-#ifdef CONFIG_SEC_LOG_BUF_NOCACHE
+#if defined(CONFIG_SEC_LOG_BUF_NOCACHE) || defined(CONFIG_SEC_LOG64)
 		void __iomem *base_cp_dbg = 0;
 #else
 		unsigned long base_cp_dbg = 0;
 #endif
 
+#if 0
 	memcpy(cp_assert_info, buf, 1);
 	if (sscanf(cp_assert_info, "%d", &val) == 1 && val > 0){
 		if(sec_log_buf_nocache_enable == 1){
@@ -751,12 +744,41 @@ static ssize_t restart_cpc_store(struct kobject *kobj, struct kobj_attribute *at
 
 		cp_abort(buf+2);
 	}
-
+#else
+	panic("CP Crash : cp crash!!");
+#endif
 	return n;
 }
 
 power_attr(restart_cpc);
 #endif
+
+#ifdef CONFIG_SW_SELF_DISCHARGING
+static char selfdischg_usage_str[] =
+	"[START]\n"
+	"/sys/power/cpufreq_self_discharging 1\n"
+	"/sys/devices/system/cpu/cpuhotplug/cpu_hotplug_disable 1\n"
+	"[STOP]\n"
+	"/sys/power/cpufreq_self_discharging 0\n"
+	"/sys/devices/system/cpu/cpuhotplug/cpu_hotplug_disable 0\n"
+	"[END]\n";
+
+static ssize_t selfdischg_usage_show(struct kobject *kobj,
+					struct kobj_attribute *attr,
+					char *buf)
+{
+	pr_info("%s\n", __func__);
+	return sprintf(buf, "%s", selfdischg_usage_str);
+}
+
+static struct kobj_attribute selfdischg_usage_attr = {
+	.attr	= {
+		.name = __stringify(selfdischg_usage),
+		.mode = 0440,
+	},
+	.show	= selfdischg_usage_show,
+};
+#endif /* CONFIG_SW_SELF_DISCHARGING */
 
 #ifdef CONFIG_USER_WAKELOCK
 power_attr(wake_lock);
@@ -789,14 +811,16 @@ static struct attribute * g[] = {
 #ifdef CONFIG_FREEZER
 	&pm_freeze_timeout_attr.attr,
 #endif
-
-#ifdef CONFIG_ARCH_SC
+#if 0 //def CONFIG_ARCH_SC
 	&restart_cpc_attr.attr,
 #endif
 #ifdef CONFIG_CPU_FREQ_LIMIT_USERSPACE
 	&cpufreq_table_attr.attr,
 	&cpufreq_max_limit_attr.attr,
 	&cpufreq_min_limit_attr.attr,
+#endif
+#ifdef CONFIG_SW_SELF_DISCHARGING
+	&selfdischg_usage_attr.attr,
 #endif
 	NULL,
 };

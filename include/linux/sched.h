@@ -1451,6 +1451,11 @@ struct task_struct {
 	unsigned int	sequential_io;
 	unsigned int	sequential_io_avg;
 #endif
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	struct page *lock_on_page;
+	struct buffer_head *lock_on_buffer;
+	struct timer_list *lock_timer;
+#endif
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */

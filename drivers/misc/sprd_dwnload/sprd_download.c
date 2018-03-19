@@ -24,7 +24,7 @@
 
 
 #define		READ_BUFFER_SIZE	(4096)
-#define		WRITE_BUFFER_SIZE	(33*1024)
+#define		WRITE_BUFFER_SIZE	(129*1024)
 
 bool flag_read = 0;
 uint32 read_len;
@@ -175,7 +175,6 @@ static int sprd_download_write(struct file *filp, const char __user *buf,size_t 
 	{
 		printk("wait marlin ready start\n");
 		/*wait marlin ready*/
-		#if !(defined CONFIG_MACH_SP8730SEEA || defined CONFIG_MACH_SP8730SEEA_QHD)
 		while(1){
 			if(1 == get_sdiohal_status()){
 				//marlin_sdio_sync_uninit();
@@ -185,11 +184,6 @@ static int sprd_download_write(struct file *filp, const char __user *buf,size_t 
 			}
 			msleep(50);
 		}
-		#else
-		flag_cali = true;
-		msleep(800);
-		printk("wait marlin ready ok\n");
-		#endif
 	}else if(strncmp(download_dev->write_buffer,"end_calibration",15) == 0)
 		flag_cali = false;
 	else

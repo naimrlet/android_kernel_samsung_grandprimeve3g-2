@@ -76,7 +76,7 @@ int dirty_background_ratio = 0;
  * dirty_background_bytes starts at 0 (disabled) so that it is a function of
  * dirty_background_ratio * the amount of dirtyable memory
  */
-unsigned long dirty_background_bytes = 5 * 1024 * 1024;
+unsigned long dirty_background_bytes = 20 * 1024 * 1024;
 
 /*
  * free highmem will not be subtracted from the total free memory
@@ -93,7 +93,7 @@ int vm_dirty_ratio = 0;
  * vm_dirty_bytes starts at 0 (disabled) so that it is a function of
  * vm_dirty_ratio * the amount of dirtyable memory
  */
-unsigned long vm_dirty_bytes = 15 * 1024 * 1024;
+unsigned long vm_dirty_bytes = 40 * 1024 * 1024;
 
 /*
  * The interval between `kupdate'-style writebacks

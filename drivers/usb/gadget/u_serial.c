@@ -80,7 +80,7 @@
  * consider it a NOP.  A third layer is provided by the TTY code.
  */
 #define QUEUE_SIZE		32
-#define WRITE_BUF_SIZE		(2*1024)		/* TX only */
+#define WRITE_BUF_SIZE		(8*1024)		/* TX only */
 
 /* circular buffer */
 struct gs_buf {
@@ -701,8 +701,9 @@ static int gs_start_io(struct gs_port *port)
 			tty_wakeup(port->port.tty);
 	} else {
 		gs_free_requests(ep, head, &port->read_allocated);
-		gs_free_requests(port->port_usb->in, &port->write_pool,
-			&port->write_allocated);
+		if (port->port_usb)
+			gs_free_requests(port->port_usb->in, &port->write_pool,
+				&port->write_allocated);
 		status = -EIO;
 	}
 
@@ -799,13 +800,13 @@ static int gs_open(struct tty_struct *tty, struct file *file)
 
 	/* if connected, start the I/O stream */
 	if (port->port_usb) {
-		struct gserial	*gser = port->port_usb;
 
 		pr_debug("gs_open: start ttyGS%d\n", port->port_num);
-		gs_start_io(port);
-
-		if (gser->connect)
-			gser->connect(gser);
+		status = gs_start_io(port);
+		if (status < 0)
+			goto exit_unlock_port;
+		if (port->port_usb && port->port_usb->connect)
+			port->port_usb->connect(port->port_usb);
 	}
 
 	pr_debug("gs_open: ttyGS%d (%p,%p)\n", port->port_num, tty, file);
@@ -1225,8 +1226,8 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 	if (port->port.count) {
 		pr_debug("gserial_connect: start ttyGS%d\n", port->port_num);
 		gs_start_io(port);
-		if (gser->connect)
-			gser->connect(gser);
+		if (port->port_usb && port->port_usb->connect)
+			port->port_usb->connect(port->port_usb);
 	} else {
 		if (gser->disconnect)
 			gser->disconnect(gser);

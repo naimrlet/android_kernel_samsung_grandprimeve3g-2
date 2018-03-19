@@ -38,9 +38,14 @@
 #include <soc/sprd/sci_glb_regs.h>
 
 #include <linux/sprd_iommu.h>
+#include <video/sprd_cam_pw_domain.h>
 
 #define JPG_MINOR MISC_DYNAMIC_MINOR
+#ifndef CONFIG_SC_FPGA
 #define JPG_TIMEOUT_MS 1000
+#else
+#define JPG_TIMEOUT_MS (1000*10)
+#endif
 
 #define USE_INTERRUPT
 /*#define RT_VSP_THREAD*/
@@ -105,7 +110,12 @@ struct clock_name_map_t {
 };
 
 static struct clock_name_map_t clock_name_map[] = {
-#if defined(CONFIG_ARCH_SCX35L)
+#if defined(CONFIG_ARCH_WHALE)
+    {307200000,"clk_tw_307m2"},
+    {256000000,"clk_tw_256m"},
+    {128000000,"clk_tw_128m"},
+    {76800000,"clk_tw_76m8"}
+#elif defined(CONFIG_ARCH_SCX35L)
     {312000000,"clk_312m"},
     {256000000,"clk_256m"},
     {128000000,"clk_128m"},
@@ -150,7 +160,11 @@ static int find_jpg_freq_level(unsigned long freq)
 
 static void disable_jpg (struct jpg_fh *jpg_fp)
 {
-    clk_disable(jpg_hw_dev.jpg_clk);
+    if(1 == jpg_fp->is_clock_enabled)
+    {
+        clk_disable(jpg_hw_dev.jpg_clk);
+    }
+
     jpg_fp->is_clock_enabled= 0;
     pr_debug("jpg ioctl JPG_DISABLE\n");
 
@@ -178,8 +192,12 @@ static long jpg_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
     unsigned long frequency;
     struct jpg_fh *jpg_fp = filp->private_data;
 
+	if(!jpg_fp) {
+		printk(KERN_ERR "%s,%d jpg_fp NULL !\n",__FUNCTION__,__LINE__);
+	}
     switch (cmd) {
     case JPG_CONFIG_FREQ:
+#ifndef	CONFIG_SC_FPGA_CLK
         get_user(jpg_hw_dev.freq_div, (int __user *)arg);
         name_parent = jpg_get_clk_src_name(jpg_hw_dev.freq_div);
         clk_parent = clk_get(NULL, name_parent);
@@ -197,27 +215,41 @@ by clk_get()!\n", "clk_vsp", name_parent);
             clk_put(jpg_hw_dev.jpg_parent_clk);
             jpg_hw_dev.jpg_parent_clk = clk_parent;
         }
+
+		printk(KERN_INFO "%s,%d clock[%s]: clk_set_parent() !\n",__FUNCTION__,__LINE__,name_parent);
+#endif
         pr_debug(KERN_INFO "JPG_CONFIG_FREQ %d\n", jpg_hw_dev.freq_div);
         break;
     case JPG_GET_FREQ:
+#ifndef	CONFIG_SC_FPGA_CLK
         frequency = clk_get_rate(jpg_hw_dev.jpg_clk);
         ret = find_jpg_freq_level(frequency);
+#endif
         put_user(ret, (int __user *)arg);
         printk(KERN_INFO "jpg ioctl JPG_GET_FREQ %d\n", ret);
         break;
     case JPG_ENABLE:
         pr_debug("jpg ioctl JPG_ENABLE\n");
+	clk_enable(jpg_hw_dev.jpg_clk);
 
-        clk_enable(jpg_hw_dev.jpg_clk);
-#ifdef CONFIG_OF
-        sci_glb_set(SPRD_MMAHB_BASE+0x08, BIT(6));
-#endif
         jpg_fp->is_clock_enabled= 1;
+#ifdef CONFIG_OF
+#ifdef CONFIG_ARCH_WHALE
+        sci_glb_set(SPRD_MMAHB_BASE+0x08, BIT(8));
+#else
+	sci_glb_set(SPRD_MMAHB_BASE+0x08, BIT(6));
+#endif
+#endif
+
         break;
     case JPG_DISABLE:
         disable_jpg(jpg_fp);
 #ifdef CONFIG_OF
+#ifdef CONFIG_ARCH_WHALE
+        sci_glb_clr(SPRD_MMAHB_BASE+0x08, BIT(8));
+#else
         sci_glb_clr(SPRD_MMAHB_BASE+0x08, BIT(6));
+#endif
 #endif
         break;
     case JPG_ACQUAIRE:
@@ -406,8 +438,9 @@ static irqreturn_t jpg_isr(int irq, void *data)
             wake_up_interruptible(&jpg_hw_dev.wait_queue_work_BSM);
             printk(KERN_ERR "jpg_isr BSM");
 
-            sci_glb_set((void *)(sprd_jpg_virt+0x4400), BIT(30));
-            sci_glb_clr((void *)(sprd_jpg_virt+0x4400), BIT(31));
+			sci_glb_set((void *)(sprd_jpg_virt+0x4400), BIT(30));
+			sci_glb_clr((void *)(sprd_jpg_virt+0x4400), BIT(31));
+
         }
         if((int_status >> 1) & 0x1)  // JPEG ENC VLC DONE INIT
         {
@@ -447,13 +480,16 @@ static void jpg_parse_dt(struct device *dev)
     }
     sprd_jpg_phys = res.start;
     sprd_jpg_virt = (unsigned long)ioremap_nocache(res.start,
-        res.end - res.start);
+                    res.end - res.start);
     sprd_jpg_size = res.end - res.start;
     if (!sprd_jpg_virt)
         panic("ioremap failed!\n");
 
     jpg_hw_dev.irq = irq_of_parse_and_map(np, 0);
     jpg_hw_dev.dev_np = np;
+
+	printk(KERN_INFO "sprd_jpg_phys jpg:  0X%x   0x%x\n", sprd_jpg_phys ,sprd_jpg_virt);
+	printk(KERN_INFO " jpg_hw_dev.irq  0X%x\n", jpg_hw_dev.irq );
 
     return;
 }
@@ -476,11 +512,12 @@ static int jpg_nocache_mmap(struct file *filp, struct vm_area_struct *vma)
 	return -EAGAIN;
 
     if (remap_pfn_range(vma,vma->vm_start, vma->vm_pgoff,
-                        vma->vm_end - vma->vm_start, vma->vm_page_prot))
+                       (vma->vm_end - vma->vm_start), vma->vm_page_prot))
         return -EAGAIN;
-    printk(KERN_INFO "@jpg mmap %x,%x,%x\n", (unsigned int)PAGE_SHIFT,
+    printk(KERN_INFO "@jpg mmap %x,%x,%x,%x\n", (unsigned int)PAGE_SHIFT,
            (unsigned int)vma->vm_start,
-           (unsigned int)(vma->vm_end - vma->vm_start));
+           (unsigned int)(vma->vm_end - vma->vm_start),
+           sprd_jpg_phys);
     return 0;
 }
 
@@ -508,6 +545,7 @@ static int jpg_open(struct inode *inode, struct file *filp)
     jpg_hw_dev.condition_work_BSM= 0;
     jpg_hw_dev.jpg_int_status = 0;
 
+#ifndef	CONFIG_SC_FPGA_CLK
 #if defined(CONFIG_ARCH_SCX35)
 #ifdef CONFIG_OF
     clk_mm_i = of_clk_get_by_name(jpg_hw_dev.dev_np, "clk_mm_i");
@@ -525,10 +563,16 @@ static int jpg_open(struct inode *inode, struct file *filp)
     }
 #endif
 
-
+    cam_pw_on(CAM_PW_DOMAIN_JPG);
     printk("JPEG mmi_clk open");
-    clk_enable(jpg_hw_dev.mm_clk);
+    ret = clk_enable(jpg_hw_dev.mm_clk);
 
+    if (ret) {
+        printk(KERN_ERR "###:jpg_hw_dev.mm_clk: clk_prepare_enable() failed!\n");
+        goto errout0;
+    } else {
+        pr_debug("###jpg_hw_dev.mm_clk: clk_prepare_enable() ok.\n");
+    }
 
 #ifdef CONFIG_OF
     clk_jpg= of_clk_get_by_name(jpg_hw_dev.dev_np, "clk_jpg");
@@ -537,10 +581,10 @@ static int jpg_open(struct inode *inode, struct file *filp)
 #endif
     if (IS_ERR(clk_jpg) || (!clk_jpg)) {
         printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
-               "clk_vsp");
+               "clk_jpg");
         printk(KERN_ERR "###: jpg_clk =  %p\n", clk_jpg);
         ret = -EINVAL;
-        goto errout;
+        goto errout0;
     } else {
         jpg_hw_dev.jpg_clk = clk_jpg;
     }
@@ -551,7 +595,7 @@ static int jpg_open(struct inode *inode, struct file *filp)
         printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] \
 by clk_get()!\n", "clk_jpg", name_parent);
         ret = -EINVAL;
-        goto errout;
+        goto errout1;
     } else {
         jpg_hw_dev.jpg_parent_clk = clk_parent;
     }
@@ -561,35 +605,41 @@ by clk_get()!\n", "clk_jpg", name_parent);
         printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!",
                "clk_jpg");
         ret = -EINVAL;
-        goto errout;
+        goto errout2;
     }
 
     printk("jpg parent clock name %s\n", name_parent);
     printk("jpg_freq %d Hz",
            (int)clk_get_rate(jpg_hw_dev.jpg_clk));
-
 #if defined(CONFIG_SPRD_IOMMU)
     {
+#ifndef CONFIG_ARCH_WHALE
         sprd_iommu_module_enable(IOMMU_MM);
+#endif
     }
 #endif
-
+#endif //CONFIG_SC_FPGA_CLK
     printk(KERN_INFO "jpg_open %p\n", jpg_fp);
     return 0;
 
-errout:
+errout2:
+
+    if (jpg_hw_dev.jpg_parent_clk) {
+        clk_put(jpg_hw_dev.jpg_parent_clk);
+    }
+errout1:
+    if (jpg_hw_dev.jpg_clk) {
+        clk_put(jpg_hw_dev.jpg_clk);
+    }
+errout0:
 #if defined(CONFIG_ARCH_SCX35)
     if (jpg_hw_dev.mm_clk) {
         clk_put(jpg_hw_dev.mm_clk);
     }
 #endif
-    if (jpg_hw_dev.jpg_clk) {
-        clk_put(jpg_hw_dev.jpg_clk);
-    }
 
-    if (jpg_hw_dev.jpg_parent_clk) {
-        clk_put(jpg_hw_dev.jpg_parent_clk);
-    }
+errout:
+
     return ret;
 }
 
@@ -597,9 +647,16 @@ static int jpg_release (struct inode *inode, struct file *filp)
 {
     struct jpg_fh *jpg_fp = filp->private_data;
 
+     if(!jpg_fp) {
+        printk(KERN_ERR "%s,%d jpg_fp NULL !\n",__FUNCTION__,__LINE__);
+    }
+
+#ifndef	CONFIG_SC_FPGA_CLK
 #if defined(CONFIG_SPRD_IOMMU)
     {
+#ifndef CONFIG_ARCH_WHALE
         sprd_iommu_module_disable(IOMMU_MM);
+#endif
     }
 #endif
 
@@ -608,15 +665,15 @@ static int jpg_release (struct inode *inode, struct file *filp)
         clk_disable(jpg_hw_dev.jpg_clk);
     }
 
+    clk_disable(jpg_hw_dev.mm_clk);
+    cam_pw_off(CAM_PW_DOMAIN_JPG);
+#endif
     if (jpg_fp->is_jpg_aquired) {
         printk(KERN_ERR "error occured and up jpg_mutex \n");
         up(&jpg_hw_dev.jpg_mutex);
     }
 
     kfree(filp->private_data);
-
-    clk_disable(jpg_hw_dev.mm_clk);
-
     printk("JPEG mmi_clk close !!");
     printk(KERN_INFO "jpg_release %p\n", jpg_fp);
 
@@ -646,13 +703,7 @@ static int jpg_probe(struct platform_device *pdev)
 
     int ret;
 
-#ifdef CONFIG_OF
-    if (pdev->dev.of_node) {
-        jpg_parse_dt(&pdev->dev);
-    }
-#else
     jpg_parse_dt(&pdev->dev);
-#endif
 
     sema_init(&jpg_hw_dev.jpg_mutex, 1);
 
@@ -712,7 +763,7 @@ static int jpg_remove(struct platform_device *pdev)
     free_irq(jpg_hw_dev.irq, &jpg_hw_dev);
 #endif
 
-
+#ifndef	CONFIG_SC_FPGA_CLK
     if (jpg_hw_dev.jpg_clk) {
         clk_put(jpg_hw_dev.jpg_clk);
     }
@@ -720,6 +771,8 @@ static int jpg_remove(struct platform_device *pdev)
     if (jpg_hw_dev.jpg_parent_clk) {
         clk_put(jpg_hw_dev.jpg_parent_clk);
     }
+#endif
+
 
     printk(KERN_INFO "jpg_remove Success !\n");
     return 0;

@@ -8,7 +8,7 @@
 #define PM_PRINT_ENABLE
 
 /* use this method we can get time everytime */
-#if !(defined(CONFIG_ARCH_SCX35L64)||defined(CONFIG_ARCH_SCX35LT8))
+#if !(defined(CONFIG_ARCH_SCX35L64) || defined(CONFIG_ARCH_SCX35LT8) || defined(CONFIG_ARCH_WHALE))
 #define TIMER_REG(off) (SPRD_TIMER_BASE + (off))
 #define SYSCNT_REG(off) (SPRD_SYSCNT_BASE + (off))
 #define SYSCNT_COUNT    SYSCNT_REG(0x0004)

@@ -329,16 +329,16 @@ void disable_printk_process(void)
 }
 #endif
 
-#ifdef CONFIG_SEC_LOG
+#if defined(CONFIG_SEC_LOG) || defined(CONFIG_SEC_LOG64)
 static char initial_log_buf[__LOG_BUF_LEN];
 static unsigned int initial_log_idx = 0;
 static void (*log_text_hook)(char *text, size_t size);
 static char *seclog_buf;
-static unsigned *seclog_ptr;
+static unsigned long *seclog_ptr;
 static size_t seclog_size;
 static char sec_text[1024]; /* buffer size: LOG_LINE_MAX + PREFIX_MAX */
 void register_log_text_hook(void (*f)(char *text, size_t size), char * buf,
-	unsigned *position, size_t bufsize)
+	unsigned long *position, size_t bufsize)
 {
 	unsigned long flags;
 	raw_spin_lock_irqsave(&logbuf_lock, flags);
@@ -418,7 +418,7 @@ static void log_store(int facility, int level,
 		msg->cpu = smp_processor_id();
 		msg->in_interrupt = in_interrupt()? 1 : 0;
 	}
-#ifdef CONFIG_SEC_LOG
+#if defined(CONFIG_SEC_LOG) || defined(CONFIG_SEC_LOG64)
 	if (log_text_hook) {
 		if(initial_log_idx) {
 			/* Copying of stored initial kernel boot log to
@@ -1192,6 +1192,7 @@ static int syslog_print_all(char __user *buf, int size, bool clear)
 		next_seq = log_next_seq;
 
 		len = 0;
+		prev = 0;
 		while (len >= 0 && seq < next_seq) {
 			struct log *msg = log_from_idx(idx);
 			int textlen;
@@ -2930,6 +2931,7 @@ bool kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
 	next_idx = idx;
 
 	l = 0;
+	prev = 0;
 	while (seq < dumper->next_seq) {
 		struct log *msg = log_from_idx(idx);
 

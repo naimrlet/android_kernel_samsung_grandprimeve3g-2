@@ -11,11 +11,39 @@ ifeq ($(CONFIG_MACH_SP9830IEB_5M_H100),y)
 tshark2_isp_like=1
 endif
 
-ifeq ($(CONFIG_MACH_SP9830AEC_4M_H100),y)
+ifeq ($(CONFIG_MACH_SP9830IEC_4M_H100),y)
 tshark2_isp_like=1
 endif
 
-ifeq ($(CONFIG_MACH_SP7720EA),y)
+ifeq ($(CONFIG_MACH_SP7731CEA),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_SP7731CEB),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_SP7727SEEB_PRIME),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_PIKEB_J1MINI_3G),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_PIKEB_Z1MINI),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_PIKEB_J1_3G),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_PIKEB_JIGBASE),y)
+pike_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_SP7727SEEB_PRIME),y)
 pike_isp_like=1
 endif
 
@@ -27,7 +55,12 @@ ifeq ($(CONFIG_ARCH_SCX35LT8),y)
 tshark2_isp_like=1
 endif
 
-ifeq ($(CONFIG_MACH_SHARKLS_Z3LTE),y)
+#SharkLS
+ifeq ($(CONFIG_MACH_SP9830I),y)
+tshark2_isp_like=1
+endif
+
+ifeq ($(CONFIG_MACH_SP9830I_J3LTE),y)
 tshark2_isp_like=1
 endif
 

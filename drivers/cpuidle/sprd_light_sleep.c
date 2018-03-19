@@ -25,11 +25,12 @@
 /* For MCU_SYS_SLEEP Prepare */
 static BLOCKING_NOTIFIER_HEAD(sc_cpuidle_chain_head);
 #if defined(CONFIG_ARCH_SCX35LT8)
-static int light_sleep = 0;
+static int light_sleep = 1;
+static int trace_debug = 1;
 #else
 static int light_sleep = 1;
-#endif
 static int trace_debug = 0;
+#endif
 static int test_power = 0;
 static int mcu_sleep_debug = 0;
 
@@ -64,6 +65,10 @@ EXPORT_SYMBOL_GPL(sc_cpuidle_notifier_call_chain);
 
 void light_sleep_en(void)
 {
+#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+	/*Lightsleep config move to psci code*/
+	return;
+#else
 	int error;
 	if (light_sleep) {
 		if (test_power) {
@@ -99,11 +104,16 @@ void light_sleep_en(void)
 			sci_glb_set(REG_AP_AHB_MCU_PAUSE, BIT_MCU_SYS_SLEEP_EN);
 		}
 	}
+#endif
 }
 EXPORT_SYMBOL_GPL(light_sleep_en);
 
 void light_sleep_dis(void)
 {
+#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+	/*Lightsleep config move to psci code*/
+	return;
+#else
 	if (light_sleep) {
 		/* Enable DAP */
 		sci_glb_set(REG_AON_APB_APB_EB0, BIT_APCPU_DAP_EB);
@@ -119,11 +129,16 @@ void light_sleep_dis(void)
 			__raw_writel(0x11000000, (void *)(SPRD_INTC3_BASE + INTC_IRQ_EN));
 		}
 	}
+#endif
 }
 EXPORT_SYMBOL_GPL(light_sleep_dis);
 
 void __init light_sleep_init(void)
 {
+#if defined(CONFIG_ARCH_WHALE) || defined(CONFIG_ARCH_WHALE2)
+	/*Lightsleep config move to psci code*/
+	return;
+#else
 	/* Cluster Gating */
 	sci_glb_set(REG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG, BIT_APCPU_CORE_AUTO_GATE_EN);
 	/* AP_AHB clock Auto gating while ap doesn't into mcu_sys_sleep */
@@ -131,5 +146,6 @@ void __init light_sleep_init(void)
 	/* For wakeup lightsleep */
 	sci_glb_set(REG_PMU_APB_AP_WAKEUP_POR_CFG, BIT_AP_WAKEUP_POR_N);
 	return;
+#endif
 }
 arch_initcall(light_sleep_init);

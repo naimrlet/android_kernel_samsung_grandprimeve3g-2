@@ -20,6 +20,8 @@
 #include <linux/platform_device.h>
 #include <linux/pwm.h>
 #include <linux/slab.h>
+#include <linux/slab.h>
+
 //#include "./lm3632.h"
 
 #define LM3632_MAX_BRIGHTNESS		2047
@@ -39,7 +41,25 @@ struct lm3632_bl {
 	enum lm3632_bl_ctrl_mode mode;
 
 	struct pwm_device *pwm;
+	struct early_suspend early_suspend;	
 };
+
+struct ops_mipi_bl{
+	int32_t (*mipi_set_cmd_mode)(void);
+	int32_t (*mipi_set_video_mode)(void);
+	int32_t (*mipi_set_lp_mode)(void);
+	int32_t (*mipi_set_hs_mode)(void);
+	int32_t (*mipi_set_data_lp_mode)(void);
+	int32_t (*mipi_set_data_hs_mode)(void);
+	int32_t (*mipi_gen_write)(uint8_t *param, uint16_t param_length);
+	int32_t (*mipi_gen_read)(uint8_t *param, uint16_t param_length, uint8_t bytes_to_read, uint8_t *read_buffer);
+	int32_t (*mipi_dcs_write)(uint8_t *param, uint16_t param_length);
+	int32_t (*mipi_dcs_read)(uint8_t command, uint8_t bytes_to_read, uint8_t *read_buffer);
+	int32_t (*mipi_force_write)(uint8_t data_type, uint8_t *param, uint16_t param_length);				//add for LCD adapter
+};
+
+extern struct ops_mipi sprdfb_mipi_ops;
+
 
 static int lm3632_bl_string_configure(struct lm3632_bl *lm3632_bl, int enable)
 {
@@ -72,12 +92,30 @@ static int lm3632_bl_enable(struct lm3632_bl *lm3632_bl, int enable)
 	return lm3632_update_bits(lm3632_bl->lm3632, LM3632_REG_ENABLE,
 			LM3632_BL_EN_MASK, enable << LM3632_BL_EN_SHIFT);
 }
+typedef	int32_t (*mipi_force_write_t)(uint8_t data_type, uint8_t *param,
+		uint16_t param_length);
+
+static void lm3632_lcd_pwm_ctl(int val)
+{
+	printk("[BACKLIGHT] %s : %d\n", __func__, __LINE__);
+
+	uint8_t brightness[2] = {0,};	
+	struct ops_mipi_bl *ops_bl = &sprdfb_mipi_ops;
+	mipi_force_write_t mipi_force_write = ops_bl->mipi_force_write;
+
+	brightness[0] = 0x51;
+	brightness[1] = val;
+
+	mipi_force_write(0x15, brightness, 2);
+
+}
 
 static void lm3632_bl_pwm_ctrl(struct lm3632_bl *lm3632_bl, int br, int max_br)
 {
 	unsigned int period;
 	unsigned int duty;
 	struct pwm_device *pwm;
+	printk("[BACKLIGHT] %s : %d\n", __func__, __LINE__);
 
 	if (!lm3632_bl->pdata)
 		return;
@@ -87,7 +125,7 @@ static void lm3632_bl_pwm_ctrl(struct lm3632_bl *lm3632_bl, int br, int max_br)
 
 	/* Request a PWM device with the consumer name */
 	if (!lm3632_bl->pwm) {
-		pwm = devm_pwm_get(lm3632_bl->dev, "lm3632-backlight");
+		pwm = devm_pwm_get(lm3632_bl->dev, "sprd_pwm_bl");
 		if (IS_ERR(pwm)) {
 			dev_err(lm3632_bl->dev, "can not get PWM device\n");
 			return;
@@ -100,6 +138,11 @@ static void lm3632_bl_pwm_ctrl(struct lm3632_bl *lm3632_bl, int br, int max_br)
 		pwm_enable(lm3632_bl->pwm);
 	else
 		pwm_disable(lm3632_bl->pwm);
+
+
+
+
+	
 }
 
 static int lm3632_bl_set_brightness(struct lm3632_bl *lm3632_bl, int val)
@@ -107,7 +150,11 @@ static int lm3632_bl_set_brightness(struct lm3632_bl *lm3632_bl, int val)
 	u8 data;
 	int ret;
 
+	printk("[BACKLIGHT] %s : %d\n", __func__, __LINE__);
 
+	lm3632_lcd_pwm_ctl(val);
+
+#if 0
 	data = val & LM3632_BRT_LSB_MASK;
 	ret = lm3632_update_bits(lm3632_bl->lm3632, LM3632_REG_BRT_LSB,
 				 LM3632_BRT_LSB_MASK, data);
@@ -118,6 +165,7 @@ static int lm3632_bl_set_brightness(struct lm3632_bl *lm3632_bl, int val)
 
 	return lm3632_write_byte(lm3632_bl->lm3632, LM3632_REG_BRT_MSB,
 				 data);
+#endif	
 }
 
 static int lm3632_bl_update_status(struct backlight_device *bl_dev)
@@ -126,7 +174,7 @@ static int lm3632_bl_update_status(struct backlight_device *bl_dev)
 	int brt;
 	int ret;
 	
-
+	printk("[BACKLIGHT] %s : %d\n", __func__, __LINE__);
 	if (bl_dev->props.state & BL_CORE_SUSPENDED)
 		brt = 0;
 	else
@@ -143,11 +191,14 @@ static int lm3632_bl_update_status(struct backlight_device *bl_dev)
 		return ret;
   
        // we don't want to update brightness here
+    #if 0
 	if (lm3632_bl->mode == LMU_BL_PWM)
 		lm3632_bl_pwm_ctrl(lm3632_bl, brt,
 				   bl_dev->props.max_brightness);
 	else
 		ret = lm3632_bl_set_brightness(lm3632_bl, brt);
+	#endif
+	ret = lm3632_bl_set_brightness(lm3632_bl, brt);
 
 	return ret;
 }
@@ -217,11 +268,10 @@ static int lm3632_bl_bias_output(struct lm3632_bl *lm3632_bl)
 static int lm3632_bl_set_ctrl_mode(struct lm3632_bl *lm3632_bl)
 {
 	struct lm3632_backlight_platform_data *pdata = lm3632_bl->pdata;
-#if 0
+
 	if (pdata->pwm_period > 0)
 		lm3632_bl->mode = LMU_BL_PWM;
 	else
-#endif
 		lm3632_bl->mode = LMU_BL_I2C;
 
 	return lm3632_update_bits(lm3632_bl->lm3632, LM3632_REG_IO_CTRL,
@@ -292,6 +342,31 @@ static int lm3632_bl_parse_dt(struct device *dev, struct lm3632_bl *lm3632_bl)
 
 	return 0;
 }
+static void lm3632_bl_late_resume(struct early_suspend *h)
+{
+	struct lm3632_bl *lm3632_bl = container_of(h, struct lm3632_bl,
+						 early_suspend);
+
+	printk("[BACKLIGHT][%s]\n",__FUNCTION__);
+
+	gpio_set_value(54,1);
+	gpio_set_value(53,1);
+	msleep(5);
+	gpio_set_value(52,1);
+	lm3632_bl_configure(lm3632_bl);
+	msleep(60);
+}
+
+static void lm3632_bl_early_suspend(struct early_suspend *h)
+{
+	printk("[BACKLIGHT][%s]\n",__FUNCTION__);
+
+	gpio_set_value(54,0);	
+	gpio_set_value(53,0);
+	msleep(5);
+	gpio_set_value(52,0);
+}
+
 
 static int lm3632_bl_probe(struct platform_device *pdev)
 {
@@ -336,15 +411,10 @@ static int lm3632_bl_probe(struct platform_device *pdev)
 		printk("Failed ro request GPIO_%d \n",53);
 		return -ENODEV;
 	}
-
-	gpio_direction_output(53, 0);
-	gpio_direction_output(52, 0);
-	gpio_set_value(53,0);
-	gpio_set_value(52,0);
-	
-	gpio_set_value(53,1);
-	mdelay(5);
-	gpio_set_value(52,1);
+	if (gpio_request(54, "BL_EN")) {
+		printk("Failed ro request GPIO_%d \n",54);
+		return -ENODEV;
+	}
 
 	/* Register backlight subsystem */
 	ret = lm3632_bl_register(lm3632_bl);
@@ -354,6 +424,11 @@ static int lm3632_bl_probe(struct platform_device *pdev)
 	}
 
 	backlight_update_status(lm3632_bl->bl_dev);
+
+	lm3632_bl->early_suspend.level = EARLY_SUSPEND_LEVEL_DISABLE_FB + 1;
+	lm3632_bl->early_suspend.suspend = lm3632_bl_early_suspend;
+	lm3632_bl->early_suspend.resume = lm3632_bl_late_resume;
+	register_early_suspend(&lm3632_bl->early_suspend);
 
 	return 0;
 }

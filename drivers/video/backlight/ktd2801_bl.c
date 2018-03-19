@@ -29,6 +29,7 @@
 
 #define IS_HBM(level)	(level >= 6)
 
+extern bool lcd_connected(void);
 static struct backlight_device *bl_dev;
 static DEFINE_SPINLOCK(bl_ctrl_lock);
 
@@ -64,6 +65,7 @@ struct ktd2801_backlight_info {
 	int current_brightness;
 	int prev_tune_level;
 	int gpio_bl_ctrl;
+	int on_delay;
 };
 
 #define EW_DELAY (150)
@@ -196,12 +198,18 @@ static int ktd2801_backlight_update_status(struct backlight_device *bd)
 		pr_err("%s, no platform data\n", __func__);
 		return 0;
 	}
+	if(!lcd_connected()){
+		pr_info("%s : no LCD turnoff BLIC\n",__func__);
+		ktd2801_backlight_set_brightness(bl_info, 0);
+		return 0;
+	}
 
 	if (bd->props.power != FB_BLANK_UNBLANK ||
 		bd->props.fb_blank != FB_BLANK_UNBLANK ||
 		!bl_info->enable)
 		brightness = 0;
-
+	if( brightness  && bl_info->on_delay>0)
+		mdelay(bl_info->on_delay);
 	ktd2801_backlight_set_brightness(bl_info, brightness);
 
 	return 0;
@@ -355,6 +363,10 @@ static int ktd2801_backlight_probe(struct platform_device *pdev)
 			bl_info->range[i].brightness = arr[i * 2];
 			bl_info->range[i].tune_level = arr[i * 2 + 1];
 		}
+		ret = of_property_read_u32(np,
+				"backlight-on-delay",&bl_info->on_delay);
+		if( ret <0 )
+			pr_info("%s - no backlight-on-delay\n",__func__);
 
 		pr_info("backlight device : %s\n", bl_info->name);
 		pr_info("[BRT_VALUE_OFF] brightness(%d), tune_level(%d)\n",

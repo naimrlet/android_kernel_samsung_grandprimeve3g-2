@@ -42,7 +42,8 @@
 #include <linux/of_gpio.h>
 
 #define LTR588_DBG
-#define LTR558_ADAPTIVE
+//#define LTR558_ADAPTIVE
+
 #ifdef LTR588_DBG
 #define ENTER printk(KERN_INFO "[LTR588_DBG] func: %s  line: %04d  ", __func__, __LINE__)
 #define PRINT_DBG(x...)  printk(KERN_INFO "[LTR588_DBG] " x)
@@ -67,11 +68,16 @@ typedef struct tag_ltr558 {
 #endif
 } ltr558_t, *ltr558_p;
 
+static int ps_threshold = 0;
+static int ps_threshold_high = 600;
+static int ps_threshold_low = 500;
+static int dyna_cali = 2047;
+
 static int p_flag = 0;
 static int l_flag = 0;
 static u8 p_gainrange = PS_RANGE4;
-static u8 l_gainrange = ALS_RANGE2_64K;
-static int ps_threshold = 0;
+static u8 l_gainrange = ALS_RANGE1_320;
+//static int ps_threshold = 0;
 static struct i2c_client *this_client = NULL;
 static int LTR_PLS_MODE = 0;
 
@@ -79,14 +85,29 @@ static int LTR_PLS_MODE = 0;
 #define DEBOUNCE 10
 #define MIN_SPACING 120
 #define DIVEDE 10
+#endif
 static int ps_max_filter[5] = {0};
 static int ps_min_filter[5] = {0};
 static int max_index = 0;
 static int min_index = 0;
 static int ps_min = 0;
 static int ps_max = 0;
-#endif
+static int ltr558_reg_init(void);
+static struct wake_lock psensor_timeout_wakelock;
 
+/*param tab*/
+struct ParamSentiveTag{
+	u16	thresh1;
+	u16	thresh2;
+	u16	thresh3;
+	u16	thresh4;
+	u16	thresh5;
+	u16	thresh6;
+	u32	lux_correction;/* *n/10000 */
+};
+/* static const struct ParamSentiveTag TB_Param={1500,250,220,1800,1600,ALS_553_RANGE1_64K};	//0,1==low *._64K=1
+												{1000,40,35,1200,1000,ALS_553_RANGE48_1K3}};	//2==high _1K3(48) */
+static struct ParamSentiveTag ParamGroup={1500,250,220,1800,1600,ALS_553_RANGE1_64K,10000};
 static int ltr558_i2c_read_bytes(u8 index, u8 *rx_buff, u8 length)
 {
         int ret = -1;
@@ -206,16 +227,57 @@ static int ltr_read_chip_info(struct i2c_client *client, char *buf)
 
         if( LTR_PLS_553 == LTR_PLS_MODE)
         {
-                sprintf(buf, "LTR553ALS");
-                printk("[LTR553] ltr_read_chip_info %s\n",buf);
+                sprintf(buf, "LTR558ALS");
+                printk("[LTR553] ltr_read_chip_info LTR553ALS\n");
         }
         if(LTR_PLS_558 == LTR_PLS_MODE)
         {
                 sprintf(buf, "LTR558ALS");
-                printk("[LTR558] ltr_read_chip_info %s\n",buf);
+                printk("[LTR558] ltr_read_chip_info LTR558ALS\n");
         }
         return 0;
 }
+
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
+
+static int dynamic_cali(void)
+{
+	int i=0;
+	int j=0;
+	int val=0;
+	int data_total=0;
+	int noise=0;
+
+	for (i = 0; i < 3; i++)
+		{
+			msleep(15);
+			val = ltr558_i2c_read_2_bytes(LTR558_PS_DATA_0);
+			data_total += val;
+		}
+	noise = data_total/3;
+
+	if(noise < (dyna_cali + 500))
+		{
+			dyna_cali = noise;
+			if(noise < ParamGroup.thresh1)
+				{
+				ps_threshold_high = noise + ParamGroup.thresh2;
+				ps_threshold_low = noise + ParamGroup.thresh3;
+				}else{
+				ps_threshold_high = ParamGroup.thresh4;
+				ps_threshold_low = ParamGroup.thresh5;
+				}
+		}
+        PRINT_INFO("ltr558_ps_enable, ps_threshold_high=%d, ps_threshold_low=%d\n", ps_threshold_high, ps_threshold_low);
+
+        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_0, ps_threshold_high & 0xff);
+        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_1, (ps_threshold_high>>8) & 0x07);
+        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_0, ps_threshold_low & 0xff);
+        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_1, (ps_threshold_low>>8) & 0x07);
+
+}
+
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
 
 static int ltr558_ps_enable(u8 gainrange)
 {
@@ -270,20 +332,15 @@ static int ltr558_ps_enable(u8 gainrange)
             ret = ltr558_i2c_write_1_byte(LTR558_PS_CONTR, setgain);
             mdelay(WAKEUP_DELAY);
         }
-
-        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, 0x0000);
-        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, 0x0000);
-
-        ltr558_i2c_read_1_byte(LTR558_ALS_PS_STATUS);
-        ltr558_i2c_read_2_bytes(LTR558_PS_DATA_0);
-        ltr558_i2c_read_2_bytes(LTR558_ALS_DATA_CH1);
-        ltr558_i2c_read_2_bytes(LTR558_ALS_DATA_CH0);
-
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
         /*input report init*/
         input_report_abs(ltr_558als->input, ABS_DISTANCE, 1);
         input_sync(ltr_558als->input);
 
+        dynamic_cali();
+
         PRINT_INFO("ltr558_ps_enable, gainrange=%d, ret=%d\n", gainrange, ret);
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
         if(ret >= 0)
                 return 0;
         else
@@ -407,32 +464,31 @@ static int ltr558_als_read(int gainrange)
         ch0 = ltr558_i2c_read_2_bytes(LTR558_ALS_DATA_CH0);
 
         PRINT_DBG("ch0=%d,  ch1=%d\n", ch0, ch1);
-        if (0 == ch0)
+        if (0 == (ch0 + ch1))
                 ratio = 100;
         else
-                ratio = (ch1 * 100) / ch0;
+                ratio = (ch1 * 100) / (ch0 + ch1);
 
         // Compute Lux data from ALS data (ch0 and ch1)
-        // For Ratio < 0.69:
-        // 1.3618*CH0 – 1.5*CH1
-        // For 0.69 <= Ratio < 1:
-        // 0.57*CH0 – 0.345*CH1
-        // For high gain, divide the calculated lux by 150.
-        if (ratio < 69) {
-                luxdata_flt = (13618 * ch0) - (15000 * ch1);
-                luxdata_flt = luxdata_flt / 10000;
-        } else if ((ratio >= 69) && (ratio < 100)) {
-                luxdata_flt = (5700 * ch0) - (3450 * ch1);
-                luxdata_flt = luxdata_flt / 10000;
-        } else {
-                luxdata_flt = 0;
-        }
 
-        // For Range1
-        //if (gainrange == ALS_RANGE1_320)
-        //      luxdata_flt = luxdata_flt / 150;
+		/*modified by hongguang@wecorp*/
+		if (ratio < 45){
+			luxdata_int = (((17743 * ch0)+(11059 * ch1)))/10000;
+		}
+		else if (ratio < 64){
+			luxdata_int = (((42785 * ch0)-(19548 * ch1)))/10000;
+		}
+		else if (ratio < 85) {
+			luxdata_int = (((5926 * ch0)+(1185 * ch1)))/10000;
+		}
+		else {
+			luxdata_int = 0;
+		}
+		/*modified by hongguang@wecorp*/
+		/*lux modify*/
+		if(ParamGroup.lux_correction>0)/*u32*/
+			luxdata_int=luxdata_int*ParamGroup.lux_correction/10000;
 
-        luxdata_int = luxdata_flt * 50;
         return luxdata_int;
 }
 
@@ -460,6 +516,8 @@ static long ltr558_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                         return -EFAULT;
                 PRINT_INFO("LTR_IOCTL_SET_PFLAG = %d\n", flag);
                 if (1 == flag) {
+			ltr558_reg_init();
+			msleep(20);
                         if (ltr558_ps_enable(p_gainrange))
                                 return -EIO;
                 } else if (0 == flag) {
@@ -476,6 +534,8 @@ static long ltr558_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
                         return -EFAULT;
                 PRINT_INFO("LTR_IOCTL_SET_LFLAG = %d\n", flag);
                 if (1 == flag) {
+                        ltr558_reg_init();
+                        msleep(20);
                         if (ltr558_als_enable(l_gainrange))
                                 return -EIO;
                 } else if (0 == flag) {
@@ -560,87 +620,84 @@ static void ltr558_work(struct work_struct *work)
         ltr558_t *pls = container_of(work, ltr558_t, work);
 
         status = ltr558_i2c_read_1_byte(LTR558_ALS_PS_STATUS);
+		while(status < 0 && value < 5) /*100ms+*/
+        {
+			/*add 1s time out lock in plsensor interrupt*/
+			wake_lock_timeout(&psensor_timeout_wakelock, msecs_to_jiffies(1000));
+			mdelay(100);
+			PRINT_DBG("Repeat=%d\n",value);
+			value ++;
+			status = ltr558_i2c_read_1_byte(LTR558_ALS_PS_STATUS);
+        }
         PRINT_DBG("LTR558_ALS_PS_STATUS = 0x%02X\n", status);
-
         if ((0x03 == (status & 0x03)) && (LTR_PLS_MODE == LTR_PLS_558)) {/*is 558 PS*/
                 value = ltr558_i2c_read_2_bytes(LTR558_PS_DATA_0);
                 PRINT_DBG("LTR_PLS_MODE is pls 558, LTR558_PS_DATA_0 = %d\n", value);
-                if (value >= 0x60E) {     // 3cm //high
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_0, 0xff);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_1, 0x07);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_0, 0xDC);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_1, 0x05);
+
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
+                if (value >= ps_threshold_high) {     // 3cm //high
+
+						ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, 0x07FF);
+                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, ps_threshold_low);
+
                         input_report_abs(pls->input, ABS_DISTANCE, 0);
                         input_sync(pls->input);
-                } else if (value <= 0x5DC) {      // 5cm //low
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_0, 0x0E);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_1, 0x06);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_0, 0x00);
-                        ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_1, 0x00);
+                        PRINT_INFO("PS = 0\n");
+                } else if (value <= ps_threshold_low) {      // 5cm //low
+
+                        if(dyna_cali > 20 && value <(dyna_cali - 100))
+                        {
+
+                                if(value < ParamGroup.thresh1)
+                                {
+                                    ps_threshold_high = value + ParamGroup.thresh2;
+                                    ps_threshold_low = value + ParamGroup.thresh3;
+                                }else{
+                                    ps_threshold_high = ParamGroup.thresh4;
+                                    ps_threshold_low = ParamGroup.thresh5;
+                                }
+                        }
+
+                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, ps_threshold_high);
+                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, 0x0000);
+
                         input_report_abs(pls->input, ABS_DISTANCE, 1);
                         input_sync(pls->input);
+                        PRINT_INFO("PS = 1\n");
                 }
         }
 
        if ((0x03 == (status & 0x03)) && (LTR_PLS_MODE == LTR_PLS_553)) {/*is 553 PS*/
                 value = ltr558_i2c_read_2_bytes(LTR558_PS_DATA_0);
-                PRINT_DBG("LTR_PLS_MODE is pls 553 \n");
-#ifdef LTR558_ADAPTIVE
-                /*threshold detect process*/
-                if(0 == ps_max || 0 == ps_min) {
-                        ps_min = value;
-                        ps_max = value;
-                        ps_threshold = ps_min + MIN_SPACING;
-                }
-                if(value > ps_max) {
-                        ps_max_filter[max_index++] = value;
-                        if(ARRAY_SIZE(ps_max_filter) == max_index) {
-                                ps_max = get_min_value(ps_max_filter, ARRAY_SIZE(ps_max_filter));
-                                ps_threshold = ((ps_max - ps_min)  / DIVEDE) + ps_min;
-                                if(ps_threshold - ps_min < MIN_SPACING)
-                                        ps_threshold = ps_min + MIN_SPACING;
-                                max_index = 0;
-                        }
-                        min_index = 0;
-                } else if(value < ps_min) {
-                        ps_min_filter[min_index++] = value;
-                        if(ARRAY_SIZE(ps_min_filter) == min_index) {
-                                ps_min = get_max_value(ps_min_filter, ARRAY_SIZE(ps_min_filter));
-                                ps_threshold = ((ps_max - ps_min)  / DIVEDE) + ps_min;
-                                if(ps_threshold - ps_min < MIN_SPACING)
-                                        ps_threshold = ps_min + MIN_SPACING;
-                                min_index = 0;
-                        }
-                        max_index = 0;
-                } else {
-                        max_index = 0;
-                        min_index = 0;
-                }
-                /*threshold detect process end*/
-
-                if (value > (ps_threshold + DEBOUNCE)) {
-                        input_report_abs(pls->input, ABS_DISTANCE, 0);
-                        input_sync(pls->input);
-                } else if (value < (ps_threshold - DEBOUNCE)) {
-                        input_report_abs(pls->input, ABS_DISTANCE, 1);
-                        input_sync(pls->input);
-                }
-                PRINT_DBG("PS INT: PS_DATA_VAL = 0x%04X(%4d)  ps_min=%4d ps_max=%4d ps_threshold=%4d\n", \
-                          value, value, ps_min, ps_max, ps_threshold);
-#else
-                if (value >= ps_threshold) {
+                PRINT_DBG("LTR_PLS_MODE is pls 553, LTR553_PS_DATA_0 = %d\n", value);
+                if (value >= ps_threshold_high) {
                         ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, 0x07FF);
-                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, ps_threshold);
+                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, ps_threshold_low);
                         input_report_abs(pls->input, ABS_DISTANCE, 0);
                         input_sync(pls->input);
-                } else if (value <= ps_threshold) {
-                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, ps_threshold);
+                        PRINT_INFO("PS = 0\n");
+
+                } else if (value <= ps_threshold_low) {
+
+/*-----modified by hongguang@wecorp for dynamic calibrate------*/
+				  if(dyna_cali > 20 && value <(dyna_cali - 100))
+                        {
+                            if(value < ParamGroup.thresh1)
+                            {
+                                ps_threshold_high = value + ParamGroup.thresh2;
+                                ps_threshold_low = value + ParamGroup.thresh3;
+                            }else{
+                                ps_threshold_high = ParamGroup.thresh4;
+                                ps_threshold_low = ParamGroup.thresh5;
+                            }
+                        }
+
+                        ltr558_i2c_write_2_bytes(LTR558_PS_THRES_UP, ps_threshold_high);
                         ltr558_i2c_write_2_bytes(LTR558_PS_THRES_LOW, 0x0000);
                         input_report_abs(pls->input, ABS_DISTANCE, 1);
                         input_sync(pls->input);
+                        PRINT_INFO("PS = 1\n");
                 }
-                PRINT_DBG("PS INT: PS_DATA_VAL = 0x%04X ( %d )\n", value, value);
-#endif
         }
         if (0x0c == (status & 0x0c)) {/*is ALS*/
                 value = ltr558_als_read(l_gainrange);
@@ -656,6 +713,7 @@ static irqreturn_t ltr558_irq_handler(int irq, void *dev_id)
 {
         ltr558_t *pls = (ltr558_t *) dev_id;
 
+		wake_lock_timeout(&psensor_timeout_wakelock, msecs_to_jiffies(1000));
         disable_irq_nosync(pls->client->irq);
         queue_work(pls->ltr_work_queue, &pls->work);
         return IRQ_HANDLED;
@@ -690,7 +748,7 @@ static int ltr558_reg_init(void)
                 //set: PS Measurement Repeat Rate: 0x00=50ms 0x02=100ms
                 ltr558_i2c_write_1_byte(LTR558_PS_MEAS_RATE, 0x00);
                 //set: ALS Integration Time=100ms, ALS Measurement Repeat Rate=100ms
-                ltr558_i2c_write_1_byte(LTR558_ALS_MEAS_RATE, 0x03);
+                ltr558_i2c_write_1_byte(LTR558_ALS_MEAS_RATE, 0x13);
                 ltr558_i2c_write_1_byte(LTR558_INTERRUPT_PERSIST,0x02);
                 //set: INT MODE=updated after every measurement,
                 //=active low level,
@@ -700,7 +758,11 @@ static int ltr558_reg_init(void)
                 //set: LED Pulse Frequency=60KHz,LED Duty Cycle=100%,LED Peak Current=50mA
                 ltr558_i2c_write_1_byte(LTR558_PS_LED, 0x7B);
                 //set: LED Pulse Count=15
-                ltr558_i2c_write_1_byte(LTR558_PS_N_PULSES , 0x08);
+#ifdef		CONFIG_ARCH_WHALE
+                ltr558_i2c_write_1_byte(LTR558_PS_N_PULSES , 0x03);
+#else
+		ltr558_i2c_write_1_byte(LTR558_PS_N_PULSES , 0x0A);
+#endif
                 //set: PS Measurement Repeat Rate: 0x00=50ms 0x02=100ms
                 ltr558_i2c_write_1_byte(LTR558_PS_MEAS_RATE, 0x00);
                 //set: ALS Integration Time=100ms, ALS Measurement Repeat Rate=100ms
@@ -720,11 +782,13 @@ static int ltr558_reg_init(void)
         //ltr558_i2c_write_2_bytes(LTR558_ALS_THRES_UP, 0x0000);
         //ltr558_i2c_write_2_bytes(LTR558_ALS_THRES_LOW, 0x0001);/*DO NOT set:0x0000*/
 
+#if 0
         // ps
         ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_0, 0x00);
         ltr558_i2c_write_1_byte(LTR558_PS_THRES_UP_1, 0x03);
         ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_0, 0xf0);
         ltr558_i2c_write_1_byte(LTR558_PS_THRES_LOW_1, 0x02);
+#endif
 
         // als
         ltr558_i2c_write_1_byte(LTR558_ALS_THRES_UP_0, 0x00);
@@ -732,9 +796,7 @@ static int ltr558_reg_init(void)
         ltr558_i2c_write_1_byte(LTR558_ALS_THRES_LOW_0, 0x01);
         ltr558_i2c_write_1_byte(LTR558_ALS_THRES_LOW_1, 0x00);
 
-        mdelay(WAKEUP_DELAY);
-        ltr558_ps_disable();
-        ltr558_als_disable();
+        msleep(WAKEUP_DELAY);
 
         PRINT_INFO("ltr558_reg_init success!\n");
         return ret;
@@ -946,12 +1008,43 @@ static int ltr558_probe(struct i2c_client *client, const struct i2c_device_id *i
         int chip_id = 0;
 #ifdef CONFIG_OF
         struct device_node *np = client->dev.of_node;
+        int datatemp[6]={0};
         if (np && !pdata){
 		pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 		if (!pdata) {
 			dev_err(&client->dev, "Could not allocate struct ltr558_pls_platform_data");
 			goto exit_allocate_pdata_failed;
 		}
+		/*2015-9-2luciddle:read sensitive from dts*/
+		ret = of_property_read_u32_array(np, "sensitive", datatemp,6);
+		if(ret || 0==datatemp[0]) {
+			PRINT_WARN("Read sensitive erro.\n");
+			ParamGroup.thresh1=1500;
+			ParamGroup.thresh2=250;
+			ParamGroup.thresh3=220;
+			ParamGroup.thresh4=1800;
+			ParamGroup.thresh5=1600;
+			ParamGroup.thresh6=ALS_553_RANGE1_64K;
+		}
+		else
+		{
+			ParamGroup.thresh1=(u16)datatemp[0];
+			ParamGroup.thresh2=(u16)datatemp[1];
+			ParamGroup.thresh3=(u16)datatemp[2];
+			ParamGroup.thresh4=(u16)datatemp[3];
+			ParamGroup.thresh5=(u16)datatemp[4];
+			ParamGroup.thresh6=(u16)datatemp[5];
+		}
+		PRINT_INFO("Sensitive param is %d,%d,%d,%d,%d,%d.\n",ParamGroup.thresh1,ParamGroup.thresh2,ParamGroup.thresh3
+					,ParamGroup.thresh4,ParamGroup.thresh5,ParamGroup.thresh6);
+		ret = of_property_read_u32(np, "luxcorrection", datatemp);
+		if(ret || 0==datatemp[0]) {
+			ParamGroup.lux_correction=10000;
+		} else {
+			ParamGroup.lux_correction=(u32)datatemp[0];
+		}
+		PRINT_INFO("10000times, lux_correction=%d\n", ParamGroup.lux_correction);
+		/*2015/9/2 end*/
 		pdata->irq_gpio_number = of_get_gpio(np, 0);
 		if(pdata->irq_gpio_number < 0){
 			dev_err(&client->dev, "fail to get irq_gpio_number\n");
@@ -969,7 +1062,6 @@ static int ltr558_probe(struct i2c_client *client, const struct i2c_device_id *i
         gpio_direction_input(pdata->irq_gpio_number);
         client->irq = gpio_to_irq(pdata->irq_gpio_number);
         PRINT_INFO("client->irq = %d\n", client->irq);
-
         if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
                 PRINT_ERR("i2c_check_functionality failed!\n");
                 ret = -ENODEV;
@@ -998,13 +1090,18 @@ static int ltr558_probe(struct i2c_client *client, const struct i2c_device_id *i
         {
             LTR_PLS_MODE = LTR_PLS_553;
             p_gainrange = PS_553_RANGE16;
-            l_gainrange = ALS_553_RANGE1_64K;
+            l_gainrange =ParamGroup.thresh6; /*ALS_553_RANGE1_64K;150727 light gain*/
         }
         else
         {
-            LTR_PLS_MODE = LTR_PLS_558;
-            p_gainrange = PS_558_RANGE4;
-            l_gainrange = ALS_558_RANGE2_64K;
+		LTR_PLS_MODE = LTR_PLS_558;
+		p_gainrange = PS_558_RANGE4;
+		if (ALS_558_RANGE1_320==ParamGroup.thresh6 ||
+		ALS_558_RANGE2_64K==ParamGroup.thresh6) {
+			l_gainrange =ParamGroup.thresh6;
+		} else {
+			l_gainrange = ALS_558_RANGE1_320;
+		}
         }
 
         input_dev = input_allocate_device();
@@ -1059,7 +1156,7 @@ static int ltr558_probe(struct i2c_client *client, const struct i2c_device_id *i
                 PRINT_ERR("create_singlethread_workqueue failed!\n");
                 goto exit_create_singlethread_workqueue_failed;
         }
-
+		wake_lock_init(&psensor_timeout_wakelock, WAKE_LOCK_SUSPEND, "psensor timeout wakelock");
         if (client->irq > 0) {
                 ret = request_irq(client->irq, ltr558_irq_handler, IRQ_TYPE_LEVEL_LOW | IRQF_NO_SUSPEND, client->name, ltr_558als);
                 if (ret < 0) {
@@ -1080,7 +1177,6 @@ static int ltr558_probe(struct i2c_client *client, const struct i2c_device_id *i
                 PRINT_ERR("ltr_558als_sysfs_init failed!\n");
                 goto exit_ltr_558als_sysfs_init_failed;
         }
-
         PRINT_INFO("probe success!\n");
         return 0;
 
@@ -1089,6 +1185,7 @@ exit_ltr_558als_sysfs_init_failed:
 exit_request_irq_failed:
         destroy_workqueue(ltr_558als->ltr_work_queue);
         ltr_558als->ltr_work_queue = NULL;
+		wake_lock_destroy(&psensor_timeout_wakelock);
 exit_create_singlethread_workqueue_failed:
 exit_ltr558_version_check_failed:
 exit_ltr558_reg_init_failed:
@@ -1113,7 +1210,7 @@ exit_allocate_pdata_failed:
 static int ltr558_remove(struct i2c_client *client)
 {
         ltr558_t *ltr_558als = i2c_get_clientdata(client);
-
+		wake_lock_destroy(&psensor_timeout_wakelock);
 #ifdef CONFIG_HAS_EARLYSUSPEND
         unregister_early_suspend(&ltr_558als->ltr_early_suspend);
 #endif
@@ -1179,3 +1276,4 @@ module_exit(ltr558_exit);
 MODULE_AUTHOR("Yaochuan Li <yaochuan.li@spreadtrum.com>");
 MODULE_DESCRIPTION("Proximity&Light Sensor LTR558ALS DRIVER");
 MODULE_LICENSE("GPL");
+

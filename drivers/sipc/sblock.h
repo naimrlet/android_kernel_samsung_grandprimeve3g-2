@@ -100,4 +100,23 @@ struct sblock_mgr {
 	void			*data;
 };
 
+#define SBLOCKSZ_ALIGN(blksz,size) (((blksz)+((size)-1))&(~((size)-1)))
+
+#ifdef CONFIG_64BIT
+#define SBLOCK_ALIGN_BYTES (8)
+#else
+#define SBLOCK_ALIGN_BYTES (4)
+#endif
+
+static inline uint32_t sblock_get_index(uint32_t x, uint32_t y)
+{
+	return (x / y);
+}
+
+static inline uint32_t sblock_get_ringpos(uint32_t x, uint32_t y)
+{
+	return is_power_of_2(y) ? (x & (y - 1)) : (x % y);
+}
+
+
 #endif

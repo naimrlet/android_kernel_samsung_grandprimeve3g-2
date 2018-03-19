@@ -811,11 +811,67 @@
 			clock-output-names = "clk_gpu_axi";
 		};
 
+		clk_153m6_gpu_gate: clk_153m6_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x40>;  /* enable reg */
+			clocks = <&clk_153m6>;
+			clock-output-names = "clk_153m6_gpu_gate";
+		};
+
+		clk_208m_gpu_gate: clk_208m_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x4>;  /* enable reg */
+			clocks = <&clk_208m>;
+			clock-output-names = "clk_208m_gpu_gate";
+		};
+
+		clk_256m_gpu_gate: clk_256m_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x8>;  /* enable reg */
+			clocks = <&clk_256m>;
+			clock-output-names = "clk_256m_gpu_gate";
+		};
+
+		clk_300m_gpu_gate: clk_300m_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x1>;  /* enable reg */
+			clocks = <&clk_300m>;
+			clock-output-names = "clk_300m_gpu_gate";
+		};
+
+		clk_312m_gpu_gate: clk_312m_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x2>;  /* enable reg */
+			clocks = <&clk_312m>;
+			clock-output-names = "clk_312m_gpu_gate";
+		};
+
+		clk_384m_gpu_gate: clk_384m_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x20>;  /* enable reg */
+			clocks = <&clk_384m>;
+			clock-output-names = "clk_384m_gpu_gate";
+		};
+
+		clk_460m8_gpu_gate: clk_460m8_gpu_gate {
+			compatible = "sprd,gate-clock";
+			#clock-cells = <0>;
+			reg = <0x402b011c 0x10>;  /* enable reg */
+			clocks = <&clk_460m8>;
+			clock-output-names = "clk_460m8_gpu_gate";
+		};
+
 		clk_gpu: clk_gpu {
 			compatible = "sprd,composite-dev-clock";
 			#clock-cells = <0>;
 			reg = <0x60100004 0x7 0x60100004 0x30>;	/* select reg and divider reg */
-			clocks = <&clk_153m6>, <&clk_208m>, <&clk_256m>, <&clk_300m>, <&clk_312m>, <&clk_384m>, <&clk_460m8>;
+			clocks = <&clk_153m6_gpu_gate>, <&clk_208m_gpu_gate>, <&clk_256m_gpu_gate>, <&clk_300m_gpu_gate>, <&clk_312m_gpu_gate>, <&clk_384m_gpu_gate>, <&clk_460m8_gpu_gate>;
 			clock-output-names = "clk_gpu";
 		};
 
@@ -849,7 +905,7 @@
 			reg = <0x60d00008 0x80>;	/* enable reg */
 			clocks = <&clk_mm>;
 			clock-output-names = "clk_mm_axi";
-			mm-domain;
+			#mm-domain;
 		};
 
 		clk_mm_mtx_axi: clk_mm_mtx_axi {

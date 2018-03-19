@@ -1136,8 +1136,16 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 	if (!in6_dev->cnf.accept_ra_defrtr)
 		goto skip_defrtr;
 
-	if (ipv6_chk_addr(dev_net(in6_dev->dev), &ipv6_hdr(skb)->saddr, NULL, 0))
+	/* Do not accept RA with source-addr found on local machine unless
+	* accept_ra_from_local is set to true.
+	*/
+	if (!in6_dev->cnf.accept_ra_from_local &&
+	    ipv6_chk_addr(dev_net(in6_dev->dev), &ipv6_hdr(skb)->saddr, NULL, 0)) {
+		ND_PRINTK(2, info,
+			"RA from local address detected on dev: %s: default router ignored\n",
+			skb->dev->name);
 		goto skip_defrtr;
+	}
 
 	lifetime = ntohs(ra_msg->icmph.icmp6_rt_lifetime);
 
@@ -1272,8 +1280,13 @@ skip_linkparms:
 		goto out;
 
 #ifdef CONFIG_IPV6_ROUTE_INFO
-	if (ipv6_chk_addr(dev_net(in6_dev->dev), &ipv6_hdr(skb)->saddr, NULL, 0))
+	if (!in6_dev->cnf.accept_ra_from_local &&
+	    ipv6_chk_addr(dev_net(in6_dev->dev), &ipv6_hdr(skb)->saddr, NULL, 0)) {
+		ND_PRINTK(2, info,
+			"RA from local address detected on dev: %s: router info ignored.\n",
+			skb->dev->name);
 		goto skip_routeinfo;
+	}
 
 	if (in6_dev->cnf.accept_ra_rtr_pref && ndopts.nd_opts_ri) {
 		struct nd_opt_hdr *p;

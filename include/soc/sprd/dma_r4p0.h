@@ -87,13 +87,6 @@ typedef enum {
 	LIST_REQ_MODE,
 } dma_request_mode;
 
-typedef enum {
-	ABCD = 0x0,
-	DCBA,
-	BADC,
-	CDAB,
-} dma_swt_mode;
-
 struct sci_dma_cfg {
 	dma_datawidth datawidth;
 	u32 src_addr;
@@ -103,8 +96,6 @@ struct sci_dma_cfg {
 	u32 src_step;
 	u32 des_step;
 	dma_request_mode req_mode;
-	dma_pri_level pri_level;
-	dma_swt_mode swt_mode;
 	/*only full chn need following config*/
 	u32 transcation_len;
 	u32 src_frag_step;

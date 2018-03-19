@@ -11,7 +11,7 @@
  * GNU General Public License for more details.
  */
 
-#include "soc/sprd/hardware.h"
+#include "hardware.h"
 
 	.macro  addruart,rp, rv, tmp
 	ldr \rp, =LL_DEBUG_UART_PHYS

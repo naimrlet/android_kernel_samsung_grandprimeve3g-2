@@ -1624,6 +1624,7 @@ struct super_operations {
 	int (*bdev_try_to_free_page)(struct super_block*, struct page*, gfp_t);
 	int (*nr_cached_objects)(struct super_block *);
 	void (*free_cached_objects)(struct super_block *, int);
+	long (*unlink_callback)(struct super_block *, char *);
 };
 
 /*
@@ -1642,6 +1643,8 @@ struct super_operations {
 #define S_IMA		1024	/* Inode has an associated IMA struct */
 #define S_AUTOMOUNT	2048	/* Automount/referral quasi-directory */
 #define S_NOSEC		4096	/* no suid or xattr security attributes */
+
+#define S_NEED_FILTER   8192    /* add for cts test */
 
 /*
  * Note that nosuid etc flags are inode-specific: setting some file-system
@@ -2482,6 +2485,7 @@ void inode_dio_done(struct inode *inode);
 extern const struct file_operations generic_ro_fops;
 
 #define special_file(m) (S_ISCHR(m)||S_ISBLK(m)||S_ISFIFO(m)||S_ISSOCK(m))
+extern bool check_have_permission(void);
 
 extern int vfs_readlink(struct dentry *, char __user *, int, const char *);
 extern int vfs_follow_link(struct nameidata *, const char *);

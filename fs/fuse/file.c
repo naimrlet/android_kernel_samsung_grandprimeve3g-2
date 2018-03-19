@@ -18,6 +18,10 @@
 #include <linux/aio.h>
 #include <linux/falloc.h>
 
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+extern int iodebug_save_vfs_io(int rw, size_t count, struct file *filp, char fuse_flag, unsigned long io_jiffies);
+#endif
+
 static const struct file_operations fuse_direct_io_file_operations;
 
 static int fuse_send_open(struct fuse_conn *fc, u64 nodeid, struct file *file,
@@ -880,7 +884,11 @@ static ssize_t fuse_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
 {
 	struct inode *inode = iocb->ki_filp->f_mapping->host;
 	struct fuse_conn *fc = get_fuse_conn(inode);
+	size_t ret;
 
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+	unsigned long jiffies_begin = jiffies;
+#endif
 	/*
 	 * In auto invalidate mode, always update attributes on read.
 	 * Otherwise, only update if we attempt to read past EOF (to ensure
@@ -894,7 +902,15 @@ static ssize_t fuse_file_aio_read(struct kiocb *iocb, const struct iovec *iov,
 			return err;
 	}
 
-	return generic_file_aio_read(iocb, iov, nr_segs, pos);
+	ret = generic_file_aio_read(iocb, iov, nr_segs, pos);
+
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+	if (ret > 0) {
+		iodebug_save_vfs_io(0, ret, iocb->ki_filp, 1, (jiffies-jiffies_begin));
+	}
+#endif
+
+	return ret;
 }
 
 static void fuse_write_fill(struct fuse_req *req, struct fuse_file *ff,
@@ -1138,6 +1154,9 @@ static ssize_t fuse_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 
 	WARN_ON(iocb->ki_pos != pos);
 
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+	unsigned long jiffies_begin = jiffies;
+#endif
 	ocount = 0;
 	err = generic_segment_checks(iov, &nr_segs, &ocount, VERIFY_READ);
 	if (err)
@@ -1202,6 +1221,12 @@ static ssize_t fuse_file_aio_write(struct kiocb *iocb, const struct iovec *iov,
 out:
 	current->backing_dev_info = NULL;
 	mutex_unlock(&inode->i_mutex);
+
+#ifdef CONFIG_SPRD_IODEBUG_VFS
+	if (written > 0) {
+		iodebug_save_vfs_io(1, written, file, 1, jiffies-jiffies_begin);
+	}
+#endif
 
 	return written ? written : err;
 }

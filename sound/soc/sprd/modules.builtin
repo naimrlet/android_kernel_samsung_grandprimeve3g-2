@@ -1,0 +1,7 @@
+kernel/sound/soc/sprd/snd-soc-i2s.ko
+kernel/sound/soc/sprd/codec/null-codec/snd-soc-sprd-null-codec.ko
+kernel/sound/soc/sprd/codec/sprd/v4/snd-soc-sprd-sprd-codec-v4.ko
+kernel/sound/soc/sprd/dai/snd-soc-sprd-audio-dma.ko
+kernel/sound/soc/sprd/dai/i2s/snd-soc-sprd-i2s.ko
+kernel/sound/soc/sprd/dai/vaudio/snd-soc-sprd-vaudio.ko
+kernel/sound/soc/sprd/dai/vbc/r2p0/snd-soc-sprd-vbc-r2p0.ko

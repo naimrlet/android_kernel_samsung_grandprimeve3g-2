@@ -36,11 +36,16 @@ enum bh_state_bits {
 	BH_Quiet,	/* Buffer Error Prinks to be quiet */
 	BH_Meta,	/* Buffer contains metadata */
 	BH_Prio,	/* Buffer should be submitted with REQ_PRIO */
-        BH_Sync_Flush,
+	BH_Sync_Flush,
 
 	BH_PrivateStart,/* not a state bit, but the first bit available
 			 * for private allocation by other entities
 			 */
+#ifdef CONFIG_SPRD_METADATA_BUFFER_RECLAIM
+	BH_Metadata,	/* Filesystem meadata's buffer.
+			 * Currently only used in Fat filesystem.
+			 */
+#endif
 };
 
 #define MAX_BUF_PER_PAGE (PAGE_CACHE_SIZE / 512)
@@ -130,6 +135,9 @@ BUFFER_FNS(Unwritten, unwritten)
 BUFFER_FNS(Meta, meta)
 BUFFER_FNS(Prio, prio)
 BUFFER_FNS(Sync_Flush, sync_flush)
+#ifdef CONFIG_SPRD_METADATA_BUFFER_RECLAIM
+BUFFER_FNS(Metadata, metadata)
+#endif
 
 #define bh_offset(bh)		((unsigned long)(bh)->b_data & ~PAGE_MASK)
 

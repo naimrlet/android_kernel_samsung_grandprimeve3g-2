@@ -17,6 +17,15 @@ config FB_SCX30G
 	help
           Frame buffer driver for sc8830G based boards.
 
+config FB_SC9001
+	boolean "SC9001 frame buffer support "
+	depends on FB && ARCH_WHALE
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
+	help
+          Frame buffer driver for whale based boards.
+
 config FB_SCX35L
 	boolean "SharkL frame buffer support "
 	depends on FB && ARCH_SCX35L
@@ -40,6 +49,10 @@ config SPRD_FB_SIZE
 	range 1 16
 	default 8
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L
+
+config BMP_24BPP
+        boolean "bmp 24bit rgb888 bootloader logo"
+	default n
 
 config FB_LCD_HX8363_MCU
 	boolean "support HX8363 panel mcu"
@@ -71,20 +84,72 @@ config FB_LCD_HX8389C_MIPI_GPRIMEVE3G
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
 	default n
 
-config FB_LCD_SD7798D_MIPI_COREPRIMELITE
-	boolean "support SD7798D coreprimelite MIPI panel"
+config FB_LCD_HX8369B_MIPI_SHARKLS_Z3LTE
+	boolean "support HX8369B sharkls_z3lte panel"
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
 	default n
 
+config FB_LCD_HX8369B_MIPI_SHARKLC_Z2LTE
+	boolean "support HX8369B sharklc_z2lte panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	default n
+
+config FB_LCD_SD7798D_MIPI_SHARKLS_Z3LTE
+	boolean "support SD7798D sharkls_z3lte MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	default n
+
+config FB_LCD_HX8369B_MIPI_SHARKL_J1POPLTE
+        boolean "support SD7798D sharkl_j1poplte MIPI panel"
+        depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+        default n
+config FB_LCD_HX8379C_MIPI_SHARKL_J1POPLTE
+        boolean "support HX8379C sharkl_j1poplte MIPI panel"
+        depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+        default n
+config FB_LCD_S6E8AA5X01_MIPI
+        boolean "support HX8379C sharkls_j1mini MIPI panel"
+        depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+        default n
 config FB_LCD_HX8369B_MIPI_COREPRIMELITE_MARLIN
 	boolean "support HX8369B coreprimelite_marlin MIPI panel"
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
 	default n
 
+config FB_LCD_HX8369B_MIPI
+	boolean "support HX8369B MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_HX8379C_MIPI
+	boolean "support HX8379C MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	default n
+
+config FB_LCD_TSHARK2_J3_MIPI
+	boolean "support TSHARK2 J3 MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_SD7798D_MIPI
+	boolean "support SD7798D MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_GRANDNEO_MIPI
+	boolean "support GRAND NEO MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_HX8389C_MIPI_GPRIMEVE3G
+	boolean "support HX8369C grandprimelite MIPI panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	default n
 config FB_LCD_NT51017_MIPI
 	boolean "support TSHARK2 TABE MIPI panel"
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX30G2
 	default n
+
 config FB_LCD_SD7798D_MIPI_COREPRIMELITE
 	boolean "support SD7798D coreprimelite MIPI panel"
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
@@ -100,6 +165,26 @@ config FB_LCD_HX8369B_MIPI
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
 	default n
 
+config FB_LCD_VX5B3D_MIPI
+	boolean "support VX5B3D mipi panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_HX8369B_MIPI_VIVALTO_VE
+	boolean "support HX8369B Vivalto VE mipi panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_HX8369B_MIPI_KIRAN3G
+	boolean "support HX8369B MIPI panel for KIRAN3G"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
+config FB_LCD_S6D77A1_MIPI_PIKEA_J1
+	boolean "support s6d77a1 MIPI panel for PikeA J1"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
+	default n
+
 config FB_LCD_S6D0139
 	boolean "support S6D0139 panel"
 	depends on FB_SC8825 || FB_SCX35
@@ -112,6 +197,10 @@ config FB_LCD_NT35516_MIPI
 
 config FB_LCD_NT35596H_MIPI
 	boolean "support NT35596H mipi panel"
+	default n
+
+config FB_LCD_NT35596H_RDC_MIPI
+	boolean "support NT35596H_RDC mipi panel"
 	default n
 
 config FB_LCD_FL10802_MIPI
@@ -132,9 +221,17 @@ config FB_LCD_RM68180_MIPI
         depends on FB_SCX35 || FB_SCX35L || FB_SCX30G
         default n
 
+config FB_LCD_HX8394D_MIPI
+	boolean "support HX8394D mipi panel"
+	default n
+
+config FB_LCD_OLED_BACKLIGHT
+        boolean "support CONFIG_FB_LCD_OLED_BACKLIGHT backlight"
+        default n
+
 config FB_LCD_DUMMY
 	boolean "support DUMMY panel"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default y
 
 config FB_LCD_NT35502_MIPI
@@ -219,7 +316,7 @@ config FB_LCD_HX8369B_MIPI
 
 config FB_LCD_OTM1283A_MIPI
 	boolean "support otm 1283a mipi panel"
-	depends on FB_SC8825 || FB_SCX35
+	depends on FB_SC8825 || FB_SCX35 || FB_SC9001
 	default n
 
 config FB_LCD_ILI9806E_MIPI
@@ -247,6 +344,11 @@ config FB_LCD_HX8389C_MIPI
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G
 	default n
 
+config FB_LCD_S6D77A1A01_MIPI
+	boolean "support S6D77A1A01 mipi panel"
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	default n
+
 config FB_LCD_S6D7AA0X62_MIPI
 	boolean "support S6D7AA0X62 mipi panel"
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
@@ -257,54 +359,75 @@ config FB_LCD_OTM8019A_MIPI
 	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
 	default n
 
+config FB_LCD_HX8394A_MIPI
+	boolean "support hx8394a mipi panel"
+	default n
+    
+config FB_LCD_ILI9881C_MIPI
+    boolean "support ili9881c mipi panel"
+    default n
+
+config FB_LCD_AMS549HQ01_MIPI
+        boolean "support ams549hq01 mipi panel"
+        default n
+
 config FB_LCD_RESERVE_MEM
         boolean "support FB reserve mem"
-        depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L
+        depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
         default n
 
 config FB_LCD_OVERLAY_SUPPORT
 	boolean "support lcd overlay"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default n
 
 config FB_VSYNC_SUPPORT
 	boolean "support wait for vsync io"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default y
 
-config FB_ESD_SUPPORT
-	boolean "support esd check"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
-	default n
+#config FB_ESD_SUPPORT
+#	boolean "support esd check"
+#	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L || FB_SC9001
+#	default n
 
 config FB_DYNAMIC_CLK_SUPPORT
 	boolean "support close clk dynamically"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default n
 
 config FB_DYNAMIC_FREQ_SCALING
 	boolean "support change mipi clk/fps/dpi clk dynamically"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 || FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default y
+
+config HOP_FREQ_SCALING
+        boolean "support open hop freq feature"
+        depends on ARCH_SCX20 && FB
+        default y
 
 config FB_USE_MEGACORES_MIPI_DPHY
 	boolean "support megacores mipi dphy"
 	depends on FB
 	default n
 
+config LCD_ESD_RECOVERY
+	boolean "support esd detection for lcd"
+	default n
+
 config FB_MMAP_CACHED
 	boolean "support fb_mmap with cach"
-	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15
+	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15 || FB_SC9001
 	default n
 
 config FB_LOW_RES_SIMU
 	boolean "support low resolution simulator"
-	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default n
 
 config FB_TRIPLE_FRAMEBUFFER
 	boolean "support triple buffer"
-	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15 || FB_SCX30G || FB_SCX35L
+	depends on FB_SC8825 || FB_SCX35 ||FB_SCX15 || FB_SCX30G || FB_SCX35L || FB_SC9001
 	default y
 
 config SPRDFB_GEN_PANEL
@@ -312,10 +435,4 @@ config SPRDFB_GEN_PANEL
 	default n
 	help
 		support generic panel driver on sprdfb
-
-config DYNAMIC_MIPI_SUPPORT
-	boolean "support dynamic mipi clk"
-	depends on FB_SC8825 || FB_SCX35 || FB_SCX30G || FB_SCX35L
-	default n
-
 endif

@@ -34,8 +34,6 @@
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
 
-#include <linux/memblock.h>
-
 static int sprd_iommu_probe(struct platform_device *pdev);
 static int sprd_iommu_remove(struct platform_device *pdev);
 static int sprd_iommu_suspend(struct platform_device *pdev, pm_message_t state);
@@ -183,6 +181,16 @@ void sprd_iommu_module_disable(uint32_t iommu_id)
 	}
 }
 
+void sprd_iommu_pgt_show(uint32_t iommu_id)
+{
+	iommu_devs[iommu_id]->ops->pgt_show(iommu_devs[iommu_id]);
+}
+
+int sprd_iommu_pgt_dump(uint32_t iommu_id, void *data)
+{
+	return iommu_devs[iommu_id]->ops->dump(iommu_devs[iommu_id], data);
+}
+
 static int sprd_iommu_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	int err = -1;
@@ -260,37 +268,33 @@ static int sprd_iommu_get_resource(struct device_node *np,
 
 	err = of_property_read_u32(np, "sprd,reserved-fault-page", &val);
 	if (err) {
-#if 0
-		pr_info("%s, can't get reserved fault page addr\n", __func__);
-		pdata->fault_page = 0;
-#else
-		pr_info("%s, can't get reserved fault page addr from dts\n", __func__);
-		pdata->fault_page = __pa(__get_free_page(GFP_KERNEL));
-		if(!pdata->fault_page)
-			BUG();
-		else
-			pr_info("%s, succeed to get reserved fault page, phy:0x%lx\n", __func__, pdata->fault_page);
-#endif
-		pdata->re_route_page = 0;
+		unsigned long page =  0;
+		uint32_t i;
 
+		page = __get_free_page(GFP_KERNEL);
+		if (page) {
+			pdata->fault_page = virt_to_phys((void *)page);
+		} else {
+			pdata->fault_page = 0;
+		}
+		pr_info("%s, fault_page: 0x%lx\n", __func__, pdata->fault_page);
 	} else {
-		pr_info("%s, reserved fault page phy:0x%lx\n", __func__, val);
+		pr_info("%s, reserved fault page phy:0x%x\n", __func__, val);
 		pdata->fault_page = val;
-		pdata->re_route_page = val + PAGE_SIZE;
 	}
 
 	err = of_property_read_u32(np, "sprd,reserved-rr-page", &val);
 	if (err) {
-		pr_info("%s, can't get reserved rr page addr\n", __func__);
+		pr_info("%s, no reserved rr page addr\n", __func__);
 		pdata->re_route_page = 0;
 	} else {
-		pr_info("%s, reserved rr page phy:0x%lx\n", __func__, val);
+		pr_info("%s, reserved rr page phy:0x%x\n", __func__, val);
 		pdata->re_route_page = val;
 	}
 
 	err = of_property_read_u32(np, "sprd,iommu-rev", &val);
 	if (err) {
-		pr_info("%s, can't get iommu-rev\n", __func__);
+		pr_info("%s, iommu-rev: r1\n", __func__);
 		pdata->iommu_rev = 1;
 	} else {
 		pr_info("%s, iommu-rev: %u\n", __func__, val);
@@ -324,7 +328,13 @@ static int sprd_iommu_probe(struct platform_device *pdev)
 	}
 	pr_info("%s, function name is %s\n", __func__, pdesc);
 
-	if (0 == strncmp("sprd_iommu_gsp", pdesc, 14)) {
+	if (0 == strncmp("sprd_iommu_gsp0", pdesc, 15)) {
+		pdata = &sprd_iommu_gsp0_data;
+		iommu_dev->ops = &iommu_gsp0_ops;
+	} else if (0 == strncmp("sprd_iommu_gsp1", pdesc, 15)) {
+		pdata = &sprd_iommu_gsp1_data;
+		iommu_dev->ops = &iommu_gsp1_ops;
+	} else if (0 == strncmp("sprd_iommu_gsp", pdesc, 14)) {
 		pdata = &sprd_iommu_gsp_data;
 		iommu_dev->ops = &iommu_gsp_ops;
 	} else if (0 == strncmp("sprd_iommu_mm", pdesc, 13)) {
@@ -339,12 +349,6 @@ static int sprd_iommu_probe(struct platform_device *pdev)
 	} else if (0 == strncmp("sprd_iommu_dispc", pdesc, 16)) {
 		pdata = &sprd_iommu_dispc_data;
 		iommu_dev->ops = &iommu_dispc_ops;
-	} else if (0 == strncmp("sprd_iommu_gsp0", pdesc, 15)) {
-		pdata = &sprd_iommu_gsp0_data;
-		iommu_dev->ops = &iommu_gsp0_ops;
-	} else if (0 == strncmp("sprd_iommu_gsp1", pdesc, 15)) {
-		pdata = &sprd_iommu_gsp1_data;
-		iommu_dev->ops = &iommu_gsp1_ops;
 	} else if (0 == strncmp("sprd_iommu_vpp", pdesc, 14)) {
 		pdata = &sprd_iommu_vpp_data;
 		iommu_dev->ops = &iommu_vpp_ops;

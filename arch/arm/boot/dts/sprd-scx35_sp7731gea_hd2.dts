@@ -238,13 +238,27 @@
                         adc_threshold_4pole_detect = <3100>;
                         irq_threshold_buttont = <1>;
                         voltage_headmicbias = <3000000>;
-                        nbuttons = <1>;
-                        headset_buttons {
-                                adc_min = <0>;
-                                adc_max = <170>;
-                                code = <226>;
-                                type = <0>;
-                        };
+                        nbuttons = <3>;
+			headset_buttons_media {
+				adc_min = <0>;
+				adc_max = <159>;
+				code = <226>;
+				type = <0>;
+			};
+
+			headset_buttons_up {
+				adc_min = <160>;
+				adc_max = <319>;
+				code = <115>;
+				type = <0>;
+			};
+
+			headset_buttons_down {
+				adc_min = <320>;
+				adc_max =<700>;
+				code = <114>;
+				type = <0>;
+			};
                  };
                  keyboard_backlight {
                         compatible = "sprd,keyboard-backlight";
@@ -317,9 +331,8 @@
                  compatible = "sprd,sprd_vsp";
                  reg = <0x60900000 0xc000>;
                  interrupts = <0 43 0x0>;
-                 clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-                 clocks = <&clk_mm>, <&clk_vsp>, <&clk_256m>, <&clk_192m>, <&clk_128m>, <&clk_76m8>;
-		 clock-parent-info = <2 4>;
+                 clock-names = "clk_mm_i", "clk_vsp", "clk_mm_axi";
+                 clocks = <&clk_mm>, <&clk_vsp>, <&clk_mm_axi>;
 		 version = <2>;
          };
         sprd_jpg {
@@ -412,14 +425,26 @@
 	 };
 	 sprd_sensor {
 		 compatible  = "sprd,sprd_sensor";
-		 gpios = <&d_gpio_gpio 186 0   /*main reset*/
-		        &d_gpio_gpio 187 0     /*main power down*/
-		        &d_gpio_gpio 186 0     /*sub reset*/
-		        &d_gpio_gpio 188 0     /*sub power down*/
-		        &d_gpio_gpio 0 0       /*main core voltage*/
-		        &d_gpio_gpio 0 0
-		        &d_gpio_gpio 0 0
-		        &d_gpio_gpio 0 0>;
+		 gpios = <&d_gpio_gpio 186 0    /* 0: main reset*/
+			     &d_gpio_gpio 187 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 186 0    /* 2:sub reset*/
+			     &d_gpio_gpio 188 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 0 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 0 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 		 clock-names ="clk_mm_i","clk_sensor","clk_ccir","clk_dcam","clk_dcam_mipi";
 		 clocks = <&clk_mm>, <&clk_sensor>,<&clk_ccir>, <&clk_dcam>, <&clk_dcam_mipi>;
 		 };
@@ -576,7 +601,9 @@
 		#size-cells = <1>;
 		/* segnr=2 */
 		ranges = <0x300000 0x88300000 0x00800000>,
-				<0x20000 0x88020000 0x00220000>;
+			 <0x20000 0x88020000 0x00220000>,
+                         <0x240000 0x88240000 0x40000>,
+                         <0x280000 0x88280000 0x60000>;
 		modem@0x300000 {
 			cproc,name = "modem";
 			reg = <0x300000 0x00800000>; /* <modem_addr size> */
@@ -584,6 +611,14 @@
 		dsp@0x20000 {
 			cproc,name = "dsp";
 			reg = <0x20000 0x00220000>; /* <dsp_addr size>*/
+		};i
+		fixnv@0x240000 {
+			cproc,name = "fixnv";
+			reg = <0x240000 0x40000>;
+		};
+		runnv@0x280000 {
+			cproc,name = "runnv";
+			reg = <0x280000 0x60000>;
 		};
 	};
 
@@ -733,11 +768,12 @@
 	 usb: usb@20200000{
 		 compatible  = "sprd,usb";
 		 interrupts = <0 55 0x0>;
-		ngpios = <2>;
-		gpios = <&a_eic_gpio 0 0>,<&d_gpio_gpio 72 0>;
+		 vbus-gpios = <&a_eic_gpio 0 0>;
+		 id-gpios = <&d_gpio_gpio 72 0>;
 		 reg = <0x20200000 0x1000>;
 		 tune_value = <0x44073e33>;
-                 usb-supply = <&vddusb>;
+		 usb-supply = <&vddusb>;
+		 phy-type = "usb20_synops_phy";
 		 #address-cells = <1>;
 		 #size-cells = <0>;
 	 };
@@ -806,18 +842,33 @@
 		interrupts = <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>;
 		interrupt-names = "IRQGP", "IRQGPMMU", "IRQPP0", "IRQPPMMU0", "IRQPP1", "IRQPPMMU1", "IRQPMU";
 
-		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6>,<&clk_208m>,<&clk_256m>,<&clk_312m>,<&clk_384m>,<&clk_460m8>;
-		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6","clk_208m","clk_256m","clk_312m","clk_384m","clk_460m8";
+		pmu_domain_config = <0x1000 0x1000 0x1000 0x0 0x0 0x0 0x0 0x0 0x0 0x1000 0x0 0x0>;
+		pmu_switch_delay = <0xffff>;
+
+		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6_gpu_gate>,<&clk_208m_gpu_gate>,<&clk_256m_gpu_gate>,<&clk_312m_gpu_gate>,<&clk_384m_gpu_gate>,<&clk_460m8_gpu_gate>,<&clk_300m_gpu_gate>;
+		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6_gpu_gate","clk_208m_gpu_gate","clk_256m_gpu_gate","clk_312m_gpu_gate","clk_384m_gpu_gate","clk_460m8_gpu_gate","clk_300m_gpu_gate";
 
 		freq-list-len = <4>;
 		freq-lists = <153600 2 1>, <256000 4 1>, <384000 6 1>, <460800 7 1>;
 		freq-default = <1>;
-		freq-9 = <2>;
-		freq-8 = <1>;
+		freq-9 = <3>;
+		freq-8 = <3>;
 		freq-7 = <1>;
 		freq-5 = <0>;
 		freq-range-max = <3>;
 		freq-range-min = <0>;
+
+		freq-list-len-overclk = <5>;
+		freq-lists-overclk = <153600 2 1>, <256000 4 1>, <384000 6 1>, <460800 7 1>, <512000 5 1>;
+		freq-default-overclk = <1>;
+		freq-9-overclk = <4>;
+		freq-8-overclk = <4>;
+		freq-7-overclk = <1>;
+		freq-5-overclk = <0>;
+		freq-range-max-overclk = <4>;
+		freq-range-min-overclk = <0>;
+		freq-clk-nb = <4>;
+		freq-clk-nb-prev = <3>;
 	};
          ion {
 		 compatible = "sprd,ion-sprd";
@@ -863,8 +914,8 @@
                        <0x60f00000 0x20000>,     //pgt
                        <0x60f20000 0x2000>;      //ctrl_reg
                  reg_name = "iova","pgt","ctrl_reg";
-                 clock-names = "clk_mmu","clk_mm_i";
-                 clocks = <&clk_mmu>,<&clk_mm>;
+                 clock-names = "clk_mmu","clk_mm_i","clk_mm_axi";
+                 clocks = <&clk_mmu>,<&clk_mm>,<&clk_mm_axi>;
                  status = "ok";
          };
 

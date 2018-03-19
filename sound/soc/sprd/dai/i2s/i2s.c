@@ -196,7 +196,7 @@ static int i2s_reg_update(unsigned long reg, int val, int mask)
 	new = (old & ~mask) | (val & mask);
 	i2s_reg_raw_write(reg, new);
 	spin_unlock(&i2s_lock);
-	sp_asoc_pr_reg("[0x%04lx] U:[0x%08x] R:[0x%08x]\n", reg & 0xFFFF, new,
+	sp_asoc_pr_reg("[0x%04x] U:[0x%08x] R:[0x%08x]\n", reg & 0xFFFF, new,
 		       i2s_reg_read(reg));
 	return old != new;
 }
@@ -239,7 +239,7 @@ static int i2s_calc_clk(struct i2s_priv *i2s)
 	case 12000:
 	case 24000:
 	case 48000:
-		clk_parent = clk_get(NULL, "clk_76m8");
+		clk_parent = clk_get(NULL, "clk_153m6");
 		break;
 	default:
 		pr_err("ERR:I2S Can't Support %d Clock\n", config->fs);
@@ -838,7 +838,7 @@ static int get_index(char *line_first,char *line_end)
 	char *line_first_dummy = line_first;
 	if (line_first == NULL || line_end == NULL)
 		return -1;
-	for (;line_first < line_end;line_first++) {
+	for (line_first;line_first < line_end;line_first++) {
 		if (*line_first >= '0' && *line_first <= '9') {
 			*line_index = *line_first;
 			line_index++;
@@ -855,7 +855,7 @@ static int get_index_value(char *line_first)
 	if (line_first == NULL)
 		return -1;
 	pr_debug("i2s get_index_value %s\n",line_first);
-	for (;;line_first++) {
+	for (line_first;;line_first++) {
 		if (*line_first == '\0')
 			break;
 		if (*line_first >= '0' && *line_first <= '9') {
@@ -973,7 +973,7 @@ int i2s_config_get(struct snd_kcontrol *kcontrol,
 		return 0;
 	}
 	ucontrol->value.integer.value[0] = i2s_config_getting(id,dup_config);
-	pr_debug("i2s_config_get return value %ld,id %d\n",ucontrol->value.integer.value[0],id);
+	pr_debug("i2s_config_get return value %d,id %d\n",ucontrol->value.integer.value[0],id);
 	return 0;
 }
 
@@ -982,7 +982,7 @@ int i2s_config_set(struct snd_kcontrol *kcontrol,
 {
 	struct soc_mixer_control *mc =
 		(struct soc_mixer_control *)kcontrol->private_value;
-
+	struct snd_soc_card *card = snd_kcontrol_chip(kcontrol);
 	int id = FUN_REG(mc->reg);
 	if (dup_config == NULL) {
 		pr_err("i2s_config_set return \n");
@@ -1143,8 +1143,6 @@ static int i2s_drv_probe(struct platform_device *pdev)
 	struct i2s_priv *i2s;
 	struct resource *res;
 	struct device_node *node = pdev->dev.of_node;
-    const char *dai_name  = NULL;
-    const char *config_type = NULL;
 
 	sp_asoc_pr_dbg("%s\n", __func__);
 
@@ -1188,6 +1186,7 @@ static int i2s_drv_probe(struct platform_device *pdev)
 		}
 		i2s->tx.dma_no = val[0];
 
+		const char *dai_name  = NULL;
 		if (of_property_read_string(node, "sprd,dai_name", &dai_name)) {
 			pr_err("ERR:Must give me the dai_name!\n");
 			//goto out;
@@ -1197,6 +1196,7 @@ static int i2s_drv_probe(struct platform_device *pdev)
 		printk("dt version i2s->dai_name %s \n",i2s->dai_name);
 		ret = i2s_config_from_node(node, i2s);
 
+		const char * config_type = NULL;
 		if (of_property_read_string(node, "sprd,config_type", &config_type)) {
 			i2s->config = def_pcm_config;
 			i2s->i2s_type = 0;
@@ -1396,7 +1396,7 @@ static int i2s_drv_probe(struct platform_device *pdev)
 
 	if (strcmp(i2s->dai_name,"i2s_bt_sco0") == 0) {
 		dup_config = &(i2s->config);
-		membase = (uint)i2s->membase;
+		membase = i2s->membase;
 	}
 	return ret;
 out:

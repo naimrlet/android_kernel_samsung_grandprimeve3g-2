@@ -92,10 +92,17 @@
 #ifdef CONFIG_SPRD_DEBUG
 #include <soc/sprd/sprd_debug.h>
 #endif
-
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+#include <linux/sprd_iodebug.h>
+#endif
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG
 #include <soc/sprd/sec_debug.h>
 #endif
+
+#if defined(CONFIG_SEC_LOG64)
+#include <soc/sprd/sec_log64.h>
+#endif
+
 
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
@@ -3073,8 +3080,9 @@ need_resched:
 	sprd_debug_task_log(cpu, rq->curr);
 #endif
 
-#ifdef CONFIG_SEC_DEBUG_SCHED_LOG
-	sec_debug_task_log(cpu,rq->curr);
+#if defined(CONFIG_SEC_DEBUG_SCHED_LOG) || defined(CONFIG_SEC_LOG64)
+	if(psec_debug_log != NULL)
+		sec_debug_task_log(cpu,rq->curr);
 #endif
 
 	post_schedule(rq);
@@ -4586,7 +4594,13 @@ void __sched io_schedule(void)
 	atomic_inc(&rq->nr_iowait);
 	blk_flush_plug(current);
 	current->in_iowait = 1;
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	iodebug_ioschedule_timer_add(current);
+#endif
 	schedule();
+#ifdef CONFIG_SPRD_IODEBUG_IOSCHEDULE
+	iodebug_ioschedule_timer_cancel(current);
+#endif
 	current->in_iowait = 0;
 	atomic_dec(&rq->nr_iowait);
 	delayacct_blkio_end();
@@ -6934,9 +6948,6 @@ void __init sched_init_smp(void)
 	hotcpu_notifier(sched_domains_numa_masks_update, CPU_PRI_SCHED_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_active, CPU_PRI_CPUSET_ACTIVE);
 	hotcpu_notifier(cpuset_cpu_inactive, CPU_PRI_CPUSET_INACTIVE);
-
-	/* RT runtime code needs to handle some hotplug events */
-	hotcpu_notifier(update_runtime, 0);
 
 	init_hrtick();
 

@@ -73,20 +73,42 @@ static int sprd_create_iomap(void)
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,mm_clk", MMCKG);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,ap_apb", APBREG);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,dma0", DMA0);
+#if defined(CONFIG_ARCH_WHALE)
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,dma", DMA);
+#endif
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,gpu_apb", GPUAPB);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,ap_ckg", APCKG);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,aon_dma", AONDMA);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,pwm", PWM);
+#if defined(CONFIG_ARCH_WHALE)
+	ADD_SPRD_DEVICE_BY_NAME("hwspinlock", HWSPINLOCK);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,agcp_ahb", AGCPAHB);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,ana_apb", ANAAPB);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,disp_ahb", DISPAHB);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,disp_ckg", DISPCKG);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,vsp_ahb", VSPAHB);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,vsp_ckg", VSPCKG);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,pub0_apb", PUB0);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,pub1_apb", PUB1);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,gpu_clk", GPUCLK);
+#else
 	ADD_SPRD_DEVICE_BY_NAME("hwspinlock0", HWSPINLOCK0);
 	ADD_SPRD_DEVICE_BY_NAME("hwspinlock1", HWSPINLOCK1);
+#endif
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc2", INTC2);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,aonckg", AONCKG);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,core", CORE);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,gpuckg", GPUCKG);
+#if !defined(CONFIG_ARCH_WHALE)
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,int", INT);
+#endif
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc0", INTC0);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc1", INTC1);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc3", INTC3);
+#if defined(CONFIG_ARCH_WHALE)
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc4", INTC4);
+	ADD_SPRD_DEVICE_BY_COMPAT("sprd,intc5", INTC5);
+#endif
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,uidefuse", UIDEFUSE);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,isp", ISP);
 	ADD_SPRD_DEVICE_BY_COMPAT("sprd,csi2", CSI2);

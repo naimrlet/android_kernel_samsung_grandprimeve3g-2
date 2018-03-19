@@ -353,7 +353,6 @@ static void gser_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	usb_free_all_descriptors(f);
 }
-#ifdef CONFIG_USB_SPRD_DWC
 
 static void gser_setup_complete(struct usb_ep *ep, struct usb_request *req)
 {
@@ -394,7 +393,6 @@ static int gser_setup(struct usb_composite_dev *cdev, const struct usb_ctrlreque
 				le16_to_cpu(ctrl->wLength));
 	return value;
 }
-#endif
 
 struct usb_function *gser_alloc(struct usb_function_instance *fi)
 {

@@ -44,76 +44,6 @@
 #define SMSG_RXBUF_RDPTR	(SMSG_RINGHDR + 8)
 #define SMSG_RXBUF_WRPTR	(SMSG_RINGHDR + 12)
 
-/* if it's upon mailbox arch, overwrite the implementation*/
-#ifdef CONFIG_SPRD_MAILBOX
-
-#define DEFINE_SIPC_RXIRQ_STATUS_FN(id) \
-static int sipc_rxirq_status##id(void) \
-{ \
-	return 1;\
-}
-
-#define DEFINE_SIPC_RXIRQ_CLEAR_FN(id) \
-static void sipc_rxirq_clear##id(void) \
-{ \
-	return;\
-}
-
-#define DEFINE_SIPC_TXIRQ_TRIGGER_FN(id) \
-static void sipc_txirq_trigger##id(void) \
-{ \
-	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];\
-	mbox_raw_sent(info->core_id, 0);\
-}
-
-#else
-
-#define DEFINE_SIPC_RXIRQ_STATUS_FN(id) \
-static int sipc_rxirq_status##id(void) \
-{ \
-	return 1;\
-}
-
-#define DEFINE_SIPC_RXIRQ_CLEAR_FN(id) \
-static void sipc_rxirq_clear##id(void) \
-{ \
-	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];\
-	__raw_writel(info->ap2cp_bit_clr, (volatile void *)info->cp2ap_int_ctrl);\
-}
-
-#define DEFINE_SIPC_TXIRQ_TRIGGER_FN(id) \
-static void sipc_txirq_trigger##id(void) \
-{ \
-	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];\
-	__raw_writel(info->ap2cp_bit_trig, (volatile void *)info->ap2cp_int_ctrl);\
-}
-
-#endif
-
-#define __GET_SIPC_FN_NAME(fn, id) fn##id
-
-#define __GET_SIPC_FN(fn, id) \
-({ \
-	void* ret; \
-	switch(id) { \
-		case 0: \
-			ret = __GET_SIPC_FN_NAME(fn, 0);\
-			break; \
-		case 1: \
-			ret = __GET_SIPC_FN_NAME(fn, 1);\
-			break; \
-		case 2: \
-			ret = __GET_SIPC_FN_NAME(fn, 2);\
-			break; \
-		default: \
-			break; \
-	} \
-	ret; \
-}) \
-
-#define GET_SIPC_RXIRQ_STATUS_FN(id) __GET_SIPC_FN(sipc_rxirq_status, id)
-#define GET_SIPC_RXIRQ_CLEAR_FN(id) __GET_SIPC_FN(sipc_rxirq_clear, id)
-#define GET_SIPC_TXIRQ_TRIGGER_FN(id) __GET_SIPC_FN(sipc_txirq_trigger, id)
 
 struct sipc_child_node_info {
 	uint8_t dst;
@@ -157,18 +87,64 @@ struct sipc_device {
 
 struct sipc_device *sipc_dev;
 
-DEFINE_SIPC_TXIRQ_TRIGGER_FN(0)
-DEFINE_SIPC_TXIRQ_TRIGGER_FN(1)
-DEFINE_SIPC_TXIRQ_TRIGGER_FN(2)
 
-DEFINE_SIPC_RXIRQ_CLEAR_FN(0)
-DEFINE_SIPC_RXIRQ_CLEAR_FN(1)
-DEFINE_SIPC_RXIRQ_CLEAR_FN(2)
+/* if it's upon mailbox arch, overwrite the implementation*/
+#ifdef CONFIG_SPRD_MAILBOX
+#ifdef CONFIG_SPRD_MAILBOX_FIFO
+static uint32_t sipc_rxirq_status(uint8_t id)
+{
+	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];
+	return mbox_core_fifo_full(info->core_id);
+}
 
-DEFINE_SIPC_RXIRQ_STATUS_FN(0)
-DEFINE_SIPC_RXIRQ_STATUS_FN(1)
-DEFINE_SIPC_RXIRQ_STATUS_FN(2)
+static void sipc_rxirq_clear(uint8_t id)
+{
+	return;
+}
 
+static void sipc_txirq_trigger(uint8_t id, u64 msg)
+{
+	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];
+	mbox_raw_sent(info->core_id, msg);
+}
+#else
+static uint32_t sipc_rxirq_status(uint8_t id)
+{
+	return 1;
+}
+
+#define DEFINE_SIPC_RXIRQ_CLEAR_FN(id)
+static void sipc_rxirq_clear(uint8_t id)
+{
+	return;
+}
+
+static void sipc_txirq_trigger(uint8_t id)
+{
+	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];
+	mbox_raw_sent(info->core_id, 0);
+}
+#endif // CONFIG_SPRD_MAILBOX_FIFO
+#else  //CONFIG_SPRD_MAILBOX
+
+static uint32_t sipc_rxirq_status(uint8_t id)
+{
+	return 1;
+}
+
+static void sipc_rxirq_clear(uint8_t id)
+{
+	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];
+	__raw_writel(info->ap2cp_bit_clr, (volatile void *)info->cp2ap_int_ctrl);
+}
+
+static void sipc_txirq_trigger(uint8_t id)
+{
+	struct sipc_child_node_info *info = &sipc_dev->pdata->info_table[id];\
+	__raw_writel(info->ap2cp_bit_trig, (volatile void *)info->ap2cp_int_ctrl);\
+}
+
+#endif // CONFIG_SPRD_MAILBOX
 
 static int sipc_create(struct sipc_device *sipc)
 {
@@ -188,13 +164,14 @@ static int sipc_create(struct sipc_device *sipc)
 	info = pdata->info_table;
 
 	for (i = 0; i < num; i++) {
-		base = (size_t)ioremap_nocache((uint32_t)info[i].ring_base, info[i].ring_size);
+		base = (size_t)ioremap_nocache((size_t)info[i].ring_base, info[i].ring_size);
 		if(base == NULL){
 			pr_info("sipc:[%d] ioremap return NULL\n");
 			return ENOMEM;
 		}
 		pr_info("sipc:[%d] after ioremap vbase=0x%lx, pbase=0x%x, size=0x%x\n",
 			i, base, info[i].ring_base, info[i].ring_size);
+		inst[i].id = i;
 		inst[i].txbuf_size = SMSG_TXBUF_SIZE / sizeof(struct smsg);
 		inst[i].txbuf_addr = base + SMSG_TXBUF_ADDR;
 		inst[i].txbuf_rdptr = base + SMSG_TXBUF_RDPTR;
@@ -291,33 +268,41 @@ static int sipc_parse_dt(struct sipc_init_data **init, struct device *dev)
 		pr_info("sipc:[%d] ap2cp_bit_trig=0x%x, ap2cp_bit_clr=0x%x\n",
 			i, info[i].ap2cp_bit_trig, info[i].ap2cp_bit_clr);
 #endif
-		/* get cp base addr */
-		ret = of_address_to_resource(nchd, 0, &res);
-		if (ret) {
-			goto error;
-		}
-		info[i].cp_base = (uint32_t)res.start;
-		info[i].cp_size = (uint32_t)(res.end - res.start + 1);
-		pr_info("sipc:[%d] cp_base=0x%x, cp_size=0x%x\n",
-			i, info[i].cp_base, info[i].cp_size);
+		if (strcmp(info[i].name, "sipc-pmsys") != 0) {
+			int index = 1;
+			if (of_find_property(np, "sprd,decoup", NULL) != NULL) {
+				index = 0;
+			}
+			pr_info("sipc:[%d] index = 0x%x\n", i, index);
 
-		/* get smem base addr */
-		ret = of_address_to_resource(nchd, 1, &res);
-		if (ret) {
-			goto error;
-		}
-		info[i].smem_base = (uint32_t)res.start;
-		info[i].smem_size = (uint32_t)(res.end - res.start + 1);
-		pr_info("sipc:[%d] smem_base=0x%x, smem_size=0x%x\n", i, info[i].smem_base, info[i].smem_size);
+			/* get smem base addr */
+			ret = of_address_to_resource(nchd, index, &res);
+			if (ret) {
+				goto error;
+			}
+			info[i].smem_base = (uint32_t)res.start;
+			info[i].smem_size = (uint32_t)(res.end - res.start + 1);
+			pr_info("sipc:[%d] smem_base=0x%x, smem_size=0x%x\n", i, info[i].smem_base, info[i].smem_size);
 
-		/* get ring base addr */
-		ret = of_address_to_resource(nchd, 2, &res);
-		if (ret) {
-			goto error;
+			/* get ring base addr */
+			index++;
+			ret = of_address_to_resource(nchd, index, &res);
+			if (ret) {
+				goto error;
+			}
+			info[i].ring_base = (uint32_t)res.start;
+			info[i].ring_size = (uint32_t)(res.end - res.start + 1);
+			pr_info("sipc:[%d] ring_base=0x%x, ring_size=0x%x\n", i, info[i].ring_base, info[i].ring_size);
+		} else {
+			/* get ring base addr */
+			ret = of_address_to_resource(nchd, 0, &res);
+			if (ret) {
+				goto error;
+			}
+			info[i].ring_base = (uint32_t)res.start;
+			info[i].ring_size = (uint32_t)(res.end - res.start + 1);
+			pr_info("sipc:[%d] pmsys ring_base=0x%x, ring_size=0x%x\n", i, info[i].ring_base, info[i].ring_size);
 		}
-		info[i].ring_base = (uint32_t)res.start;
-		info[i].ring_size = (uint32_t)(res.end - res.start + 1);
-		pr_info("sipc:[%d] ring_base=0x%x, ring_size=0x%x\n", i, info[i].ring_base, info[i].ring_size);
 
 #ifdef CONFIG_SPRD_MAILBOX
 		ret = of_property_read_u32(nchd, "mailbox,core", &info[i].core_id);
@@ -345,7 +330,7 @@ error:
 
 static void sipc_destroy_pdata(struct sipc_init_data **ppdata)
 {
-    struct sipc_init_data *pdata = ppdata;
+    struct sipc_init_data *pdata = *ppdata;
     if (pdata && pdata->is_alloc) {
            kfree(pdata);
        }
@@ -360,15 +345,6 @@ static int sipc_probe(struct platform_device *pdev)
 	struct smsg_ipc *smsg;
 	uint32_t num;
 	int ret, i;
-
-	pr_info("sipc:[0] define status=0x%x, clear=0x%x, trigger=0x%x\n",
-		(uint32_t)sipc_rxirq_status0, (uint32_t)sipc_rxirq_clear0, (uint32_t)sipc_txirq_trigger0);
-
-	pr_info("sipc:[1] define status=0x%x, clear=0x%x, trigger=0x%x\n",
-		(uint32_t)sipc_rxirq_status1, (uint32_t)sipc_rxirq_clear1, (uint32_t)sipc_txirq_trigger1);
-
-	pr_info("sipc:[2] define status=0x%x, clear=0x%x, trigger=0x%x\n",
-		(uint32_t)sipc_rxirq_status2, (uint32_t)sipc_rxirq_clear2, (uint32_t)sipc_txirq_trigger2);
 
 	if (!pdata && pdev->dev.of_node) {
 		ret = sipc_parse_dt(&pdata, &pdev->dev);
@@ -402,13 +378,10 @@ static int sipc_probe(struct platform_device *pdev)
 #else
 		smsg[i].irq = info[i].irq;
 #endif
-		smsg[i].rxirq_status = GET_SIPC_RXIRQ_STATUS_FN(i);
-		smsg[i].rxirq_clear = GET_SIPC_RXIRQ_CLEAR_FN(i);
-		smsg[i].txirq_trigger = GET_SIPC_TXIRQ_TRIGGER_FN(i);
+		smsg[i].rxirq_status = sipc_rxirq_status;
+		smsg[i].rxirq_clear = sipc_rxirq_clear;
+		smsg[i].txirq_trigger = sipc_txirq_trigger;
 
-		pr_info("sipc: [%d] fn status=0x%x, clear=0x%x, trigger=0x%x\n",
-			i, (uint32_t)smsg[i].rxirq_status, (uint32_t)smsg[i].rxirq_clear,
-			(uint32_t)smsg[i].txirq_trigger);
 #ifdef CONFIG_SPRD_MAILBOX
 		pr_info("sipc:[%d] smsg name=%s, dst=%u, core_id=%d\n",
 			i, smsg[i].name, smsg[i].dst, smsg[i].core_id);

@@ -39,11 +39,21 @@ struct sprd_cpu_cooling_platform_data {
 	struct cooling_state cpu_state[MAX_CPU_STATE];
 	struct vddarm_update *vddarm_update;
 	int state_num;
+	void *devdata;
 };
 
-extern int cpufreq_table_thermal_update(int freq, int vdd_arm);
-
+#ifdef CONFIG_CPU_FREQ
 extern int cpufreq_thermal_limit(int cluster, int limit_freq);
+extern int cpufreq_table_thermal_update(int freq, int vdd_arm);
+#else
+int cpufreq_thermal_limit(int cluster, int limit_freq) {return 0;}
+int cpufreq_table_thermal_update(int freq, int vdd_arm) {return 0;}
+#endif //CONFIG_CPU_FREQ
+
+#if defined(CONFIG_SPRD_CPU_DYNAMIC_HOTPLUG) || defined(CONFIG_CPU_FREQ_GOV_SPRDEMAND)
 extern int cpu_core_thermal_limit(int cluster, int limit_core);
+#else
+int cpu_core_thermal_limit(int cluster, int limit_core) {return 0;}
+#endif
 #endif
 

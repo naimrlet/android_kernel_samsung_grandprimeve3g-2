@@ -88,7 +88,10 @@
 #define R_DSI_HOST_INT_MSK1     		(0xC8)
 #define R_DSI_HOST_PHY_STATUS			(0xB0)
 
-
+#define R_DSI_HOST_MIPI_PLL_INT_STS		(0x200)
+#define R_DSI_HOST_MIPI_PLL_INT_EN		(0x200)
+#define R_DSI_HOST_MIPI_PLL_INT_MSK		(0x204)
+#define R_DSI_HOST_MIPI_PLL_INT_CLR		(0x208)
 
 typedef enum _Dsi_Int0_Type_ {
     ack_with_err_0,

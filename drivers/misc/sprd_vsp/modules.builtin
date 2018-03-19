@@ -1,0 +1,2 @@
+kernel/drivers/misc/sprd_vsp/sprd_vsp_sc8830.ko
+kernel/drivers/misc/sprd_vsp/vsp_pw_domain.ko

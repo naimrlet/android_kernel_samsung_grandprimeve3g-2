@@ -28,11 +28,26 @@
 #include <linux/sipc.h>
 #include "sbuf.h"
 
-/* For enable all sbuf packet dump */
-/* #define ENABLE_SBUF_IPC_DUMP */
-#undef ENABLE_SBUF_IPC_DUMP
 
 static struct sbuf_mgr *sbufs[SIPC_ID_NR][SMSG_CH_NR];
+
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+void sbuf_ring_rx_wakeup(uint8_t dst, uint8_t channel, uint32_t bufnum)
+{
+	struct sbuf_mgr *sbuf = sbufs[dst][channel];
+	struct sbuf_ring *ring = NULL;
+	if (!sbuf) {
+		printk(KERN_ERR "%s: invalid sbuf: %d-%d\n",
+				__func__, dst, channel);
+		return;
+	}
+        ring = &(sbuf->rings[bufnum]);
+	wake_up_interruptible_all(&ring->rxwait);
+	printk(KERN_INFO "%s: wake up ring %d-%d-%d\n", 
+					__func__, dst, channel, bufnum);
+}
+EXPORT_SYMBOL(sbuf_ring_rx_wakeup);
+#endif
 
 static int sbuf_thread(void *data)
 {
@@ -87,7 +102,7 @@ static int sbuf_thread(void *data)
 					SMSG_DONE_SBUF_INIT, sbuf->smem_addr);
 			smsg_send(sbuf->dst, &mcmd, -1);
 			sbuf->state = SBUF_STATE_READY;
-			pr_info("sbuf-%d-%d is ready!\n", sbuf->dst, sbuf->channel);
+			pr_info("sbuf-%d-%d is ready\n", sbuf->dst, sbuf->channel);
 			break;
 		case SMSG_TYPE_EVENT:
 			bufid = mrecv.value;
@@ -259,10 +274,6 @@ int sbuf_write(uint8_t dst, uint8_t channel, uint32_t bufid,
 	void *txpos;
 	int rval, left, tail, txsize;
 
-#ifdef ENABLE_SBUF_IPC_DUMP
-	char ipc_dump_prefix[64];
-#endif
-
 	if (!sbuf) {
 		return -ENODEV;
 	}
@@ -353,13 +364,6 @@ int sbuf_write(uint8_t dst, uint8_t channel, uint32_t bufid,
 					break;
 				}
 			}
-
-#ifdef ENABLE_SBUF_IPC_DUMP
-		        sprintf(ipc_dump_prefix, "sbuf-%d-%d-tx-%d(r): ", dst, channel, txsize);
-		        print_hex_dump(KERN_INFO, ipc_dump_prefix, DUMP_PREFIX_NONE, 1, 1, (void *)txpos,
-					(txsize - tail) < 16 ? (size_t)(txsize - tail) : 16, false);
-#endif
-
 		} else {
 			if ((uintptr_t)buf > TASK_SIZE) {
 				unalign_memcpy(txpos, buf, txsize);
@@ -371,13 +375,6 @@ int sbuf_write(uint8_t dst, uint8_t channel, uint32_t bufid,
 					break;
 				}
 			}
-
-#ifdef ENABLE_SBUF_IPC_DUMP
-		        sprintf(ipc_dump_prefix, "sbuf-%d-%d-tx-%d: ", dst, channel, txsize);
-		        print_hex_dump(KERN_INFO, ipc_dump_prefix, DUMP_PREFIX_NONE, 1, 1,(void *)txpos,
-					txsize < 16 ? (size_t)txsize : 16, false);
-#endif
-
 		}
 
 
@@ -415,10 +412,6 @@ int sbuf_read(uint8_t dst, uint8_t channel, uint32_t bufid,
 	struct smsg mevt;
 	void *rxpos;
 	int rval, left, tail, rxsize;
-
-#ifdef ENABLE_SBUF_IPC_DUMP
-	char ipc_dump_prefix[64];
-#endif
 
 	if (!sbuf) {
 		return -ENODEV;
@@ -514,13 +507,6 @@ int sbuf_read(uint8_t dst, uint8_t channel, uint32_t bufid,
 					break;
 				}
 			}
-
-#ifdef ENABLE_SBUF_IPC_DUMP
-		        sprintf(ipc_dump_prefix, "sbuf-%d-%d-rx-%d(r): ", dst, channel, rxsize);
-		        print_hex_dump(KERN_INFO, ipc_dump_prefix, DUMP_PREFIX_NONE, 1, 1, (void *)rxpos,
-					(rxsize - tail) < 16 ? (size_t)(rxsize - tail) : 16, false);
-#endif
-
 		} else {
 			if ((uintptr_t)buf > TASK_SIZE) {
 				unalign_memcpy(buf, rxpos, rxsize);
@@ -532,13 +518,6 @@ int sbuf_read(uint8_t dst, uint8_t channel, uint32_t bufid,
 					break;
 				}
 			}
-
-#ifdef ENABLE_SBUF_IPC_DUMP
-		        sprintf(ipc_dump_prefix, "sbuf-%d-%d-rx-%d: ", dst, channel, rxsize);
-		        print_hex_dump(KERN_INFO, ipc_dump_prefix, DUMP_PREFIX_NONE, 1, 1, (void *)rxpos,
-					rxsize < 16 ? (size_t)rxsize : 16, false);
-#endif
-
 		}
 
 		/* update rx rdptr */

@@ -1,0 +1,8 @@
+kernel/drivers/usb/usb-common.ko
+kernel/drivers/usb/core/usbcore.ko
+kernel/drivers/usb/gadget/udc-core.ko
+kernel/drivers/usb/gadget/libcomposite.ko
+kernel/drivers/usb/gadget/usb_f_acm.ko
+kernel/drivers/usb/gadget/u_serial.ko
+kernel/drivers/usb/notify/usb_notifier_sprd.ko
+kernel/drivers/usb/storage/usb-storage.ko

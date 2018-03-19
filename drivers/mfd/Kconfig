@@ -70,6 +70,35 @@ config MFD_SPRD_SM5701
 	  If you say yes to this option, support will be included for the
 	  SM5701 I/F PMIC chip.
 
+config MFD_USB_TYPEC
+	tristate "Support for USB Type-C Connector"
+	select MDF_CORE
+	default n
+	help
+	  This is the core driver for Type-C module. It is optional for
+	  USB plug detections.
+
+if MFD_USB_TYPEC
+
+choice
+        bool "Type-C Vendor Selection"
+        default MFD_SPRD_TYPEC if (ADIE_SC2731)
+
+config MFD_SPRD_TYPEC
+        bool "SPREADTRUM SC2731 Type-C v1.0"
+	depends on ADIE_SC2731=y
+        help
+          Select this when you want to enable Spreadtrum Type-C v1.0 module.
+
+config MFD_NXP_PTN5150
+        bool "NXP PTN5150 Type-C v1.1"
+        depends on I2C=y
+        help
+          Select this when you want to enable NXP PTN5150 IC.
+endchoice
+
+endif
+
 config MFD_RT8973
 	tristate "Richtek RT8973 MUIC"
 	depends on I2C
@@ -1249,3 +1278,9 @@ config VEXPRESS_SPC
 	depends on VEXPRESS_CONFIG
 	help
 	  Serial Power Controller driver for ARM Ltd. test chips.
+
+config MFD_SMUIC
+	bool "enable adapter to detect TA/USB"
+	default n
+	help
+	 Say Y to enable CONFIG_MFD_SMUIC

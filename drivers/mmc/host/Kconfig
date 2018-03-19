@@ -253,9 +253,14 @@ config MMC_SDHCI_SPRD
 	  If unsure, say N.
 
 config MMC_SDHOST
-	tristate "Spreadtrum new SDIO host Controller support"
+	tristate "Spreadtrum SDIO host Controller support"
 	help
 	  This selects the SDIO 3.0 controller in spreadtrum platform
+
+config MMC_SDHOST_NEW
+	tristate "Spreadtrum new SDIO host Controller support"
+	help
+	  This selects the SDIO 4.0 controller in spreadtrum platform
 
 config MMC_SDHCI_S3C_DMA
 	bool "DMA support on S3C SDHCI"

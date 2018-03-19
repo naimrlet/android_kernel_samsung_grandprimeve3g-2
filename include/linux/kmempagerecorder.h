@@ -3,8 +3,6 @@
 #define OBJECT_TABLE_SIZE      1543
 #define BACKTRACE_SIZE 10
 #define BACKTRACE_LEVEL 10
-/* 2^31 + 2^29 - 2^25 + 2^22 - 2^19 - 2^16 + 1 */
-#define GOLDEN_RATIO_PRIME_32 0x9e370001UL
 
 typedef enum {
 	NODE_PAGE_RECORD,
@@ -34,11 +32,6 @@ typedef struct {
 	PageObjectEntry *slots[OBJECT_TABLE_SIZE];
 } PageObjectTable, *PPageObjectTable;
 
-typedef struct page_BT {
-	unsigned int numEntries;
-	void *backtrace[0];
-} page_BT, *page_PBT;
-
 /* 	for page	*/
 typedef struct PageHashEntry {
 	void *page;
@@ -47,7 +40,6 @@ typedef struct PageHashEntry {
 	struct PageHashEntry *next;
 	PPageObjectEntry allocate_map_entry;
 	PPageObjectEntry bt_entry;
-	page_PBT free_bt;
 	unsigned int flag;
 } PageHashEntry, *PPageHashEntry;
 
@@ -59,7 +51,7 @@ typedef struct {
 
 struct page_mapping {
 	char *name;
-	unsigned int address;
+	unsigned long address;
 	unsigned int size;
 };
 
@@ -68,9 +60,9 @@ typedef struct page_record_param {
 	unsigned int address_type;
 	unsigned int address;
 	unsigned int length;
-	unsigned int backtrace[BACKTRACE_SIZE];
+	unsigned long backtrace[BACKTRACE_SIZE];
 	unsigned int backtrace_num;
-	unsigned int kernel_symbol[BACKTRACE_SIZE];
+	unsigned long kernel_symbol[BACKTRACE_SIZE];
 	struct page_mapping mapping_record[BACKTRACE_SIZE];
 	unsigned int size;
 } page_record_t;

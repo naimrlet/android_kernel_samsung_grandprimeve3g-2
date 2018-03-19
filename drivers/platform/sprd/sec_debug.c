@@ -129,13 +129,15 @@ struct rwsem_debug {
 
 #endif	/* CONFIG_SEC_DEBUG_SEMAPHORE_LOG */
 #define RESET_REASON_NORMAL		0x1A2B3C00
-#define RESET_REASON_SMPL			0x1A2B3C01
-#define RESET_REASON_WSTR			0x1A2B3C02
-#define RESET_REASON_WATCHDOG	0x1A2B3C03
-#define RESET_REASON_PANIC			0x1A2B3C04
-#define RESET_REASON_LPM			0x1A2B3C10
+#define RESET_REASON_SMPL		0x1A2B3C01
+#define RESET_REASON_WSTR		0x1A2B3C02
+#define RESET_REASON_WATCHDOG		0x1A2B3C03
+#define RESET_REASON_PANIC		0x1A2B3C04
+#define RESET_REASON_LPM		0x1A2B3C10
 #define RESET_REASON_RECOVERY		0x1A2B3C11
-#define RESET_REASON_FOTA			0x1A2B3C12
+#define RESET_REASON_FOTA		0x1A2B3C12
+#define RESET_REASON_7SEC_UNKNOWNRESET	0x1A2B3C15
+#define RESET_REASON_USERREBOOT		0x1A2B3C16
 
 enum sec_debug_upload_cause_t {
 	UPLOAD_CAUSE_INIT = 0xCAFEBABE,
@@ -144,89 +146,6 @@ enum sec_debug_upload_cause_t {
 	UPLOAD_CAUSE_CP_ERROR_FATAL = 0x000000CC,
 	UPLOAD_CAUSE_USER_FAULT = 0x0000002F,
 	UPLOAD_CAUSE_HSIC_DISCONNECTED = 0x000000DD,
-};
-
-struct sec_debug_mmu_reg_t {
-	int SCTLR;
-	int TTBR0;
-	int TTBR1;
-	int TTBCR;
-	int DACR;
-	int DFSR;
-	int DFAR;
-	int IFSR;
-	int IFAR;
-	int DAFSR;
-	int IAFSR;
-	int PMRRR;
-	int NMRRR;
-	int FCSEPID;
-	int CONTEXT;
-	int URWTPID;
-	int UROTPID;
-	int POTPIDR;
-};
-
-/* ARM CORE regs mapping structure */
-struct sec_debug_core_t {
-	/* COMMON */
-	unsigned int r0;
-	unsigned int r1;
-	unsigned int r2;
-	unsigned int r3;
-	unsigned int r4;
-	unsigned int r5;
-	unsigned int r6;
-	unsigned int r7;
-	unsigned int r8;
-	unsigned int r9;
-	unsigned int r10;
-	unsigned int r11;
-	unsigned int r12;
-
-	/* SVC */
-	unsigned int r13_svc;
-	unsigned int r14_svc;
-	unsigned int spsr_svc;
-
-	/* PC & CPSR */
-	unsigned int pc;
-	unsigned int cpsr;
-
-	/* USR/SYS */
-	unsigned int r13_usr;
-	unsigned int r14_usr;
-
-	/* FIQ */
-	unsigned int r8_fiq;
-	unsigned int r9_fiq;
-	unsigned int r10_fiq;
-	unsigned int r11_fiq;
-	unsigned int r12_fiq;
-	unsigned int r13_fiq;
-	unsigned int r14_fiq;
-	unsigned int spsr_fiq;
-
-	/* IRQ */
-	unsigned int r13_irq;
-	unsigned int r14_irq;
-	unsigned int spsr_irq;
-
-	/* MON */
-	unsigned int r13_mon;
-	unsigned int r14_mon;
-	unsigned int spsr_mon;
-
-	/* ABT */
-	unsigned int r13_abt;
-	unsigned int r14_abt;
-	unsigned int spsr_abt;
-
-	/* UNDEF */
-	unsigned int r13_und;
-	unsigned int r14_und;
-	unsigned int spsr_und;
-
 };
 
 struct sec_debug_fault_status_t {
@@ -284,7 +203,7 @@ EXPORT_SYMBOL(sec_debug_local_hwlocks_status);
 /* klaatu - schedule log */
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG
 #ifdef CONFIG_SEC_DEBUG_SCHED_LOG_NONCACHED
-static struct sched_log sec_debug_log;
+//static struct sched_log sec_debug_log;
 #else
 static struct sched_log sec_debug_log __cacheline_aligned;
 #endif
@@ -320,7 +239,13 @@ static atomic_t timer_log_idx[NR_CPUS] = { ATOMIC_INIT(-1), ATOMIC_INIT(-1),
 #else
 #error "Please check NR_CPUS"
 #endif
-static struct sched_log (*psec_debug_log) = (&sec_debug_log);
+#ifdef CONFIG_SEC_DEBUG_SCHED_LOG_NONCACHED
+struct sched_log *psec_debug_log;
+static int bStopLogging = 1;
+#else
+struct sched_log *psec_debug_log = &sec_debug_log;
+static int bStopLogging = 0;
+#endif
 /*
 static struct sched_log (*psec_debug_log)[NR_CPUS][SCHED_LOG_MAX]
 	= (&sec_debug_log);
@@ -337,14 +262,13 @@ static atomic_t gExcpAuxLogBufLockLogIdx = ATOMIC_INIT(-1);
 static atomic_t gExcpAuxDVFSLockLogIdx = ATOMIC_INIT(-1);
 #endif
 
-static int bStopLogging;
-
 static int checksum_sched_log(void)
 {
 	int sum = 0, i;
+#ifndef CONFIG_SEC_DEBUG_SCHED_LOG_NONCACHED
 	for (i = 0; i < sizeof(sec_debug_log); i++)
 		sum += *((char *)&sec_debug_log + i);
-
+#endif
 	return sum;
 }
 
@@ -358,6 +282,7 @@ static void map_noncached_sched_log_buf(void)
 
 	base = ioremap_nocache(phy_sec_debug_log_struct ,phy_sec_debug_log_struct_size );
 	psec_debug_log = base;
+	bStopLogging = 0;	//start to log
 }
 #endif
 
@@ -408,254 +333,12 @@ spinlock_t rwsem_debug_lock;
 
 DEFINE_PER_CPU(struct sec_debug_core_t, sec_debug_core_reg);
 DEFINE_PER_CPU(struct sec_debug_mmu_reg_t, sec_debug_mmu_reg);
+EXPORT_PER_CPU_SYMBOL(sec_debug_core_reg);
+EXPORT_PER_CPU_SYMBOL(sec_debug_mmu_reg);
+
 DEFINE_PER_CPU(enum sec_debug_upload_cause_t, sec_debug_upload_cause);
 DEFINE_PER_CPU(struct sec_debug_fault_status_t, sec_debug_fault_status);
-#define CALL_STACK_WORKAROUND 
-#ifdef CALL_STACK_WORKAROUND
-void sec_debug_backup_ctx(struct pt_regs *regs)
-{
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r0 = regs->uregs[0];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r1 = regs->uregs[1];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r2 = regs->uregs[2];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r3 = regs->uregs[3];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r4 = regs->uregs[4];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r5 = regs->uregs[5];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r6 = regs->uregs[6];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r7 = regs->uregs[7];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r8 = regs->uregs[8];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r9 = regs->uregs[9];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r10 = regs->uregs[10];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r11 = regs->uregs[11];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r12 = regs->uregs[12];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r13_svc = regs->uregs[13];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).r14_svc = regs->uregs[14];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).pc = regs->uregs[15];
-	per_cpu(sec_debug_core_reg,smp_processor_id()).spsr_svc = regs->uregs[16];
-}
-#else
-void sec_debug_backup_ctx(struct pt_regs *regs) {}
-#endif
-
 static unsigned int forced_upload_flag = 0;
-unsigned int sec_debug_callstack_workaround = 0;
-void sec_debug_save_core_reg(struct sec_debug_core_t *core_reg)
-{
-	/* we will be in SVC mode when we enter this function. Collect
-	   SVC registers along with cmn registers. */
-	if(sec_debug_callstack_workaround == 0x12345678){
-	asm("mrs r1, cpsr\n\t"		/* CPSR */
-	    "str r1, [r0,#68]\n\t"
-	    /* SYS/USR */
-	    "mrs r1, cpsr\n\t"		/* switch to SYS mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x1f\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#72]\n\t"	/* R13_USR */
-	    "str r14, [r0,#76]\n\t"	/* R14_USR */
-	    /* FIQ */
-	    "mrs r1, cpsr\n\t"		/* switch to FIQ mode */
-	    "and r1,r1,#0xFFFFFFE0\n\t"
-	    "orr r1,r1,#0x11\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r8, [r0,#80]\n\t"	/* R8_FIQ */
-	    "str r9, [r0,#84]\n\t"	/* R9_FIQ */
-	    "str r10, [r0,#88]\n\t"	/* R10_FIQ */
-	    "str r11, [r0,#92]\n\t"	/* R11_FIQ */
-	    "str r12, [r0,#96]\n\t"	/* R12_FIQ */
-	    "str r13, [r0,#100]\n\t"	/* R13_FIQ */
-	    "str r14, [r0,#104]\n\t"	/* R14_FIQ */
-	    "mrs r1, spsr\n\t"		/* SPSR_FIQ */
-	    "str r1, [r0,#108]\n\t"
-	    /* IRQ */
-	    "mrs r1, cpsr\n\t"		/* switch to IRQ mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x12\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#112]\n\t"	/* R13_IRQ */
-	    "str r14, [r0,#116]\n\t"	/* R14_IRQ */
-	    "mrs r1, spsr\n\t"		/* SPSR_IRQ */
-	    "str r1, [r0,#120]\n\t"
-	    /* MON */
-	    "mrs r1, cpsr\n\t"		/* switch to monitor mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x16\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#124]\n\t"	/* R13_MON */
-	    "str r14, [r0,#128]\n\t"	/* R14_MON */
-	    "mrs r1, spsr\n\t"		/* SPSR_MON */
-	    "str r1, [r0,#132]\n\t"
-	    /* ABT */
-	    "mrs r1, cpsr\n\t"		/* switch to Abort mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x17\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#136]\n\t"	/* R13_ABT */
-	    "str r14, [r0,#140]\n\t"	/* R14_ABT */
-	    "mrs r1, spsr\n\t"		/* SPSR_ABT */
-	    "str r1, [r0,#144]\n\t"
-	    /* UND */
-	    "mrs r1, cpsr\n\t"		/* switch to undef mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x1B\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#148]\n\t"	/* R13_UND */
-	    "str r14, [r0,#152]\n\t"	/* R14_UND */
-	    "mrs r1, spsr\n\t"		/* SPSR_UND */
-	    "str r1, [r0,#156]\n\t"
-	    /* restore to SVC mode */
-	    "mrs r1, cpsr\n\t"		/* switch to SVC mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x13\n\t"
-	    "msr cpsr,r1\n\t" :		/* output */
-	    : "r"(core_reg)		/* input */
-	    : "%r0", "%r1"		/* clobbered registers */
-	);
-	} else {
-		asm("str r0, [%0,#0]\n\t"	/* R0 is pushed first to core_reg */
-	    "mov r0, %0\n\t"		/* R0 will be alias for core_reg */
-	    "str r1, [r0,#4]\n\t"	/* R1 */
-	    "str r2, [r0,#8]\n\t"	/* R2 */
-	    "str r3, [r0,#12]\n\t"	/* R3 */
-	    "str r4, [r0,#16]\n\t"	/* R4 */
-	    "str r5, [r0,#20]\n\t"	/* R5 */
-	    "str r6, [r0,#24]\n\t"	/* R6 */
-	    "str r7, [r0,#28]\n\t"	/* R7 */
-	    "str r8, [r0,#32]\n\t"	/* R8 */
-	    "str r9, [r0,#36]\n\t"	/* R9 */
-	    "str r10, [r0,#40]\n\t"	/* R10 */
-	    "str r11, [r0,#44]\n\t"	/* R11 */
-	    "str r12, [r0,#48]\n\t"	/* R12 */
-	    /* SVC */
-	    "str r13, [r0,#52]\n\t"	/* R13_SVC */
-	    "str r14, [r0,#56]\n\t"	/* R14_SVC */
-	    "mrs r1, spsr\n\t"		/* SPSR_SVC */
-	    "str r1, [r0,#60]\n\t"
-	    /* PC and CPSR */
-	    "sub r1, r15, #0x4\n\t"	/* PC */
-	    "str r1, [r0,#64]\n\t"
-	    "mrs r1, cpsr\n\t"		/* CPSR */
-	    "str r1, [r0,#68]\n\t"
-	    /* SYS/USR */
-	    "mrs r1, cpsr\n\t"		/* switch to SYS mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x1f\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#72]\n\t"	/* R13_USR */
-	    "str r14, [r0,#76]\n\t"	/* R14_USR */
-	    /* FIQ */
-	    "mrs r1, cpsr\n\t"		/* switch to FIQ mode */
-	    "and r1,r1,#0xFFFFFFE0\n\t"
-	    "orr r1,r1,#0x11\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r8, [r0,#80]\n\t"	/* R8_FIQ */
-	    "str r9, [r0,#84]\n\t"	/* R9_FIQ */
-	    "str r10, [r0,#88]\n\t"	/* R10_FIQ */
-	    "str r11, [r0,#92]\n\t"	/* R11_FIQ */
-	    "str r12, [r0,#96]\n\t"	/* R12_FIQ */
-	    "str r13, [r0,#100]\n\t"	/* R13_FIQ */
-	    "str r14, [r0,#104]\n\t"	/* R14_FIQ */
-	    "mrs r1, spsr\n\t"		/* SPSR_FIQ */
-	    "str r1, [r0,#108]\n\t"
-	    /* IRQ */
-	    "mrs r1, cpsr\n\t"		/* switch to IRQ mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x12\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#112]\n\t"	/* R13_IRQ */
-	    "str r14, [r0,#116]\n\t"	/* R14_IRQ */
-	    "mrs r1, spsr\n\t"		/* SPSR_IRQ */
-	    "str r1, [r0,#120]\n\t"
-	    /* MON */
-	    "mrs r1, cpsr\n\t"		/* switch to monitor mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x16\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#124]\n\t"	/* R13_MON */
-	    "str r14, [r0,#128]\n\t"	/* R14_MON */
-	    "mrs r1, spsr\n\t"		/* SPSR_MON */
-	    "str r1, [r0,#132]\n\t"
-	    /* ABT */
-	    "mrs r1, cpsr\n\t"		/* switch to Abort mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x17\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#136]\n\t"	/* R13_ABT */
-	    "str r14, [r0,#140]\n\t"	/* R14_ABT */
-	    "mrs r1, spsr\n\t"		/* SPSR_ABT */
-	    "str r1, [r0,#144]\n\t"
-	    /* UND */
-	    "mrs r1, cpsr\n\t"		/* switch to undef mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x1B\n\t"
-	    "msr cpsr,r1\n\t"
-	    "str r13, [r0,#148]\n\t"	/* R13_UND */
-	    "str r14, [r0,#152]\n\t"	/* R14_UND */
-	    "mrs r1, spsr\n\t"		/* SPSR_UND */
-	    "str r1, [r0,#156]\n\t"
-	    /* restore to SVC mode */
-	    "mrs r1, cpsr\n\t"		/* switch to SVC mode */
-	    "and r1, r1, #0xFFFFFFE0\n\t"
-	    "orr r1, r1, #0x13\n\t"
-	    "msr cpsr,r1\n\t" :		/* output */
-	    : "r"(core_reg)		/* input */
-	    : "%r0", "%r1"		/* clobbered registers */
-	);
-	}
-
-	return;
-}
-
-void sec_debug_save_mmu_reg(struct sec_debug_mmu_reg_t *mmu_reg)
-{
-	asm("mrc    p15, 0, r1, c1, c0, 0\n\t"	/* SCTLR */
-	    "str r1, [%0]\n\t"
-	    "mrc    p15, 0, r1, c2, c0, 0\n\t"	/* TTBR0 */
-	    "str r1, [%0,#4]\n\t"
-	    "mrc    p15, 0, r1, c2, c0,1\n\t"	/* TTBR1 */
-	    "str r1, [%0,#8]\n\t"
-	    "mrc    p15, 0, r1, c2, c0,2\n\t"	/* TTBCR */
-	    "str r1, [%0,#12]\n\t"
-	    "mrc    p15, 0, r1, c3, c0,0\n\t"	/* DACR */
-	    "str r1, [%0,#16]\n\t"
-	    "mrc    p15, 0, r1, c5, c0,0\n\t"	/* DFSR */
-	    "str r1, [%0,#20]\n\t"
-	    "mrc    p15, 0, r1, c6, c0,0\n\t"	/* DFAR */
-	    "str r1, [%0,#24]\n\t"
-	    "mrc    p15, 0, r1, c5, c0,1\n\t"	/* IFSR */
-	    "str r1, [%0,#28]\n\t"
-	    "mrc    p15, 0, r1, c6, c0,2\n\t"	/* IFAR */
-	    "str r1, [%0,#32]\n\t"
-	    /* Don't populate DAFSR and RAFSR */
-	    "mrc    p15, 0, r1, c10, c2,0\n\t"	/* PMRRR */
-	    "str r1, [%0,#44]\n\t"
-	    "mrc    p15, 0, r1, c10, c2,1\n\t"	/* NMRRR */
-	    "str r1, [%0,#48]\n\t"
-	    "mrc    p15, 0, r1, c13, c0,0\n\t"	/* FCSEPID */
-	    "str r1, [%0,#52]\n\t"
-	    "mrc    p15, 0, r1, c13, c0,1\n\t"	/* CONTEXT */
-	    "str r1, [%0,#56]\n\t"
-	    "mrc    p15, 0, r1, c13, c0,2\n\t"	/* URWTPID */
-	    "str r1, [%0,#60]\n\t"
-	    "mrc    p15, 0, r1, c13, c0,3\n\t"	/* UROTPID */
-	    "str r1, [%0,#64]\n\t"
-	    "mrc    p15, 0, r1, c13, c0,4\n\t"	/* POTPIDR */
-	    "str r1, [%0,#68]\n\t" :		/* output */
-	    : "r"(mmu_reg)			/* input */
-	    : "%r1", "memory"			/* clobbered register */
-	);
-}
-
-void sec_debug_save_context(void)
-{
-	unsigned long flags;
-	local_irq_save(flags);
-	sec_debug_save_mmu_reg(&per_cpu(sec_debug_mmu_reg, smp_processor_id()));
-	sec_debug_save_core_reg(&per_cpu
-				(sec_debug_core_reg, smp_processor_id()));
-
-	pr_emerg("(%s) context saved(CPU:%d)\n", __func__, smp_processor_id());
-	local_irq_restore(flags);
-}
 
 void sec_debug_save_pte(void *pte, int task_addr)
 {
@@ -914,27 +597,7 @@ static void dump_cpu_stat(void)
 	pr_info(" -----------------------------------------------------------------------------------\n");
 }
 
-
-/*
- * Called from dump_stack()
- * This function call does not necessarily mean that a fatal error
- * had occurred. It may be just a warning.
- */
-int sec_debug_dump_stack(void)
-{
-	if (!sec_debug_level.en.kernel_fault)
-		return -1;
-
-	sec_debug_save_context();
-
-	/* flush L1 from each core.
-	   L2 will be flushed later before reset. */
-	flush_cache_all();
-
-	return 0;
-}
-
-void sec_debug_hw_reset(void)
+static inline void sec_debug_hw_reset(void)
 {
 	pr_emerg("(%s) rebooting...\n", __func__);
 
@@ -970,12 +633,7 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 	else if (!strcmp(buf, "HSIC Disconnected"))
 		sec_debug_set_upload_cause(UPLOAD_CAUSE_HSIC_DISCONNECTED);
 	else {
-#ifdef CALL_STACK_WORKAROUND
-		if (forced_upload_flag == 0x98765432)
-			sec_debug_set_upload_cause(UPLOAD_CAUSE_FORCED_UPLOAD);
-		else
-#endif
-			sec_debug_set_upload_cause(UPLOAD_CAUSE_KERNEL_PANIC);
+		sec_debug_set_upload_cause(UPLOAD_CAUSE_KERNEL_PANIC);
 	}
 
 	pr_err("(%s) checksum_sched_log: %x\n", __func__, checksum_sched_log());
@@ -1032,12 +690,7 @@ void sec_debug_check_crash_key(unsigned int code, int value)
 #ifdef CONFIG_SEC_DEBUG_FUPLOAD_DUMP_MORE
 					dump_state_and_upload();
 #else
-#ifdef CALL_STACK_WORKAROUND
-					forced_upload_flag = 0x98765432;
-					BUG();
-#else
 					panic("Crash Key");
-#endif
 #endif
 				}
 			}
@@ -1457,35 +1110,41 @@ device_initcall(sec_debug_user_fault_init);
 /* Reset Reason given from Bootloader */
 static int set_reset_reason_proc_show(struct seq_file *m, void *v)
 {
-	/*
-		RESET_REASON_NORMAL
-		RESET_REASON_SMPL
-		RESET_REASON_WSTR
-		RESET_REASON_WATCHDOG
-		RESET_REASON_PANIC
-		RESET_REASON_LPM
-		RESET_REASON_RECOVERY
-		RESET_REASON_FOTA
-	*/
+	//SP = 1,     /* SMPL : Suddent Momentary Power Loss */
+	//WP = 2,     /* WTSR : Watchdog Timeout and Software Reset */
+	//DP = 3,     /* Watchdog Reset */
+	//KP = 4,     /* Kernel Panic */
+	//MP = 5,     /* Manual Reset (7 Seconds Power Key) */
+	//PP = 6,     /* Power Reset */
+	//RP = 7,     /* User Reboot */
+	//BP = 8,     /* Bootloader Reboot */
+	//NP = 9,     /* Normal Power On */
+	//TP =10,     /* reset by temperature problem */
+
 	switch (reset_reason) {
-	case RESET_REASON_NORMAL:
-		seq_printf(m, "PON_NORMAL\n");
+	case RESET_REASON_USERREBOOT:
+		seq_printf(m, "RPON\n");
 		break;
 	case RESET_REASON_SMPL:
-		seq_printf(m, "PON_SMPL\n");
+		seq_printf(m, "SPON\n");
+		break;
+	case RESET_REASON_WATCHDOG:
+		seq_printf(m, "DPON\n");
 		break;
 	case RESET_REASON_WSTR:
-	case RESET_REASON_WATCHDOG:
 	case RESET_REASON_PANIC:
-		seq_printf(m, "PON_PANIC\n");
+		seq_printf(m, "KPON\n");
+		break;
+	case RESET_REASON_7SEC_UNKNOWNRESET:
+		seq_printf(m, "MPON\n");
 		break;
 	case RESET_REASON_LPM:
 	case RESET_REASON_RECOVERY:
 	case RESET_REASON_FOTA:
-		seq_printf(m, "PON_NORMAL\n");
+		seq_printf(m, "NPON\n");
 		break;
 	default:
-		seq_printf(m, "PON_NORMAL\n");
+		seq_printf(m, "NPON\n");
 	}
 
 	return 0;

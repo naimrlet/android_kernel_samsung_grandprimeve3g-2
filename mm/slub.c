@@ -3361,7 +3361,12 @@ void kfree(const void *x)
 	if (unlikely(!PageSlab(page))) {
 		BUG_ON(!PageCompound(page));
 		kmemleak_free(x);
+#ifndef CONFIG_SPRD_PAGERECORDER
 		__free_memcg_kmem_pages(page, compound_order(page));
+#else
+		__free_memcg_kmem_pages_nopagedebug(page,
+			compound_order(page));
+#endif
 		return;
 	}
 	slab_free(page->slab_cache, page, object, _RET_IP_);

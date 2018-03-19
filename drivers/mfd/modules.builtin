@@ -1,0 +1,4 @@
+kernel/drivers/mfd/mfd-core.ko
+kernel/drivers/mfd/sm5504.ko
+kernel/drivers/mfd/sm5701_core.ko
+kernel/drivers/mfd/sm5701_irq.ko

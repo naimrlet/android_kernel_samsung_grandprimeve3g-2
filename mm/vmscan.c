@@ -110,6 +110,9 @@ struct scan_control {
 #ifdef CONFIG_RUNTIME_COMPCACHE
 	struct rtcc_control *rc;
 #endif /* CONFIG_RUNTIME_COMPCACHE */
+#ifdef CONFIG_POMEMR_RECLAIM
+	int fast_alloc;
+#endif /* CONFIG_POMEMR_RECLAIM */
 };
 
 #define lru_to_page(_head) (list_entry((_head)->prev, struct page, lru))
@@ -1052,6 +1055,9 @@ unsigned long reclaim_clean_pages_from_list(struct zone *zone,
 		.gfp_mask = GFP_KERNEL,
 		.priority = DEF_PRIORITY,
 		.may_unmap = 1,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */
 	};
 	unsigned long ret, dummy1, dummy2;
 	struct page *page, *next;
@@ -1101,6 +1107,12 @@ int __isolate_lru_page(struct page *page, isolate_mode_t mode)
 	if ((mode & ISOLATE_NO_CMA) && is_cma_pageblock(page))
 		return ret;
 #endif
+
+#ifdef CONFIG_POMEMR_RECLAIM_FILE
+	if(PageReferenced(page) && (mode & ISOLATE_REFERENCED))
+		return ret;
+#endif  /* CONFIG_POMEMR_RECLAIM_FILE */
+
 	/*
 	 * To minimise LRU disruption, the caller can indicate that it only
 	 * wants to isolate pages it will be able to operate on without
@@ -1395,6 +1407,12 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	if (allocflags_to_migratetype(sc->gfp_mask) != MIGRATE_MOVABLE)
 		isolate_mode |= ISOLATE_NO_CMA;
 #endif
+
+#ifdef CONFIG_POMEMR_RECLAIM_FILE
+	if(sc->fast_alloc == LRU_ACTIVE_FILE)
+		isolate_mode |= ISOLATE_REFERENCED;
+#endif
+
 
 	spin_lock_irq(&zone->lru_lock);
 
@@ -1835,8 +1853,9 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	 * There is enough inactive page cache, do not reclaim
 	 * anything from the anonymous working set right now.
 	 */
-	if (!IS_ENABLED(CONFIG_BALANCE_ANON_FILE_RECLAIM) &&
-		!IS_ENABLED(CONFIG_ZRAM) && !inactive_file_is_low(lruvec)) {
+	if (!IS_ENABLED(CONFIG_ZRAM) &&
+		!IS_ENABLED(CONFIG_BALANCE_ANON_FILE_RECLAIM) &&
+			!inactive_file_is_low(lruvec)) {
 		scan_balance = SCAN_FILE;
 		goto out;
 	}
@@ -1958,6 +1977,12 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 #endif /* CONFIG_RUNTIME_COMPCACHE */
 
 	get_scan_count(lruvec, sc, nr);
+
+#ifdef CONFIG_POMEMR_RECLAIM
+	if(sc->fast_alloc == LRU_ACTIVE_ANON)
+		nr[LRU_INACTIVE_FILE] = nr[LRU_ACTIVE_FILE] = 0;
+#endif /* CONFIG_POMEMR_RECLAIM */
+
 
 	blk_start_plug(&plug);
 	while (nr[LRU_INACTIVE_ANON] || nr[LRU_ACTIVE_FILE] ||
@@ -2529,6 +2554,44 @@ out:
 	return false;
 }
 
+#ifdef CONFIG_POMEMR_RECLAIM 
+
+unsigned long try_to_free_pages_alloc_fast(unsigned long nr_to_reclaim, int reclaim_order, enum lru_list lru)
+{
+	struct reclaim_state reclaim_state;
+
+	struct scan_control sc = {
+		.gfp_mask = GFP_HIGHUSER_MOVABLE,
+		.may_writepage = 1,
+		.may_swap = 1,
+		.may_unmap = 1,
+		.fast_alloc = lru,
+		.nr_to_reclaim = nr_to_reclaim,
+		.target_mem_cgroup = NULL,
+		.order = reclaim_order,
+		.priority = DEF_PRIORITY/2,
+	};
+	struct shrink_control shrink = {
+		.gfp_mask = sc.gfp_mask,
+	};
+	struct zonelist *zonelist = node_zonelist(numa_node_id(), sc.gfp_mask);
+	struct task_struct *p = current;
+	unsigned long nr_reclaimed;
+
+	p->flags |= PF_MEMALLOC;
+	lockdep_set_current_reclaim_state(sc.gfp_mask);
+	reclaim_state.reclaimed_slab = 0;
+	p->reclaim_state = &reclaim_state;
+
+	nr_reclaimed = do_try_to_free_pages(zonelist, &sc, &shrink);
+
+	p->reclaim_state = NULL;
+	lockdep_clear_current_reclaim_state();
+	p->flags &= ~PF_MEMALLOC;
+	return nr_reclaimed;
+}
+#endif /* CONFIG_POMEMR_RECLAIM */
+
 unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 				gfp_t gfp_mask, nodemask_t *nodemask)
 {
@@ -2552,6 +2615,9 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 		.priority = DEF_PRIORITY,
 		.target_mem_cgroup = NULL,
 		.nodemask = nodemask,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */
 	};
 	struct shrink_control shrink = {
 		.gfp_mask = sc.gfp_mask,
@@ -2593,6 +2659,9 @@ unsigned long mem_cgroup_shrink_node_zone(struct mem_cgroup *memcg,
 		.swappiness = vm_swappiness,
 		.priority = 0,
 		.target_mem_cgroup = memcg,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 	};
 	struct lruvec *lruvec = mem_cgroup_zone_lruvec(zone, memcg);
 
@@ -2635,6 +2704,9 @@ unsigned long try_to_free_mem_cgroup_pages(struct mem_cgroup *memcg,
 		.priority = DEF_PRIORITY,
 		.target_mem_cgroup = memcg,
 		.nodemask = NULL, /* we don't care the placement */
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 		.gfp_mask = (gfp_mask & GFP_RECLAIM_MASK) |
 				(GFP_HIGHUSER_MOVABLE & ~GFP_RECLAIM_MASK),
 	};
@@ -2837,6 +2909,9 @@ static unsigned long balance_pgdat(pg_data_t *pgdat, int order,
 		.order = order,
 		.swappiness = vm_swappiness,
 		.target_mem_cgroup = NULL,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 	};
 	struct shrink_control shrink = {
 		.gfp_mask = sc.gfp_mask,
@@ -3432,6 +3507,9 @@ unsigned long rtcc_reclaim_pages(unsigned long nr_to_reclaim, int swappiness, un
 		.nr_to_reclaim = nr_to_reclaim,
 		.order = 0,
 		.priority = DEF_PRIORITY/2,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 	};
 	struct shrink_control shrink = {
 		.gfp_mask = sc.gfp_mask,
@@ -3488,6 +3566,9 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 		.order = 0,
 		.swappiness = vm_swappiness,
 		.priority = DEF_PRIORITY,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 	};
 	struct shrink_control shrink = {
 		.gfp_mask = sc.gfp_mask,
@@ -3680,6 +3761,9 @@ static int __zone_reclaim(struct zone *zone, gfp_t gfp_mask, unsigned int order)
 		.nr_to_reclaim = max(nr_pages, SWAP_CLUSTER_MAX),
 		.gfp_mask = (gfp_mask = memalloc_noio_flags(gfp_mask)),
 		.order = order,
+#ifdef CONFIG_POMEMR_RECLAIM
+		.fast_alloc = 0,
+#endif /* CONFIG_POMEMR_RECLAIM */        
 		.swappiness = vm_swappiness,
 		.priority = ZONE_RECLAIM_PRIORITY,
 	};

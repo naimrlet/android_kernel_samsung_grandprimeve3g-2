@@ -41,6 +41,7 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 #include <linux/platform_device.h>
+#include <linux/compat.h>
 
 /******************************************************************************
 * configuration
@@ -299,7 +300,7 @@ static DECLARE_DELAYED_WORK(dynk_thd_polling_work, epl_sensor_dynk_thd_polling_w
 #endif
 
 
-
+static u16 ps_thhigh_dt,ps_thlow_dt;
 
 /*
 //====================I2C write operation===============//
@@ -721,6 +722,7 @@ int epl_sensor_read_ps(struct i2c_client *client)
 
 int epl_sensor_read_ps_status(struct i2c_client *client)
 {
+	int i = 0, ret;
 	u8 buf;
 #if PS_GES
     struct epl_sensor_priv *obj = epl_sensor_obj;
@@ -733,8 +735,15 @@ int epl_sensor_read_ps_status(struct i2c_client *client)
 		LOG_ERR("CLIENT CANN'T EQUL NULL\n");
 		return -1;
 	}
-
-	epl_sensor_I2C_Read(client, 0x1b, 1);
+	ret = epl_sensor_I2C_Read(client, 0x1b, 1);
+	i = 0;
+	while (ret < 0 && i < 5) {
+		wake_lock_timeout(&ps_lock, msecs_to_jiffies(1000)); /*try*/
+		msleep(100);
+		i++;
+		ret = epl_sensor_I2C_Read(client, 0x1b, 1);
+		LOG_INFO("Repeat=%d,ret=%d\n", i, ret);
+	}
 
 	buf = gRawData.raw_bytes[0];
 
@@ -1258,8 +1267,8 @@ static void initial_global_variable(struct i2c_client *client, struct epl_sensor
 	epl_sensor.ps.ir_drive = EPL_IR_DRIVE_100;
 	epl_sensor.ps.compare_reset = EPL_CMP_RESET;
 	epl_sensor.ps.lock = EPL_UN_LOCK;
-	epl_sensor.ps.high_threshold = PS_HIGH_THRESHOLD;
-	epl_sensor.ps.low_threshold = PS_LOW_THRESHOLD;
+	epl_sensor.ps.high_threshold = ps_thhigh_dt;
+	epl_sensor.ps.low_threshold = ps_thlow_dt;
 	//ps factory
 	epl_sensor.ps.factory.calibration_enable = false;
 	epl_sensor.ps.factory.calibrated = false;
@@ -1985,6 +1994,8 @@ static void epl_sensor_polling_work(struct work_struct *work)
 static irqreturn_t epl_sensor_eint_func(int irqNo, void *handle)
 {
     struct epl_sensor_priv *epld = (struct epl_sensor_priv*)handle;
+
+	wake_lock_timeout(&ps_lock, msecs_to_jiffies(1000)); /*try*/
     disable_irq_nosync(epld->irq);
     //queue_work(epld->epl_wq, &epl_sensor_irq_work);
     schedule_delayed_work(&epld->eint_work, 0);
@@ -3766,7 +3777,7 @@ static int epl259x_read_chip_info(struct i2c_client *client, char *buf)
         return 0;
 }
 
-static long epl_sensor_ps_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+static long epl_sensor_ps_ioctl_handler(struct file *file, unsigned int cmd, unsigned long arg,int compat_mode)
 {
     int value;
     int flag,err =0;
@@ -3781,7 +3792,7 @@ static long epl_sensor_ps_ioctl(struct file *file, unsigned int cmd, unsigned lo
 #endif
     void __user *argp = (void __user *)arg;
 
-    LOG_INFO("ps io ctrl cmd %d\n", _IOC_NR(cmd));
+    LOG_INFO("ps io ctrl cmd %d,compat_mode=%d\n", _IOC_NR(cmd),compat_mode);
 
     //ioctl message handle must define by android sensor library (case by case)
     switch(cmd)
@@ -3993,12 +4004,31 @@ static long epl_sensor_ps_ioctl(struct file *file, unsigned int cmd, unsigned lo
 /*----------------------------------------------------------------------------*/
 
 /*----------------------------------------------------------------------------*/
+
+
+
+static long epl_sensor_ps_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	return epl_sensor_ps_ioctl_handler(file, cmd, (void __user *)arg, 0);
+}
+
+#ifdef CONFIG_COMPAT
+static long epl_sensor_ps_ioctl_compat(struct file *file,
+				unsigned int cmd, unsigned long arg)
+{
+	return epl_sensor_ps_ioctl_handler(file, cmd, compat_ptr(arg), 1);
+}
+#endif
+
 static struct file_operations epl_sensor_ps_fops =
 {
     .owner = THIS_MODULE,
     .open = epl_sensor_ps_open,
     .release = epl_sensor_ps_release,
-    .unlocked_ioctl = epl_sensor_ps_ioctl
+    .unlocked_ioctl = epl_sensor_ps_ioctl,
+#ifdef CONFIG_COMPAT
+    .compat_ioctl = epl_sensor_ps_ioctl_compat,
+#endif
 };
 /*----------------------------------------------------------------------------*/
 
@@ -4261,6 +4291,10 @@ static int epl_sensor_suspend(struct i2c_client *client, pm_message_t mesg)
     struct epl_sensor_priv *epld = epl_sensor_obj;
     LOG_FUN();
 
+    if (NULL == epl_sensor_obj) {
+	LOG_INFO("epl_sensor_suspend return.\n");
+	return -1;
+    }
     epld->als_suspend=1;
 #if HS_ENABLE
     epld->hs_suspend=1;
@@ -4279,6 +4313,12 @@ static int epl_sensor_suspend(struct i2c_client *client, pm_message_t mesg)
         epl_sensor_update_mode(epld->client);
     }
 
+    if((epld->enable_pflag == 0) && (epld->enable_lflag == 0))
+    {
+        LOG_INFO("[%s]: power off \r\n", __func__);
+        epl_sensor_I2C_Write(epld->client, 0x11, EPL_RESETN_RESET | EPL_POWER_OFF);
+    }
+
     return 0;
 }
 
@@ -4287,6 +4327,10 @@ static int epl_sensor_resume(struct i2c_client *client)
     struct epl_sensor_priv *epld = epl_sensor_obj;
     LOG_FUN();
 
+    if (NULL == epl_sensor_obj) {
+	LOG_INFO("epl_sensor_resume return.\n");
+	return -1;
+    }
     epld->als_suspend=0;
     epld->ps_suspend=0;
 #if HS_ENABLE
@@ -4295,6 +4339,12 @@ static int epl_sensor_resume(struct i2c_client *client)
 #if PS_GES
     epld->ges_suspend = 0;
 #endif
+    if(epld->enable_pflag == 0 && epld->enable_lflag == 0)
+    {
+        LOG_INFO("[%s]: power on \r\n", __func__);
+        epl_sensor_I2C_Write(epld->client, 0x11, EPL_RESETN_RUN | EPL_POWER_ON);
+    }
+
     if(epld->enable_pflag == 1){
         //epld->ps_suspend=0;
         LOG_INFO("[%s]: ps enable \r\n", __func__);
@@ -4379,6 +4429,8 @@ static int epl_sensor_probe(struct i2c_client *client,const struct i2c_device_id
     struct epl_sensor_priv *epld ;
     struct elan_epl_platform_data *pdata = client->dev.platform_data;
     struct device_node *np = client->dev.of_node;
+    int temp_dt;
+
     LOG_INFO("elan sensor probe enter.\n");
 
 #ifdef CONFIG_OF
@@ -4394,6 +4446,20 @@ static int epl_sensor_probe(struct i2c_client *client,const struct i2c_device_id
 			kfree(pdata);
 			goto exit_irq_gpio_read_fail;
 		}
+		err = of_property_read_u32(np, "ps_thhigh", &temp_dt);
+		if (err > 0 || temp_dt < 1)
+			ps_thhigh_dt = PS_HIGH_THRESHOLD;
+		else
+			ps_thhigh_dt = (u16)temp_dt;
+		err = of_property_read_u32(np, "ps_thlow", &temp_dt);
+		if (err > 0 || temp_dt < 1)
+			ps_thlow_dt = PS_LOW_THRESHOLD;
+		else
+			ps_thlow_dt = (u16)temp_dt;
+#if		(0 == PS_DYN_K)
+		LOG_INFO("Threshold high = %d, low = %d\n",
+				ps_thhigh_dt, ps_thlow_dt);
+#endif
 		client->dev.platform_data = pdata;
 	}
 #endif
@@ -4491,7 +4557,7 @@ static int epl_sensor_probe(struct i2c_client *client,const struct i2c_device_id
         goto err_psensor_setup;
     }
 
-
+	wake_lock_init (&ps_lock, WAKE_LOCK_SUSPEND, "ps wakelock");/*need before enbale irq*/
     if (epl_sensor.als.polling_mode==0 || epl_sensor.ps.polling_mode==0)
     {
         err = epl_sensor_setup_interrupt(epld);
@@ -4514,7 +4580,6 @@ static int epl_sensor_probe(struct i2c_client *client,const struct i2c_device_id
 
 #endif
 
-    wake_lock_init(&ps_lock, WAKE_LOCK_SUSPEND, "ps wakelock");
 #if 0
     sensor_dev = platform_device_register_simple("elan_alsps", -1, NULL, 0);
     if (IS_ERR(sensor_dev))
@@ -4546,6 +4611,7 @@ err_psensor_setup:
 err_sensor_setup:
     destroy_workqueue(epld->epl_wq);
     misc_deregister(&epl_sensor_ps_device);
+	wake_lock_destroy(&ps_lock);
 #if !(SPREAD || MARVELL)
     misc_deregister(&epl_sensor_als_device);
 #endif
@@ -4556,7 +4622,7 @@ i2c_fail:
 exit_irq_gpio_read_fail:
 exit_allocate_pdata_failed:
 #endif
-
+	err = err < 0 ? err : -1;
     return err;
 }
 /*----------------------------------------------------------------------------*/
@@ -4565,7 +4631,7 @@ exit_allocate_pdata_failed:
 static int epl_sensor_remove(struct i2c_client *client)
 {
     struct epl_sensor_priv *epld = i2c_get_clientdata(client);
-
+	wake_lock_destroy(&ps_lock);
     dev_dbg(&client->dev, "%s: enter.\n", __func__);
 #if defined(CONFIG_HAS_EARLYSUSPEND)
     unregister_early_suspend(&epld->early_suspend);
@@ -4618,8 +4684,8 @@ static struct i2c_driver epl_sensor_driver =
 #endif
     },
 #ifdef CONFIG_SUSPEND
-    //.suspend = epl_sensor_suspend,
-    //.resume = epl_sensor_resume,
+    .suspend = epl_sensor_suspend,
+    .resume = epl_sensor_resume,
 #endif
 };
 

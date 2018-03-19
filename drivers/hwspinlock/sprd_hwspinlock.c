@@ -114,7 +114,11 @@ static void inline sprd_hwlocks_implemented(int hwlock_id)
 		hwlocks_implemented[HWLOCK_AGPIO] = 1;
 		hwlocks_implemented[HWLOCK_AEIC] = 1;
 		hwlocks_implemented[HWLOCK_ADC] = 1;
+#if defined CONFIG_ARCH_SCX35LT8
+		hwlocks_implemented[HWLOCK_DVFS] = 1;
+#endif
 		hwlocks_implemented[HWLOCK_EFUSE] = 1;
+		hwlocks_implemented[HWLOCK_AVS] = 1;
 	}else if (hwlock_id == AP_HWSPLOCK){
 		/* Caution: ap hwspinlock id need add 31 */
 		/* hwlocks_implemented[HWLOCK_ADI+31] = 1; */
@@ -290,8 +294,19 @@ static unsigned int do_lock_key(struct hwspinlock *lock)
 	return key;
 }
 
+static unsigned int
+hwspinlock_show_lock_status(struct hwspinlock *lock)
+{
+
+	struct sprd_hwspinlock_dev *sprd_hwlock;
+
+	sprd_hwlock = hwlock_to_sprdlock_dev(lock);
+	return readl_relaxed(sprd_hwlock->hwspinlock_base + HWSPINLOCK_TTLSTS);
+}
+
 static int __hwspinlock_trylock(struct hwspinlock *lock)
 {
+	unsigned int status = 0;
 	void __iomem *addr = lock->priv;
 
 	if (sprd_check_hwspinlock_vid(lock)) {
@@ -308,7 +323,8 @@ static int __hwspinlock_trylock(struct hwspinlock *lock)
 		}
 	}
 
-	printk(KERN_ERR "Hwspinlock [%d] lock failed!\n",hwlock_to_id(lock));
+	status =  hwspinlock_show_lock_status(lock);
+	printk(KERN_ERR "Hwspinlock [%d] lock failed!, hwspinlock reg = 0x%x\n",hwlock_to_id(lock), status);
 	return 0;
 
 __locked:

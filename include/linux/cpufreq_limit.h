@@ -10,6 +10,10 @@
 #ifndef __LINUX_CPUFREQ_LIMIT_H__
 #define __LINUX_CPUFREQ_LIMIT_H__
 
+#define CPUFREQ_MIN	0
+#define CPUFREQ_MAX	1
+size_t cpufreq_limit_requests_get(int type);
+
 struct cpufreq_limit_handle;
 
 #ifdef CONFIG_CPU_FREQ_LIMIT

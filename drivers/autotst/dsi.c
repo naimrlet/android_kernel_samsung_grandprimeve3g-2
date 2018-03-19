@@ -35,6 +35,10 @@
 
 #define pr_debug printk
 
+#if (defined(CONFIG_FB_SCX30G) || defined(CONFIG_FB_SCX35L))
+#define FB_DSIH_VERSION_1P21A
+#endif
+
 #define DSI_PHY_REF_CLOCK (26*1000)
 #define DSI_EDPI_CFG (0x6c)
 
@@ -66,23 +70,23 @@ struct autotst_dsi_context {
 
 static struct autotst_dsi_context autotst_dsi_ctx;
 
-static uint32_t dsi_core_read_function(uint32_t addr, uint32_t offset)
+static uint32_t dsi_core_read_function(unsigned long  addr, uint32_t offset)
 {
-	return sci_glb_read(addr + offset, 0xffffffff);
+	return __raw_readl(addr + offset);
 }
 
-static void dsi_core_write_function(uint32_t addr, uint32_t offset, uint32_t data)
+static void dsi_core_write_function(unsigned long addr, uint32_t offset, uint32_t data)
 {
-	sci_glb_write((addr + offset), data, 0xffffffff);
+	__raw_writel(data, (addr + offset));
 }
 
-static void dsi_core_or_function(unsigned int addr,unsigned int data)
+void dsi_core_or_function(unsigned long addr,unsigned int data)
 {
-	sci_glb_write(addr,(sci_glb_read(addr, 0xffffffff) | data), 0xffffffff);
+	__raw_writel((__raw_readl(addr) | data), addr);
 }
-static void dsi_core_and_function(unsigned int addr,unsigned int data)
+void dsi_core_and_function(unsigned long addr,unsigned int data)
 {
-	sci_glb_write(addr,(sci_glb_read(addr, 0xffffffff) & data), 0xffffffff);
+	__raw_writel((__raw_readl(addr) & data), addr);
 }
 
 #if 0
@@ -133,9 +137,9 @@ static int32_t dsi_edpi_setbuswidth(struct info_mipi * mipi)
 static int32_t dsi_edpi_init(void)
 {
 #ifdef FB_DSIH_VERSION_1P21A
-	dsi_core_write_function((uint32_t)SPRD_MIPI_DSIC_BASE,	(uint32_t)R_DSI_HOST_EDPI_CMD_SIZE, 0x500);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE, R_DSI_HOST_EDPI_CMD_SIZE, 0x500);
 #else
-	dsi_core_write_function((uint32_t)SPRD_MIPI_DSIC_BASE,  (uint32_t)DSI_EDPI_CFG, 0x10500);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE, DSI_EDPI_CFG, 0x10500);
 #endif
 	return 0;
 }
@@ -152,6 +156,8 @@ static int32_t dsi_dpi_init(struct panel_spec* panel)
 #ifdef FB_DSIH_VERSION_1P21A
 	dpi_param.max_hs_to_lp_cycles = 4;//110;
 	dpi_param.max_lp_to_hs_cycles = 15;//10;
+	dpi_param.max_clk_hs_to_lp_cycles = 4;//110;
+	dpi_param.max_clk_lp_to_hs_cycles = 15;//10;
 #endif
 
 	switch(mipi->video_bus_width){
@@ -194,7 +200,11 @@ static int32_t dsi_dpi_init(struct panel_spec* panel)
 	dpi_param.receive_ack_packets = 0;
 	dpi_param.video_mode = VIDEO_BURST_WITH_SYNC_PULSES;
 	dpi_param.virtual_channel = 0;
+#ifndef CONFIG_FB_LCD_ILI9486S1_MIPI
 	dpi_param.is_18_loosely = 0;
+#else
+	dpi_param.is_18_loosely = 1;
+#endif
 
 	result = mipi_dsih_dpi_video(&(autotst_dsi_ctx.dsi_inst), &dpi_param);
 	if(result != OK){
@@ -235,8 +245,8 @@ static int32_t dsi_module_init(struct panel_spec *panel)
 	phy->reference_freq = DSI_PHY_REF_CLOCK;
 
 	dsi_instance->address = SPRD_MIPI_DSIC_BASE;
-	dsi_instance->color_mode_polarity =mipi->color_mode_pol;
-	dsi_instance->shut_down_polarity = mipi->shut_down_pol;
+	//dsi_instance->color_mode_polarity =mipi->color_mode_pol;
+	//dsi_instance->shut_down_polarity = mipi->shut_down_pol;
 	dsi_instance->core_read_function = dsi_core_read_function;
 	dsi_instance->core_write_function = dsi_core_write_function;
 	dsi_instance->log_error = dsi_log_error;
@@ -247,7 +257,7 @@ static int32_t dsi_module_init(struct panel_spec *panel)
 	dsi_instance->max_hs_to_lp_cycles = 4;//110;
 	dsi_instance->max_lp_to_hs_cycles = 15;//10;
 #endif
-	dsi_instance->max_lanes = mipi->lan_number;
+	//dsi_instance->max_lanes = mipi->lan_number;
 #if 0
 	ret = request_irq(IRQ_DSI_INTN0, dsi_isr0, IRQF_DISABLED, "DSI_INT0", &autotst_dsi_ctx);
 	if (ret) {
@@ -287,9 +297,10 @@ static int32_t dsih_init(struct panel_spec *panel)
 		dsi_edpi_init();
 	}
 
-#ifndef FB_DSIH_VERSION_1P21A
 	dsi_instance->phy_feq = panel->info.mipi->phy_feq;
-#endif
+	dsi_instance->max_lanes = panel->info.mipi->lan_number;
+	dsi_instance->color_mode_polarity = panel->info.mipi->color_mode_pol;
+	dsi_instance->shut_down_polarity = panel->info.mipi->shut_down_pol;
 	result = mipi_dsih_open(dsi_instance);
 	if(OK != result){
 		printk(KERN_ERR "autotst_dsi: [%s]: mipi_dsih_open fail (%d)!\n", __FUNCTION__, result);
@@ -356,13 +367,22 @@ static int32_t dsih_init(struct panel_spec *panel)
 
 static void dsi_enable(void)
 {
+#ifdef CONFIG_ARCH_SCX35LT8
+	sci_glb_clr(REG_AON_APB_PWR_CTRL, BIT_MIPI_DSI_PS_PD_S);
+	sci_glb_clr(REG_AON_APB_PWR_CTRL, BIT_MIPI_DSI_PS_PD_L);
+#endif
 	sci_glb_set(REG_AP_AHB_MISC_CKG_EN, BIT_DPHY_REF_CKG_EN);
 	sci_glb_set(REG_AP_AHB_MISC_CKG_EN, BIT_DPHY_CFG_CKG_EN);
+	printk("sprdfb: dsi_enable %08x\n", REG_AP_AHB_MISC_CKG_EN);
 	sci_glb_set(DSI_REG_EB, DSI_BIT_EB);
 }
 
 static void dsi_disable(void)
 {
+#ifdef CONFIG_ARCH_SCX35LT8
+	sci_glb_set(REG_AON_APB_PWR_CTRL, BIT_MIPI_DSI_PS_PD_S);
+	sci_glb_set(REG_AON_APB_PWR_CTRL, BIT_MIPI_DSI_PS_PD_L);
+#endif
 	sci_glb_clr(REG_AP_AHB_MISC_CKG_EN, BIT_DPHY_REF_CKG_EN);
 	sci_glb_clr(REG_AP_AHB_MISC_CKG_EN, BIT_DPHY_CFG_CKG_EN);
 	sci_glb_clr(DSI_REG_EB, DSI_BIT_EB);
@@ -383,6 +403,7 @@ static int32_t dsi_ready(struct panel_spec *panel)
 		mipi_dsih_cmd_mode(&(autotst_dsi_ctx.dsi_inst), 1);
 #ifdef FB_DSIH_VERSION_1P21A
 		mipi_dsih_dphy_enable_hs_clk(&(autotst_dsi_ctx.dsi_inst.phy_instance), true);
+		dsi_core_write_function(SPRD_MIPI_DSIC_BASE, R_DSI_HOST_CMD_MODE_CFG, 0x0);
 #else
 		dsi_core_write_function(SPRD_MIPI_DSIC_BASE, R_DSI_HOST_CMD_MODE_CFG, 0x1);
 		dsi_core_write_function(SPRD_MIPI_DSIC_BASE, R_DSI_HOST_PHY_IF_CTRL, 0x1);
@@ -408,11 +429,11 @@ static int32_t dsi_ready(struct panel_spec *panel)
 	}
 
 #ifdef FB_DSIH_VERSION_1P21A
-	//dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_INT_MSK0, 0x0);
-	//dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_INT_MSK1, 0x800);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_INT_MSK0, 0x0);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_INT_MSK1, 0x800);
 #else
-	//dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_ERROR_MSK0, 0x0);
-	//dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_ERROR_MSK1, 0x800);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_ERROR_MSK0, 0x0);
+	dsi_core_write_function(SPRD_MIPI_DSIC_BASE,  R_DSI_HOST_ERROR_MSK1, 0x800);
 #endif
 	return 0;
 }
@@ -459,8 +480,11 @@ int32_t autotst_dsi_uninit(void)
 	dsih_ctrl_t* dsi_instance = &(autotst_dsi_ctx.dsi_inst);
 
 	printk(KERN_INFO "autotst_dsi: [%s]\n",__FUNCTION__);
-
+#ifdef FB_DSIH_VERSION_1P21A
+	mipi_dsih_dphy_enable_hs_clk(&(dsi_instance->phy_instance), false);
+#else
 	dsi_core_write_function(SPRD_MIPI_DSIC_BASE, R_DSI_HOST_PHY_IF_CTRL, 0);
+#endif
 	result = mipi_dsih_close(&(autotst_dsi_ctx.dsi_inst));
 	dsi_instance->status = NOT_INITIALIZED;
 

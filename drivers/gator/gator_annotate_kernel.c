@@ -30,24 +30,6 @@ static void kannotate_write(const char *ptr, unsigned int size)
 	}
 }
 
-// atrace_gator
-static void kannotate_write_counter(const char *ptr, unsigned int size)
-{
-	int retval;
-	int pos = 0;
-	loff_t offset = 0;
-
-	while (pos < size) {
-		retval = annotate_write_counter(NULL, &ptr[pos], size - pos, &offset);
-		if (retval < 0) {
-			pr_warning("gator: kannotate_write failed with return value %d\n", retval);
-			return;
-		}
-		pos += retval;
-	}
-}
-
-
 static void marshal_u16(char *buf, u16 val)
 {
 	buf[0] = val & 0xff;
@@ -92,15 +74,6 @@ void gator_annotate_channel_color(int channel, int color, const char *str)
 	marshal_u32(header + 2, channel);
 	marshal_u16(header + 6, str_size);
 	marshal_u32(header + 8, color);
-
-// atrace_gator
-        if((channel >= 4000) && (channel < 4010))
-        {
-	        kannotate_write_counter(header, sizeof(header));
-	        kannotate_write_counter(str, str_size - 4);
-                return;
-        }
-
 	kannotate_write(header, sizeof(header));
 	kannotate_write(str, str_size - 4);
 }

@@ -204,8 +204,14 @@ struct dwc_otg_pcd {
 
 	/** Array of IN EPs. */
 	dwc_otg_pcd_ep_t in_ep[MAX_EPS_CHANNELS - 1];
+	dwc_otg_dev_dma_desc_t *in_ep_trb_pool;
+	dma_addr_t in_ep_trb_dma_pool;
+
 	/** Array of OUT EPs. */
 	dwc_otg_pcd_ep_t out_ep[MAX_EPS_CHANNELS - 1];
+	dwc_otg_dev_dma_desc_t *out_ep_trb_pool;
+	dma_addr_t out_ep_trb_dma_pool;
+
 	/** number of valid EPs in the above array. */
 //        unsigned      num_eps : 4;
 	dwc_spinlock_t *lock;
@@ -220,6 +226,8 @@ struct dwc_otg_pcd {
 
 	/** The test mode to enter when the tasklet is executed. */
 	unsigned test_mode;
+	/** re_initialization flag when usb resetted in configured. */
+	uint32_t reinit_flag;
 	/** The cfi_api structure that implements most of the CFI API
 	 * and OTG specific core configuration functionality
 	 */

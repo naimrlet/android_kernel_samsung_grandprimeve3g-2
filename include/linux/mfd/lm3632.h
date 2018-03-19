@@ -18,6 +18,7 @@
 #include <linux/pwm.h>
 #include <linux/regmap.h>
 #include <linux/regulator/machine.h>
+#include <linux/earlysuspend.h>
 
 /* Registers */
 #define LM3632_REG_CONFIG1		0x02
@@ -70,6 +71,7 @@ struct lm3632_backlight_platform_data {
 
 	/* Only valid in case of PWM mode */
 	unsigned int pwm_period;
+	struct early_suspend early_suspend_desc;	
 };
 
 /*

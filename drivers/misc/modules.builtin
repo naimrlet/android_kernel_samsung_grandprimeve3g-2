@@ -1,0 +1,12 @@
+kernel/drivers/misc/uid_cputime.ko
+kernel/drivers/misc/mdbg/mdbgdrv.ko
+kernel/drivers/misc/sdiodev/sdiodevhal.ko
+kernel/drivers/misc/sprd_cproc/sprd_cproc.ko
+kernel/drivers/misc/sprd_dwnload/sprd_download.ko
+kernel/drivers/misc/sprd_jpg/sprd_jpg.ko
+kernel/drivers/misc/sprd_jpg1/sprd_jpg1.ko
+kernel/drivers/misc/sprd_otp/efuse.ko
+kernel/drivers/misc/sprd_otp/ana_efuse.ko
+kernel/drivers/misc/sprd_otp/otp-bitmap.ko
+kernel/drivers/misc/sprd_vsp/sprd_vsp_sc8830.ko
+kernel/drivers/misc/sprd_vsp/vsp_pw_domain.ko

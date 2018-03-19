@@ -41,11 +41,7 @@ static unsigned int zipenc_status;
 static unsigned int zipdec_status;
 #endif
 
-#ifdef CONFIG_ARCH_SCX20
-	static int light_sleep_en = 0;
-#else
 	static int light_sleep_en = 1;
-#endif
 
 
 static int idle_deep_en = 0;
@@ -166,6 +162,11 @@ static void sc_cpuidle_debug(void)
 		printk("*** %s, LIGHT_SLEEP_EN can not be set ***\n", __func__ );
 }
 
+#ifdef CONFIG_ARCH_SCX20
+extern void sc_lowpower_debug(int cpuidle_debug);
+int gREG_AP_AHB_MCU_PAUSE = 0;//MCU_PAUSE register will be clean when interrupt happens, backup value for light sleep checking
+#endif
+
 static void sc_cpuidle_light_sleep_en(int cpu)
 {
 	int error;
@@ -207,7 +208,13 @@ static void sc_cpuidle_light_sleep_en(int cpu)
 		sci_glb_set(REG_AP_AHB_MCU_PAUSE, LIGHT_SLEEP_ENABLE);
 	}
 	if(cpuidle_debug){
+#ifdef CONFIG_ARCH_SCX20
+		//MCU_PAUSE register will be clean when interrupt happens, backup value for light sleep checking
+		gREG_AP_AHB_MCU_PAUSE = __raw_readl(REG_AP_AHB_MCU_PAUSE);
+		sc_lowpower_debug(cpuidle_debug);
+#else
 		sc_cpuidle_debug();
+#endif
 	}
 }
 
@@ -447,3 +454,248 @@ int __init sc_cpuidle_init(void)
 	return 0;
 
 }
+
+#ifdef CONFIG_ARCH_SCX20
+#include <soc/sprd/hardware.h>
+#define SC_DEEPSLEEP_CHECK	1
+#define SC_DEEPSLEEP_SIGNAL_OUT	2
+#define SC_DEEPSLEEP_REGISTER_DUMP	3
+#define SC_DEEPSLEEP_REGISTER_COMPARE	4
+#define SC_DEEPSLEEP_LDO_CHECK	5
+#define SC_LIGHTSLEEP_CHECK	6
+#define SC_LIGHTSLEEP_SIGNAL_OUT	7
+#define SC_LIGHTSLEEP_REGISTER_DUMP	8
+#define SC_LIGHTSLEEP_REGISTER_COMPARE	9
+#define SC_LIGHTSLEEP_LDO_CHECK	10
+#define SC_LOWPOWER_SHOW_CMD	 98
+#define SC_LOWPOWER_DEBUG_RESET 99
+#define LOWPOWER_DEBUG_COUNT_END	100
+extern void sc_debug_lowpower_ldo_dump(void);
+extern void showAPLightSleepStatus();
+extern void sc_debug_signal_configure(int debug_bus, int sel);
+extern void sc_debug_reset(void);
+extern void compare_lowpower_regs(int isDeepSleepFlag);
+extern void dump_lowpower_regs(void);
+extern glowpower_debug_count;
+
+void sc_lowpower_debug_reset(void)
+{
+	glowpower_debug_count = 0;
+}
+
+int cpuidle_debug_get(){
+	return cpuidle_debug;
+}
+
+void cpuidle_debug_reset(){
+	cpuidle_debug = 0;
+}
+
+void sc_lowpower_debug(int cpuidle_debug)
+{
+
+	glowpower_debug_count++;
+	if(glowpower_debug_count > LOWPOWER_DEBUG_COUNT_END)
+		glowpower_debug_count = LOWPOWER_DEBUG_COUNT_END;
+
+	if(cpuidle_debug == SC_LOWPOWER_SHOW_CMD){
+		printk("%d SC_DEEPSLEEP_CHECK\n",SC_DEEPSLEEP_CHECK);
+		printk("%d SC_DEEPSLEEP_SIGNAL_OUT\n",SC_DEEPSLEEP_SIGNAL_OUT);
+		printk("%d SC_DEEPSLEEP_REGISTER_DUMP\n",SC_DEEPSLEEP_REGISTER_DUMP);
+		printk("%d SC_DEEPSLEEP_REGISTER_COMPARE\n",SC_DEEPSLEEP_REGISTER_COMPARE);
+		printk("%d SC_DEEPSLEEP_LDO_CHECK\n",SC_DEEPSLEEP_LDO_CHECK);
+		printk("%d SC_LIGHTSLEEP_CHECK\n",SC_LIGHTSLEEP_CHECK);
+		printk("%d SC_LIGHTSLEEP_SIGNAL_OUT\n",SC_LIGHTSLEEP_SIGNAL_OUT);
+		printk("%d SC_LIGHTSLEEP_REGISTER_DUMP\n",SC_LIGHTSLEEP_REGISTER_DUMP);
+		printk("%d SC_LIGHTSLEEP_REGISTER_COMPARE\n",SC_LIGHTSLEEP_REGISTER_COMPARE);
+		printk("%d SC_LIGHTSLEEP_LDO_CHECK\n",SC_LIGHTSLEEP_LDO_CHECK);
+		printk("%d SC_LOWPOWER_SHOW_CMD\n",SC_LOWPOWER_SHOW_CMD);
+		printk("%d SC_LOWPOWER_DEBUG_RESET\n",SC_LOWPOWER_DEBUG_RESET);
+		cpuidle_debug_reset();
+	}
+
+	if(cpuidle_debug == SC_LIGHTSLEEP_CHECK){
+		if(glowpower_debug_count <= 10)
+			showAPLightSleepStatus();
+	}
+	if((cpuidle_debug == SC_LIGHTSLEEP_SIGNAL_OUT)||(cpuidle_debug == SC_DEEPSLEEP_SIGNAL_OUT)){
+		if(glowpower_debug_count <= 10){
+			sc_debug_signal_configure(1,0); //sd0_d0:ap_deep_sleep, sd0_d1:ap_light_sleep, sd0_d2:cp0_deep_sleep, CCIRPD0:cp2_deep_sleep
+			//sc_debug_signal_configure(1,1); //sd0_d0:32k sdo_d1:26M
+		}
+	}
+	if(cpuidle_debug == SC_LIGHTSLEEP_REGISTER_DUMP){
+		dump_lowpower_regs();
+		cpuidle_debug_reset();
+	}
+	if(cpuidle_debug == SC_LIGHTSLEEP_REGISTER_COMPARE){
+		compare_lowpower_regs(0);
+		cpuidle_debug_reset();
+	}
+
+	if(cpuidle_debug == SC_LIGHTSLEEP_LDO_CHECK){
+		if(glowpower_debug_count <= 10){
+			sc_debug_lowpower_ldo_dump();
+		}
+	}
+
+	if(cpuidle_debug == SC_LOWPOWER_DEBUG_RESET){
+		sc_lowpower_debug_reset();
+	}
+}
+extern void showAPLightSleepStatus();
+
+
+int gREG_AP_CLK_GSP_CFG = 0;
+int gREG_AP_AHB_AP_SYS_AUTO_SLEEP_CFG = 0;
+
+
+//debug_bus_1
+#define _debug_signal_clk_pwr	0
+#define _debug_signal_clk_26m	1
+#define _debug_signal_rst_pwr_n	2
+#define _debug_signal_rst_por_n	3
+#define _debug_signal_rst_ap_wdg_n	4
+#define _debug_signal_rst_ca7_wdg_n	5
+#define _debug_signal_ap_deep_sleep_req	6
+#define _debug_signal_ap_light_sleep_req	7
+#define _debug_signal_ap_deep_sleep	8
+#define _debug_signal_ap_light_sleep	9
+#define _debug_signal_cp0_deep_sleep	10
+#define _debug_signal_cp0_light_sleep	11
+#define _debug_signal_cp0_force_sleep	12
+#define _debug_signal_cp1_deep_sleep	13
+#define _debug_signal_cp1_light_sleep	14
+#define _debug_signal_cp2_deep_sleep	15
+#define _debug_signal_cp2_light_sleep	16
+#define _debug_signal_pub_deep_sleep	17
+#define _debug_signal_ap_wakeup_nirq	18
+#define _debug_signal_ddr_phy_ret_en_i	19
+#define _debug_signal_ap_sleep	20
+#define _debug_signal_xtl0_pd	21
+#define _debug_signal_ctl1_pd	22
+#define _debug_signal_xtlbuf0_pd	23
+#define _debug_signal_xtlbuf1_pd	24
+#define _debug_signal_mpll_pd	25
+#define _debug_signal_dpll_pd	26
+#define _debug_signal_tdpll_pd	27
+#define _debug_signal_wpll_pd	28
+#define _debug_signal_cpll_pd	29
+#define _debug_signal_wifipll1_pd	30
+#define _debug_signal_wifipll2_pd	31
+
+//	SD0_D0 WRAP_DBG_BUS_8	0x402A0230
+//	SD0_D1 WRAP_DBG_BUS_9	0x402A0234
+//	SD0_D2 WRAP_DBG_BUS_10	0x402A0228
+//	SD0_D3 WRAP_DBG_BUS_11	0x402A0224
+//	EXTINT0 WRAP_DBG_BUS_12	0x402A01DC
+//	CCIRRST WRAP_DBG_BUS_13	0x402A0128
+//	CCIRPD1 WRAP_DBG_BUS_14	0x402A012C
+//	CCIRPD0 WRAP_DBG_BUS_15	0x402A0130
+
+/*
+//
+Pin name|	sel = 0	                     |  sel = 1
+SD0_D0  |  _debug_signal_ap_deep_sleep	 |  _debug_signal_clk_pwr
+SD0_D1  |  _debug_signal_ap_light_sleep	 |  _debug_signal_clk_26m
+SD0_D2  |  _debug_signal_cp0_deep_sleep	 |  _debug_signal_rst_pwr_n
+SD0_D3  |  _debug_signal_cp0_light_sleep |  _debug_signal_rst_por_n
+EXTINT0 |  _debug_signal_cp0_force_sleep |  _debug_signal_rst_ap_wdg_n
+CCIRRST |  _debug_signal_cp1_deep_sleep	 |  _debug_signal_rst_ca7_wdg_n
+CCIRPD1 |  _debug_signal_cp1_light_sleep |  _debug_signal_ap_deep_sleep_req
+CCIRPD0 |  _debug_signal_cp2_deep_sleep	 |  _debug_signal_ap_light_sleep_req
+----------------------------------------------------------------------------
+Pin name|	sel = 2	                     |  sel = 3
+SD0_D0  |  _debug_signal_xtlbuf1_pd    	 |  _debug_signal_cp2_light_sleep
+SD0_D1  |  _debug_signal_mpll_pd	     |  _debug_signal_pub_deep_sleep
+SD0_D2  |  _debug_signal_dpll_pd	     |  _debug_signal_ap_wakeup_nirq
+SD0_D3  |  _debug_signal_tdpll_pd        |  _debug_signal_ddr_phy_ret_en_i
+EXTINT0 |  _debug_signal_wpll_pd         |  _debug_signal_ap_sleep
+CCIRRST |  _debug_signal_cpll_pd	     |  _debug_signal_xtl0_pd
+CCIRPD1 |  _debug_signal_wifipll1_pd     |  _debug_signal_ctl1_pd
+CCIRPD0 |  _debug_signal_wifipll2_pd	 |  _debug_signal_xtlbuf0_pd
+*/
+#include <soc/sprd/adi.h>
+
+void sc_debug_signal_configure(int debug_bus, int sel){
+	int val;
+	int data;
+
+	//PMIC need to turn on vddsd card 0x40038814 bit[0]
+	sci_adi_raw_write(ANA_REG_GLB_PWR_WR_PROT_VALUE,0x6e7f);
+	while( (sci_adi_read(ANA_REG_GLB_PWR_WR_PROT_VALUE) & 0x8000) != 0x8000 );
+
+	data = sci_adi_read(ANA_REG_GLB_LDO_PD_CTRL);
+	data &= 0xFFFFFFFE;
+    sci_adi_raw_write(ANA_REG_GLB_LDO_PD_CTRL,data);
+
+    sci_adi_raw_write(ANA_REG_GLB_PWR_WR_PROT_VALUE,0x0);
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0230));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0230));
+
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0234));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0234));
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0228));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0228));
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0224));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0224));
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x01DC));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x01DC));
+
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0128));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0128));
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x012C));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x012C));
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0130));
+	data = (val&0xffffffcf)|(0x1<<4);
+	data = (data&0xfffffffe)|(0x1<<0);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0130));
+
+
+	val = __raw_readl(REG_PMU_APB_PMU_DEBUG_CFG);
+	__raw_writel((val&0xfffffff0)|(debug_bus<<0),REG_PMU_APB_PMU_DEBUG_CFG);
+
+
+	val = __raw_readl(REG_AON_APB_AON_DEBUG_CFG);
+	__raw_writel((val&0xfffffff0)|(0x1<<0),REG_AON_APB_AON_DEBUG_CFG);
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x0));
+	data = (val&0xfff0ffff)|(0x1<<16);
+	data = (data&0xffcfffff)|(sel<<20);
+	__raw_writel(data,SCI_ADDR(SPRD_PIN_BASE, 0x0));
+
+	//3.3V
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x10));
+	__raw_writel((val&0xfffeffff)|(0x1<<16),SCI_ADDR(SPRD_PIN_BASE, 0x10));
+
+
+	val = __raw_readl(SCI_ADDR(SPRD_PIN_BASE, 0x1c));
+	__raw_writel( (val&0xfffeffff)|(0x0<<16),SCI_ADDR(SPRD_PIN_BASE, 0x1c));
+
+
+}
+
+#endif
+

@@ -21,8 +21,9 @@
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
 #include <sound/sprd-audio-hook.h>
-
+#if !defined(CONFIG_ARCH_WHALE)
 #include <soc/sprd/sprd-audio.h>
+#endif
 #include "sprd-asoc-common.h"
 #include "dai/vbc/dfm.h"
 
@@ -489,6 +490,7 @@ static int sprd_asoc_probe(struct platform_device *pdev,
 		int i;
 		struct device_node *pcm_node;
 		struct device_node *codec_node;
+		struct device_node *compr_node;
 
 		if (snd_soc_of_parse_card_name(card, "sprd,model")) {
 			pr_err("ERR:Card name is not provided\n");
@@ -508,19 +510,29 @@ static int sprd_asoc_probe(struct platform_device *pdev,
 			pr_err("ERR:PCM node is not provided\n");
 			return -EINVAL;
 		}
-
+#if (!defined(CONFIG_SND_SOC_SPRD_MACHINE_TI) && !defined(CONFIG_SND_SOC_SPRD_MACHINE_4AUDIENCE) && !defined(CONFIG_SND_SOC_SPRD_MACHINE_4REALTEK))
 		codec_node = of_parse_phandle(node, "sprd,codec", 0);
 		if (!codec_node) {
 			pr_err("ERR:CODEC node is not provided\n");
 			of_node_put(pcm_node);
 			return -EINVAL;
 		}
-
+#endif
 		for (i = 0; i < card->num_links; i++) {
 			card->dai_link[i].platform_name = NULL;
 			card->dai_link[i].platform_of_node = pcm_node;
+			#if (!defined(CONFIG_SND_SOC_SPRD_MACHINE_TI) && !defined(CONFIG_SND_SOC_SPRD_MACHINE_4AUDIENCE) && !defined(CONFIG_SND_SOC_SPRD_MACHINE_4REALTEK))
 			card->dai_link[i].codec_name = NULL;
 			card->dai_link[i].codec_of_node = codec_node;
+			#endif
+		}
+		compr_node = of_parse_phandle(node, "sprd,sprd-compr-platform", 0);
+		if(compr_node) {
+		        sp_asoc_pr_info("Getted sprd-compr-platform!\n");
+			card->dai_link[card->num_links - 1].platform_of_node = compr_node;
+			of_node_put(compr_node);
+		} else {
+		    sp_asoc_pr_info("sprd-compr-platform not exit!\n");
 		}
 		of_node_put(pcm_node);
 		of_node_put(codec_node);
@@ -551,9 +563,16 @@ static void sprd_asoc_shutdown(struct platform_device *pdev)
 
 #define BOARD_CODEC_MUTE(xname, xreg) \
 	SOC_SINGLE_EXT(xname, FUN_REG(xreg), 0, 1, 0, board_mute_get, board_mute_set)
-
-#if defined(CONFIG_SND_SOC_SPRD_VBC_R2P0_SPRD_CODEC_V4)
+#if defined(CONFIG_SND_SOC_SPRD_MACHINE_TI)
+#include "vbc-r3p0-tlv320aic32x4_machine.h"
+#elif defined(CONFIG_SND_SOC_SPRD_VBC_R3P0_TI_CODEC)
+#include "vbc-r3p0-sprd-codec-ti.h"
+#elif defined(CONFIG_SND_SOC_SPRD_VBC_R2P0_SPRD_CODEC_V4)
 #include "vbc-r2p0-sprd-codec-v4.h"
+#elif defined(CONFIG_SND_SOC_SPRD_MACHINE_4AUDIENCE)
+#include "vbc-r3p0-es755_machine.h"
+#elif defined(CONFIG_SND_SOC_SPRD_MACHINE_4REALTEK)
+#include "vbc-r3p0-realtek_machine.h"
 #else
 #include "vbc-r1p0-sprd-codec-v1.h"
 #include "vbc-r2p0-sprd-codec-v3.h"

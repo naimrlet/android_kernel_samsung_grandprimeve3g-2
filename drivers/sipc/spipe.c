@@ -39,6 +39,29 @@ struct spipe_sbuf {
 
 static struct class		*spipe_class;
 
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+#define SIM_NOTIFY_CH	9
+#define IOCTL_MODEM_STATUS	_IO('o', 0x27)
+enum modem_state {
+	STATE_SIM_ATTACH = 7,
+	STATE_SIM_DETACH,
+};
+
+static int sim_state_changed;
+static int current_sim_state;
+extern void sbuf_ring_rx_wakeup(uint8_t dst, uint8_t chnnel, uint32_t bufnum);
+void sprd_simdet_set_state(uint8_t dst, uint8_t channel, uint32_t bufnum,
+			  int state)
+{
+	printk(KERN_INFO "%s: state = %d\n", __func__, state);
+	sim_state_changed = 1;
+	current_sim_state = state;
+
+	sbuf_ring_rx_wakeup(dst, channel, bufnum);
+}
+EXPORT_SYMBOL(sprd_simdet_set_state);
+#endif
+
 static int spipe_open(struct inode *inode, struct file *filp)
 {
 	int minor = iminor(filp->f_path.dentry->d_inode);
@@ -107,13 +130,45 @@ static ssize_t spipe_write(struct file *filp,
 static unsigned int spipe_poll(struct file *filp, poll_table *wait)
 {
 	struct spipe_sbuf *sbuf = filp->private_data;
+	int ret;
 
-	return sbuf_poll_wait(sbuf->dst, sbuf->channel, sbuf->bufid,
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+	if (sim_state_changed && sbuf->bufid == SIM_NOTIFY_CH) {
+		printk(KERN_INFO "%s: sim status update\n", __func__);
+		return POLLHUP;
+	}
+#endif
+	ret = sbuf_poll_wait(sbuf->dst, sbuf->channel, sbuf->bufid,
 			filp, wait);
+
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+	if (sim_state_changed && sbuf->bufid == SIM_NOTIFY_CH) {
+		ret |= POLLHUP;
+		printk(KERN_INFO "%s: sim status changed\n", __func__);
+	}
+#endif
+	return ret;
 }
 
 static long spipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+	struct spipe_sbuf *sbuf = filp->private_data;
+	switch (cmd) {
+		case IOCTL_MODEM_STATUS:
+			if (sim_state_changed && sbuf->bufid == SIM_NOTIFY_CH) {
+				printk(KERN_INFO "%s: sim status = %d\n",
+						__func__, current_sim_state);
+				sim_state_changed = 0;
+				return current_sim_state?
+					STATE_SIM_ATTACH : STATE_SIM_DETACH;
+			}
+			break;
+		default:
+			printk(KERN_ERR "ERR! undefined cmd 0x%X\n", cmd);
+			return -EINVAL;
+	}
+#endif
 	return 0;
 }
 

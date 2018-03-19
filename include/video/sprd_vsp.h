@@ -19,18 +19,22 @@
 //#include "__sprd_vsp_sc8830.h"
 /*40k vsp address space size*/
 #define SPRD_VSP_MAP_SIZE 0xA000
+#define SPRD_VSP_CLK_LEVEL_NUM 4 //depend on chip design
+#define SPRD_VSP_CLK_LEVEL_NUM_PIKE 3 //depend on chip design
 
 #define SPRD_VSP_IOCTL_MAGIC 'm'
-#define VSP_CONFIG_FREQ _IOW(SPRD_VSP_IOCTL_MAGIC, 1, unsigned int)
-#define VSP_GET_FREQ    _IOR(SPRD_VSP_IOCTL_MAGIC, 2, unsigned int)
-#define VSP_ENABLE      _IO(SPRD_VSP_IOCTL_MAGIC, 3)
-#define VSP_DISABLE     _IO(SPRD_VSP_IOCTL_MAGIC, 4)
-#define VSP_ACQUAIRE    _IO(SPRD_VSP_IOCTL_MAGIC, 5)
-#define VSP_RELEASE     _IO(SPRD_VSP_IOCTL_MAGIC, 6)
-#define VSP_COMPLETE       _IO(SPRD_VSP_IOCTL_MAGIC, 7)
-#define VSP_RESET       _IO(SPRD_VSP_IOCTL_MAGIC, 8)
-#define VSP_HW_INFO     _IO(SPRD_VSP_IOCTL_MAGIC, 9)
-#define VSP_VERSION                  _IO(SPRD_VSP_IOCTL_MAGIC, 10)
+#define VSP_CONFIG_FREQ                    _IOW(SPRD_VSP_IOCTL_MAGIC, 1, unsigned int)
+#define VSP_GET_FREQ                           _IOR(SPRD_VSP_IOCTL_MAGIC, 2, unsigned int)
+#define VSP_ENABLE                               _IO(SPRD_VSP_IOCTL_MAGIC, 3)
+#define VSP_DISABLE                             _IO(SPRD_VSP_IOCTL_MAGIC, 4)
+#define VSP_ACQUAIRE                          _IO(SPRD_VSP_IOCTL_MAGIC, 5)
+#define VSP_RELEASE                             _IO(SPRD_VSP_IOCTL_MAGIC, 6)
+#define VSP_COMPLETE                          _IO(SPRD_VSP_IOCTL_MAGIC, 7)
+#define VSP_RESET                                 _IO(SPRD_VSP_IOCTL_MAGIC, 8)
+#define VSP_HW_INFO                           _IO(SPRD_VSP_IOCTL_MAGIC, 9)
+#define VSP_VERSION                            _IO(SPRD_VSP_IOCTL_MAGIC, 10)
+#define VSP_SET_SCENE                        _IO(SPRD_VSP_IOCTL_MAGIC, 11)
+#define VSP_GET_SCENE                        _IO(SPRD_VSP_IOCTL_MAGIC, 12)
 
 enum sprd_vsp_frequency_e {
     VSP_FREQENCY_LEVEL_0 = 0,
@@ -38,6 +42,21 @@ enum sprd_vsp_frequency_e {
     VSP_FREQENCY_LEVEL_2 = 2,
     VSP_FREQENCY_LEVEL_3 = 3
 };
+
+typedef enum
+{
+    SHARK = 0,
+    DOLPHIN = 1,
+    TSHARK = 2,
+    SHARKL = 3,
+    PIKE = 4,
+    PIKEL = 5,
+    SHARKL64 = 6,
+    SHARKLT8 = 7,
+    WHALE = 8,
+    MAX_VERSIONS,
+}
+VSP_VERSION_E;
 
 /*
 ioctl command description

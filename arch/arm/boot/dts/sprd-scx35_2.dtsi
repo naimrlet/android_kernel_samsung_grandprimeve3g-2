@@ -138,16 +138,16 @@
 			interrupts = <0 60 0x0>;
 			sprd,name = "sdio_emmc";
 			/*detect_gpio = <-1>; */
-			//SD_Pwr_Name = "vddemmccore";
-			//_1_8V_signal_Name = "vddgen0";
+			SD_Pwr_Name = "vddemmccore";
+			_1_8V_signal_Name = "vddgen0";
 			signal_default_Voltage = <1800000>;
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_emmc>, <&clk_384m>;
 			base_clk = <384000000>;
 			caps = <0xC00F8D47>;
-			caps2 = <0x216>;
+			caps2 = <0x202>;
 			pm_caps = <0x4>;
-			writeDelay = <0x8>;
+			writeDelay = <0x4>;
 			readPosDelay = <0x4>;
 			readNegDelay = <0x4>;
 		};
@@ -157,16 +157,16 @@
 			reg = <0 0x20300000 0 0x1000>;
 			interrupts = <0 57 0x0>;
 			sprd,name = "sdio_sd";
-			detect_gpio = <71>;
+			/* detect_gpio = <71>; */
 			SD_Pwr_Name = "vddsdcore";
 			/* _1_8V_signal_Name = "vddsdio"; */
 			/* signal_default_Voltage = <3000000>; */
 			ocr_avail = <0x00040000>;
 			clocks = <&clk_sdio0>, <&clk_384m>;
 			base_clk = <384000000>;
-			caps = <0xC0000407>;
+			caps = <0xC0038407>;
 			caps2 = <0x200>;
-			//pm_caps = <0x4>;
+			pm_caps = <0x4>;
 			writeDelay = <0x3>;
 			readPosDelay = <0x3>;
 			readNegDelay = <0x3>;
@@ -212,7 +212,7 @@
 					0x10 5 1
 					0x10 6 1>;
 	};
-
+	
 	adic:adic{
 		compatible = "sprd,adi";
 		reg = <0x40030000 0x10000>;
@@ -301,26 +301,20 @@
 		};
 	};
 
-sprd_vpp@61000000{
+	 sprd_vpp@61000000{
                  compatible = "sprd,sprd_vpp";
                  reg = <0x61000000 0x4000>;
                  interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i","clk_vpp","clk_256m","clk_192m","clk_128m","clk_76m8";
-		clocks = <&clk_mm>, <&clk_vpp>, <&clk_256m>, <&clk_192m>, <&clk_128m>, <&clk_76m8>;
-		clock-parent-info = <2 4>;
+		clock-names = "clk_mm","clk_vpp";
+		clocks = <&clk_mm>, <&clk_vpp>;
          };
 
 	 sprd_coda7l@62100000{
-                 compatible = "sprd,sprd_coda7l";
-                 reg = <0x62100000 0x4000>;
-                 interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i","clk_coda7_axi","clk_coda7_cc","clk_coda7_apb",
-			"clk_192m","clk_153m6","clk_128m","clk_76m8",
-			"clk_128m","clk_96m","clk_76m8","ext_26m";
-		clocks = <&clk_mm>, <&clk_coda7_axi>, <&clk_coda7_cc>, <&clk_coda7_apb>,
-			<&clk_192m>, <&clk_153m6>, <&clk_128m>, <&clk_76m8>,
-			<&clk_128m>, <&clk_96m>, <&clk_76m8>, <&ext_26m>;
-		clock-parent-info = <4 4>;
+		compatible = "sprd,sprd_coda7l";
+		reg = <0x62100000 0x4000>;
+		interrupts = <0 43 0x0>;
+		clock-names = "clk_mm_i","clk_coda7_axi","clk_coda7_cc","clk_coda7_apb";
+		clocks = <&clk_mm>, <&clk_coda7_axi>, <&clk_coda7_cc>, <&clk_coda7_apb>;
 		power-regs-info = <0x402b0154 0 0x402b00bc 0x00f00000>;
          };
 
@@ -365,7 +359,7 @@ sprd_vpp@61000000{
 		clock-src = <256000000 256000000 384000000>;
 		dpi_clk_div = <7>;
 		sprd,fb_use_reservemem;
-		sprd,fb_mem = <0x9EA44000 0xBB8000>;
+		sprd,fb_mem = <0x9EC78000 0xBB8000>;
 		sprd,fb_display_size = <480 854>;
 	};
 
@@ -381,18 +375,14 @@ sprd_vpp@61000000{
 	usb: usb@20200000 {
 		compatible  = "sprd,usb";
 		interrupts = <0 55 0x0>;
-		ngpios = <2>;
-		gpios = <&a_eic_gpio 0 0>,<&d_gpio_gpio 72 0>;
+		vbus-gpios = <&a_eic_gpio 0 0>;
+		id-gpios = <&d_gpio_gpio 72 0>;
 		reg = <0x20200000 0x1000>;
 		tune_value = <0x4407af33>;
 		usb-supply = <&vddusb>;
+		phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
-	};
-
-	usb_notifier {
-		compatible = "samsung,usb-notifier";
-		booster-name = "sm5701_booster";
 	};
 
 	sprd_thermal {
@@ -406,17 +396,6 @@ sprd_vpp@61000000{
 		trip_num = <5>;
 	};
 
-	sprd_thermal1 {
-		compatible = "sprd,sprd-thermal";
-		id = <1>;
-                interrupt-parent = <&adi>;
-		interrupts = <9 0x0>;
-		reg = <0x40038280 0x1000>;
-		trip_points_active = <90>;
-		trip_points_lowoff = <81>; /*no use, jut for compatiable*/
-		trip_points_critical = <114>;
-		trip_num = <2>;
-	};
         sprd_cpu_cooling{
 		compatible = "sprd,sprd-cpu-cooling";
 		id = <0>;
@@ -476,9 +455,8 @@ sprd_vpp@61000000{
 		compatible = "sprd,sprd_vsp";
 		reg = <0X60900000 0xc000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i", "clk_vsp", "clk_mm_axi", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-		clocks = <&clk_mm>, <&clk_vsp>, <&clk_mm_axi>, <&clk_256m>, <&clk_192m>, <&clk_128m>, <&clk_76m8>;
-		clock-parent-info = <3 4>;
+		clock-names = "clk_mm_i", "clk_vsp", "clk_mm_axi";
+		clocks = <&clk_mm>, <&clk_vsp>, <&clk_mm_axi>;
 		version = <2>;
 	};
 
@@ -546,7 +524,7 @@ sprd_vpp@61000000{
 			reg = <3>;                      /* OVERLAY */
 			reg-names = "ion_heap_carveout_overlay";
 			sprd,ion-heap-type = <2>;       /* CARVEOUT */
-			sprd,ion-heap-mem = <0x9F600000 0x7D0000>; /* 720*1280*4*2, 8K alignment*/
+			sprd,ion-heap-mem = <0x9F8F8000 0x708000>; /* 720*1280*4*2, 8K alignment*/
 		};
 	};
 
@@ -569,24 +547,25 @@ sprd_vpp@61000000{
 			<0x60f00000 0x20000>,     //pgt
 			<0x60f20000 0x2000>;      //ctrl_reg
 		reg_name = "iova","pgt","ctrl_reg";
-		clock-names = "clk_mmu","clk_mm_i";
-		clocks = <&clk_mmu>,<&clk_mm>;
+		clock-names = "clk_mmu","clk_mm_i","clk_mm_axi";
+		clocks = <&clk_mmu>,<&clk_mm>,<&clk_mm_axi>;
 		status = "ok";
 	};
 
 	/* sipc initializer */
-	sipc: sipc-common {
+	sipc: sipc@0x87800000 {
 		compatible = "sprd,sipc";
-		/* reg = <0x87800000 0x240000>; */ /* <SMEM SIZE>*/
+		reg = <0x87800000 0x200000>; /* <SMEM SIZE>*/
 		//#interrupt-cells = <2>;
 		#address-cells = <1>;
 		#size-cells = <1>;
-		/*
 		ranges = <0x8000000 0x88000000 0x1c00000>,
-				<0x07800000 0x87800000 0x180000>,
-				<0x9aff000 0x89aff000 0x1000>;
-		 */
-		sipc_cpw {
+				<0x07800000 0x87800000 0x140000>,
+				<0x9bff000 0x89bff000 0x1000>,
+				<0x0a800000 0x8a800000 0x201000>,/*WCN MEMORY:OFFSET ADDRESS SIZE*/
+				<0x07940000 0x87940000 0xc0000>,
+				<0x0aa00000 0x8aa00000 0x1000>;/*WCN SIPC-RING:OFFSET ADDRESS SIZE*/
+		sipc_cpw@0x8000000 {
 			sprd,name = "sipc-w";
 			sprd,dst = <2>;
 			sprd,ap2cp = <0x402c0000>; /* base on ipi reggister */
@@ -594,10 +573,23 @@ sprd_vpp@61000000{
 			sprd,trig = <0x01>; /* trigger bit */
 			sprd,clr = <0x01>; /* clear bit */
 			interrupts = <0 68 0x0>;
-			/* reg = <0x8000000 0x1b00000> , */ /* <CP_start_addr size> */
-			/* <0x07800000 0x180000>, */ /* <SMEM_phy_addr total_size> */
-			/* <0x9aff000 0x1000>; */ /* smsg ring buffer <base size> */
+			reg = <0x8000000 0x1c00000> , /* <CP_start_addr size> */
+				<0x07800000 0x140000>, /* <SMEM_phy_addr total_size> */
+				<0x9bff000 0x1000>; /* smsg ring buffer <base size> */
 		};
+		sipc_wcn@0x0a800000 {
+			sprd,name = "sipc-wcn";
+			sprd,dst = <3>;
+			sprd,ap2cp = <0x402c0000>; /* base on ipi reggister */
+			sprd,cp2ap = <0x402c0004>;
+			sprd,trig = <0x100>; /* trigger bit */
+			sprd,clr = <0x100>; /* clear bit */
+			interrupts = <0 73 0x0>;
+			reg = <0x0a800000 0x201000> , /* <CP_start_addr size> */
+				<0x07940000 0xc0000>, /* <SMEM_phy_addr total_size> */
+				<0x0aa00000 0x1000>; /* smsg ring buffer <base size> */
+		};
+
 	};
 
 	/* cpw virtual devices */
@@ -606,7 +598,7 @@ sprd_vpp@61000000{
 		sprd,name = "spipe_w";
 		sprd,dst = <2>;
 		sprd,channel = <4>;
-		sprd,ringnr = <11>;
+		sprd,ringnr = <9>;
 		sprd,size-rxbuf = <0x1000>; /* 4*1024 */
 		sprd,size-txbuf = <0x1000>; /* 4*1024 */
 	};
@@ -633,7 +625,7 @@ sprd_vpp@61000000{
 
 	seth0-cpw {
 		compatible = "sprd,seth";
-		sprd,name = "rmnet0";
+		sprd,name = "seth_w0";
 		sprd,dst = <2>;
 		sprd,channel = <7>;
 		sprd,blknum = <128>;
@@ -641,7 +633,7 @@ sprd_vpp@61000000{
 
 	seth1-cpw {
 		compatible = "sprd,seth";
-		sprd,name = "rmnet1";
+		sprd,name = "seth_w1";
 		sprd,dst = <2>;
 		sprd,channel = <8>;
 		sprd,blknum = <64>;
@@ -649,40 +641,37 @@ sprd_vpp@61000000{
 
 	seth2-cpw {
 		compatible = "sprd,seth";
-		sprd,name = "rmnet2";
+		sprd,name = "seth_w2";
 		sprd,dst = <2>;
 		sprd,channel = <9>;
 		sprd,blknum = <64>;
 	};
-	scproc_cpw: scproc {
+
+	scproc_cpw: scproc@0x88000000 {
 		compatible = "sprd,scproc";
 		sprd,name = "cpw";
 		sprd,ctrl-reg = <0x44 0x44 0xb0 0xff>; /* <shut_down deep_sleep reset get_status> */
 		sprd,ctrl-mask = <0x02000000 0x10000000 0x01 0xf0000>; /* masks <> */
-		/* sprd,iram-data = <0xe59f0000 0xe12fff10 0x88300000>; */ /* 3rd param equals modem_addr*/
-		reg = <0x88000000 0x1b00000>,  /* <CP_start_addr total_size> = <+128M 27M> */
-		/*	<0x50000000 0x0c>, */ /* <iram1_base size> */
-		/*	<0x402b0000 0x10000>; */ /* <pmu_base size> */
+		sprd,iram-data = <0xe59f0000 0xe12fff10 0x88300000>; /* 3rd param equals modem_addr*/
+		reg = <0x88000000 0x1c00000>, /* <CP_start_addr total_size> = <+128M 26M> */
 			<0x50000000 0x0c>, /* <iram1_base size> */
-			<0x402b0000 0x10000>,
-			<0x402b0000 0x10000>,
-			<0x402b0000 0x10000>,
+			<0x402b0000 0x10000>, /* <pmu_base size> */
+			<0x402b0000 0x10000>, /* <pmu_base size> */
+			<0x402b0000 0x10000>, /* <pmu_base size> */
 			<0x402b0000 0x10000>; /* <pmu_base size> */
 		interrupts = <0 84 0x0>; /* cp1_wdg_int */
 		#address-cells = <1>;
 		#size-cells = <1>;
 		/* segnr=2 */
-		/*
 		ranges = <0x300000 0x88300000 0x00800000>,
 				<0x20000 0x88020000 0x00220000>;
-		*/
-		modem {
+		modem@0x300000 {
 			cproc,name = "modem";
-			/* reg = <0x300000 0x00800000>; */ /* <modem_addr size> */
+			reg = <0x300000 0x00800000>; /* <modem_addr size> */
 		};
-		dsp {
+		dsp@0x20000 {
 			cproc,name = "dsp";
-			/* reg = <0x20000 0x00220000>; */ /* <dsp_addr size>*/
+			reg = <0x20000 0x00220000>; /* <dsp_addr size>*/
 		};
 	};
 

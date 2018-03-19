@@ -177,20 +177,20 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 	int error, last_dev;
 
 #ifdef CONFIG_SEC_GPIO_DVS
-    /************************ Caution !!! ****************************/
-    /* This function must be located in appropriate SLEEP position
-     * in accordance with the specification of each BB vendor.
-     */
-    /************************ Caution !!! ****************************/
-    gpio_dvs_check_sleepgpio();
+		/************************ Caution !!! ****************************/
+		/* This function must be located in appropriate SLEEP position
+		 * in accordance with the specification of each BB vendor.
+		 */
+		/************************ Caution !!! ****************************/
+		gpio_dvs_check_sleepgpio();
 #ifdef SECGPIO_SLEEP_DEBUGGING
-    /************************ Caution !!! ****************************/
-    /* This func. must be located in an appropriate position for GPIO SLEEP debugging
-     * in accordance with the specification of each BB vendor, and 
-     * the func. must be called after calling the function "gpio_dvs_check_sleepgpio"
-     */
-    /************************ Caution !!! ****************************/
-    gpio_dvs_set_sleepgpio();
+		/************************ Caution !!! ****************************/
+		/* This func. must be located in an appropriate position for GPIO SLEEP debugging
+		 * in accordance with the specification of each BB vendor, and 
+		 * the func. must be called after calling the function "gpio_dvs_check_sleepgpio"
+		 */
+		/************************ Caution !!! ****************************/
+		gpio_dvs_set_sleepgpio();
 #endif
 #endif
 

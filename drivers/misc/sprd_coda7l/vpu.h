@@ -95,7 +95,8 @@ struct vpu_dev {
     struct device_node *dev_np;
 };
 
-
+#define VPU_CLK_NUM 3  //Depend on chip design
+#define VPU_CLK_LEVEL_NUM 4  //Depend on chip design
 #define VPU_DEBUG 1
 
 

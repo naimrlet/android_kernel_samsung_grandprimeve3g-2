@@ -355,7 +355,7 @@ static const char *sprd_boards_compat[] __initdata = {
 };
 extern struct smp_operations sprd_smp_ops;
 
-MACHINE_START(SCPHONE, "sc8830")
+MACHINE_START(SCPHONE, "sc9830")
 	.smp		= smp_ops(sprd_smp_ops),
 	.reserve	= sci_reserve,
 	.map_io		= sci_map_io,

@@ -68,7 +68,4 @@ void gserial_disconnect(struct gserial *);
 int gser_bind_config(struct usb_configuration *c, u8 port_num);
 int obex_bind_config(struct usb_configuration *c, u8 port_num);
 
-#define ACM_MODEM_PORT		0
-#define ACM_LOGGING_PORT	1
-
 #endif /* __U_SERIAL_H */

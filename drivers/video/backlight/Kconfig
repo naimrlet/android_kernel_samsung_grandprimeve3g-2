@@ -475,13 +475,6 @@ config BACKLIGHT_KTD2801
 	  If you have a backlight driven by a KTD2801, say Y here to
 	  enable its driver.
 
-config BACKLIGHT_KTD3102
-	tristate "Backlight driver for KTD3012"
-	depends on BACKLIGHT_CLASS_DEVICE
-	help
-	  If you have a backlight driven by a KTD3012, say Y here to
-	  enable its driver.
-
 config BACKLIGHT_RT4502
 	tristate "Backlight driver for RT4502"
 	depends on BACKLIGHT_CLASS_DEVICE

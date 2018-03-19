@@ -218,9 +218,9 @@
 			caps = <0xC00F8D47>;
 			caps2 = <0x202>;
 			pm_caps = <0x4>;
-			writeDelay = <0x28>;
-			readPosDelay = <0x11>;
-			readNegDelay = <0x11>;
+			writeDelay = <0x34>;
+			readPosDelay = <0x8>;
+			readNegDelay = <0x8>;
 		};
 
 		sdio0: sdio@20300000{
@@ -541,9 +541,8 @@
 		compatible = "sprd,sprd_vsp";
 		reg = <0x60900000 0xc000>;
 		interrupts = <0 43 0x0>;
-		clock-names = "clk_mm_i", "clk_vsp", "clk_parent_0", "clk_parent_1", "clk_parent_2", "clk_parent_3";
-		clocks = <&clk_mm>, <&clk_vsp>, <&clk_312m>, <&clk_256m>, <&clk_128m>, <&clk_76m8>;
-		clock-parent-info = <2 4>;
+		clock-names = "clk_mm_i", "clk_vsp";
+		clocks = <&clk_mm>, <&clk_vsp>;
 		version = <3>;
 	};
 	sprd_jpg {
@@ -645,14 +644,26 @@
 	sprd_sensor {
 		compatible  = "sprd,sprd_sensor";
 		reg = <0x60c00000 0x100000>;
-		gpios = <&d_gpio_gpio 44 0	/*main reset*/
-				 &d_gpio_gpio 46 0	/*main powerdown*/
-				 &d_gpio_gpio 45 0	/*sub reset*/
-				 &d_gpio_gpio 47 0	/*sub powerdown*/
-				 &d_gpio_gpio 134 0	/*main core voltage*/
-				 &d_gpio_gpio 0 0
-				 &d_gpio_gpio 0 0
-				 &d_gpio_gpio 0 0>;
+		gpios = <&d_gpio_gpio 44 0    /* 0: main reset*/
+			     &d_gpio_gpio 46 0    /* 1: main powerdown*/
+			     &d_gpio_gpio 45 0    /* 2:sub reset*/
+			     &d_gpio_gpio 47 0    /* 3:sub powerdown*/
+			     &d_gpio_gpio 134 0     /* 4:main core voltage*/
+		       &d_gpio_gpio 134 0     /* 5:sub core voltage*/
+		       &d_gpio_gpio 0 0   /* 6:flash mode en */
+		       &d_gpio_gpio 0 0   /* 7:torch mode en*/
+		       &d_gpio_gpio 0 0   /* 8:3rd camea rst*/
+		       &d_gpio_gpio 0 0   /* 9:3rd camea pwdn*/
+		       &d_gpio_gpio 0 0   /* 10:3rd camea switch en */
+		       &d_gpio_gpio 0 0   /* 11:3rd camea switch mode*/
+		       &d_gpio_gpio 0 0   /* 12:main id*/
+		       &d_gpio_gpio 0 0   /* 13:main avdd voltage*/
+		       &d_gpio_gpio 0 0   /* 14:sub avdd voltage*/
+		       &d_gpio_gpio 0 0    /* 15:none used*/
+		       &d_gpio_gpio 0 0    /* 16:none used*/
+		       &d_gpio_gpio 0 0    /* 17:none used*/
+		       &d_gpio_gpio 0 0    /* 18:none used*/
+		       &d_gpio_gpio 0 0>;  /* 19:none used*/
 		clock-names ="clk_mm_i","clk_sensor","clk_ccir","clk_dcam","clk_dcam_mipi";
 		clocks = <&clk_mm>,<&clk_sensor>,<&clk_ccir>,<&clk_dcam>,<&clk_dcam_mipi>;
 	};
@@ -873,7 +884,9 @@
 		#size-cells = <1>;
 		/* segnr=2 */
 		ranges = <0x1800000 0x8ae00000 0x03100000>,
-			<0x20000 0x89620000 0x00320000>;
+			<0x20000 0x89620000 0x00320000>,
+                         <0x20d0000 0x8b6d0000 0x40000>,
+                         <0x2110000 0x8b710000 0x60000>;
 		modem@0x1800000 {
 			cproc,name = "modem";
 			reg = <0x1800000 0x031000000>; /* <modem_addr size> */
@@ -886,16 +899,24 @@
 			cproc,name = "ldsp";
 			reg = <0x300000 0x1c0000>; /* <dsp_addr size>*/
 		};
+		fixnv@0x20d0000 {
+			cproc,name = "fixnv";
+			reg = <0x20d0000 0x40000>;
+		};
+		runnv@0x2110000 {
+			cproc,name = "runnv";
+			reg = <0x2110000 0x60000>;
+		};
 	};
 
 	usb: usb@20200000 {
 		compatible  = "sprd,usb";
 		interrupts = <0 55 0x0>;
-		ngpios = <1>;
-		gpios = <&a_eic_gpio 0 0>;
+		vbus-gpios = <&a_eic_gpio 0 0>;
 		reg = <0x20200000 0x1000>;
 		tune_value = <0x078e33>;
 		usb-supply = <&vddusb>;
+		phy-type = "usb20_synops_phy";
 		#address-cells = <1>;
 		#size-cells = <0>;
 	};
@@ -968,6 +989,9 @@
 		reg = <0x60000000 0x10000>;
 		interrupts = <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>, <0 39 0>;
 		interrupt-names = "IRQGP", "IRQGPMMU", "IRQPP0", "IRQPPMMU0", "IRQPP1", "IRQPPMMU1", "IRQPMU";
+
+		pmu_domain_config = <0x1000 0x1000 0x1000 0x0 0x0 0x0 0x0 0x0 0x0 0x1000 0x0 0x0>;
+		pmu_switch_delay = <0xffff>;
 
 		clocks = <&clk_gpu_axi>,<&clk_gpu>,<&clk_153m6>,<&clk_192m>,<&clk_256m>,<&clk_307m2>,<&clk_384m>,<&clk_512m>;
 		clock-names = "clk_gpu_axi","clk_gpu","clk_153m6","clk_192m","clk_256m","clk_307m2","clk_384m","clk_512m";

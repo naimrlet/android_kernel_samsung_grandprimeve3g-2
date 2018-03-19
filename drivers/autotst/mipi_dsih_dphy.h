@@ -19,9 +19,6 @@
 #define R_DPHY_TST_CRTL0 	(0xB4)
 #define R_DPHY_TST_CRTL1  	(0xB8)
 
-#ifdef FB_DSIH_VERSION_1P21A
-#define R_DSI_HOST_PHY_IF_CTRL      0x5CUL                                                                           
-#endif
 
 
 

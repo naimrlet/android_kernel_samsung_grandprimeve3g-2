@@ -35,40 +35,40 @@ extern struct class *sec_class;
 
 enum boot_events_type {
 	SYSTEM_START_INIT_PROCESS,
-	PLATFORM_START_PRELOAD_RESOURCES,
-	PLATFORM_START_PRELOAD_CLASSES,
-	PLATFORM_END_PRELOAD_CLASSES,
-	PLATFORM_END_PRELOAD_RESOURCES,
+    PLATFORM_START_PRELOAD,
+    PLATFORM_END_PRELOAD,
 	PLATFORM_START_INIT_AND_LOOP,
 	PLATFORM_START_PACKAGEMANAGERSERVICE,
 	PLATFORM_END_PACKAGEMANAGERSERVICE,
 	PLATFORM_END_INIT_AND_LOOP,
+	PLATFORM_PERFORMENABLESCREEN,
 	PLATFORM_ENABLE_SCREEN,
 	PLATFORM_BOOT_COMPLETE,
 	PLATFORM_VOICE_SVC,
 	PLATFORM_DATA_SVC,
+	PLATFORM_PHONEAPP_ONCREATE,
 	RIL_UNSOL_RIL_CONNECTED,
 	RIL_SETRADIOPOWER_ON,
 	RIL_SETUICCSUBSCRIPTION,
     RIL_SIM_RECORDSLOADED,
     RIL_RUIM_RECORDSLOADED,
-	RIL_SETUPDATACALL,
+	RIL_SETUPDATACALL
 };
 
 static struct boot_event boot_events[] = {
 	{SYSTEM_START_INIT_PROCESS,"!@Boot: start init process",0},
-	{PLATFORM_START_PRELOAD_RESOURCES,"!@Boot: beginofpreloadResources()",0},
-	{PLATFORM_START_PRELOAD_CLASSES,"!@Boot: beginofpreloadClasses()",0},
-	{PLATFORM_END_PRELOAD_CLASSES,"!@Boot: EndofpreloadClasses()",0},
-	{PLATFORM_END_PRELOAD_RESOURCES,"!@Boot: End of preloadResources()",0},
-	{PLATFORM_START_INIT_AND_LOOP, "!@Boot: Entered the Android system server!", 0},
+	{PLATFORM_START_PRELOAD,"!@Boot: Begin of preload()",0},
+	{PLATFORM_END_PRELOAD,"!@Boot: End of preload()",0},
+	{PLATFORM_START_INIT_AND_LOOP,"!@Boot: Entered the Android system server!",0},
 	{PLATFORM_START_PACKAGEMANAGERSERVICE,"!@Boot: Start PackageManagerService",0},
 	{PLATFORM_END_PACKAGEMANAGERSERVICE,"!@Boot: End PackageManagerService",0},
-	{PLATFORM_END_INIT_AND_LOOP, "!@Boot: Loop forever", 0},
+	{PLATFORM_END_INIT_AND_LOOP,"!@Boot: Loop forever",0},
+	{PLATFORM_PERFORMENABLESCREEN,"!@Boot: performEnableScreen",0},
 	{PLATFORM_ENABLE_SCREEN,"!@Boot: Enabling Screen!",0},
 	{PLATFORM_BOOT_COMPLETE,"!@Boot: bootcomplete",0},
 	{PLATFORM_VOICE_SVC,"!@Boot: Voice SVC is acquired",0},
 	{PLATFORM_DATA_SVC,"!@Boot: Data SVC is acquired",0},
+	{PLATFORM_PHONEAPP_ONCREATE,"!@Boot_SVC : PhoneApp OnCrate",0},
 	{RIL_UNSOL_RIL_CONNECTED,"!@Boot_SVC : RIL_UNSOL_RIL_CONNECTED",0},
 	{RIL_SETRADIOPOWER_ON,"!@Boot_SVC : setRadioPower on",0},
 	{RIL_SETUICCSUBSCRIPTION,"!@Boot_SVC : setUiccSubscription",0},
@@ -92,7 +92,7 @@ static int sec_boot_stat_proc_show(struct seq_file *m, void *v)
 
 	while(boot_events[i].string != NULL)
 	{
-		seq_printf(m,"%-35s : %5u    %5d\n",boot_events[i].string,
+		seq_printf(m,"%-50s : %5u    %5d\n",boot_events[i].string,
 				boot_events[i].time, delta);
 		delta = boot_events[i+1].time - \
 			boot_events[i].time;
@@ -160,6 +160,7 @@ static int __init sec_bsp_init(void)
 	if (!entry)
 		return -ENOMEM;
 
+	
 	BUG_ON(!sec_class);
 	sec_bsp_dev = device_create(sec_class, NULL, 0, NULL, "bsp");
 	BUG_ON(!sec_bsp_dev);

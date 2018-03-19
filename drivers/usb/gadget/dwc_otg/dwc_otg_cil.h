@@ -167,7 +167,7 @@ typedef struct dwc_ep {
 #endif				//DWC_UTE_CFI
 
 /** Max DMA Descriptor count for any EP */
-#define MAX_DMA_DESC_CNT 256
+#define MAX_DMA_DESC_CNT 32
 	/** Allocated DMA Desc count */
 	uint32_t desc_cnt;
 
@@ -925,6 +925,10 @@ struct dwc_otg_core_if {
 	uint32_t start_doeptsiz_val[MAX_EPS_CHANNELS];
 	ep_xfer_info_t ep_xfer_info[MAX_EPS_CHANNELS];
 	dwc_timer_t *ep_xfer_timer[MAX_EPS_CHANNELS];
+
+	ep_xfer_info_t epin_xfer_info[MAX_EPS_CHANNELS];
+	dwc_timer_t *epin_xfer_timer[MAX_EPS_CHANNELS];
+
 #ifdef DEBUG
 	uint32_t start_hcchar_val[MAX_EPS_CHANNELS];
 
@@ -1043,6 +1047,7 @@ extern void hc_xfer_timeout(void *ptr);
  * This function is called when transfer is timed out on endpoint.
  */
 extern void ep_xfer_timeout(void *ptr);
+extern void epin_xfer_timeout(void *ptr);
 
 /*
  * The following functions are functions for works

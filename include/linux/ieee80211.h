@@ -2035,6 +2035,7 @@ enum ieee80211_sa_query_action {
 #define WLAN_CIPHER_SUITE_SMS4		0x00147201
 #define WLAN_CIPHER_SUITE_PMK		0x00904C00 /* 802.11r */
 
+
 /* AKM suite selectors */
 #define WLAN_AKM_SUITE_8021X		0x000FAC01
 #define WLAN_AKM_SUITE_PSK		0x000FAC02

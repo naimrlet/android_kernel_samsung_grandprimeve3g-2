@@ -225,7 +225,9 @@ extern void mmc_ctrl_power(struct mmc_host *host, bool onoff);
 void wlan_set_mmchost(struct mmc_host *mmc)
 {
 	if(wlan_mmc == NULL){
+		pr_err("[dbg] %s(%d) mmc(%p)\n", __func__, __LINE__, mmc);
 		wlan_mmc = mmc;
+		pr_err("[dbg] %s(%d) wlan_mmc(%p)\n", __func__, __LINE__, wlan_mmc);
 	}
 	else
 		printk("%s, fail to get mmc_host for wlan\n",__FUNCTION__);
@@ -236,7 +238,9 @@ int wlan_device_power(int on)
 {
 	int i;
 	pr_info("%s:%d \n", __func__, on);
+	pr_err("[dbg] %s(%d) on(%d)\n", __func__, __LINE__, on);
 
+	pr_err("[dbg] %s(%d) GPIO_WIFI_SHUTDOWN(%d)\n", __func__, __LINE__, GPIO_WIFI_SHUTDOWN);
 	if(on) {
   		gpio_direction_output(GPIO_WIFI_SHUTDOWN, 1);
 	}
@@ -247,6 +251,7 @@ int wlan_device_power(int on)
 	
 	// WLAN SDIO init CLK Patch
 	if(wlan_mmc){
+		pr_err("[dbg] %s(%d) wlan_mmc(%p)\n", __func__, __LINE__, wlan_mmc);
 		mmc_ctrl_power(wlan_mmc,on);
 	}
 	return 0;
@@ -281,10 +286,13 @@ static __used unsigned int wlan_device_status(struct device *dev)
 int wlan_device_set_carddetect(int val)
 {
 	pr_info("%s: %d\n", __func__, val);
+	pr_err("[dbg] %s: %d\n", __func__, val);
 
 	if(wlan_mmc) {
+		pr_err("[dbg] %s(%d)\n", __func__, __LINE__);
 		mmc_detect_change(wlan_mmc, 0);
 	} else {
+		pr_err("[dbg] %s(%d)\n", __func__, __LINE__);
 		pr_info("%s  wlan_mmc is null,carddetect failed \n ",__func__);
 	}
 	return 0;
@@ -323,6 +331,8 @@ static struct platform_device sprd_wlan_device = {
 static int __init wlan_device_init(void)
 {
 	int ret;
+
+	pr_err("[dbg] %s(%d)\n", __func__, __LINE__);
 	init_wifi_mem();
 //	wlan_ldo_enable();
 	wlan_clk_init();

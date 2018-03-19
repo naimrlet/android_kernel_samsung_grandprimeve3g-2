@@ -45,6 +45,12 @@
 #include "sd_ops.h"
 #include "sdio_ops.h"
 
+#ifdef CONFIG_MMC_SUPPORT_STLOG
+#include <linux/stlog.h>
+#else
+#define ST_LOG(fmt,...)
+#endif
+
 /* If the device is not responding */
 #define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
 
@@ -55,7 +61,7 @@
 #define MMC_BKOPS_MAX_TIMEOUT	(4 * 60 * 1000) /* max time to wait in ms */
 
 static struct workqueue_struct *workqueue;
-static const unsigned freqs[] = { 400000, 300000, 200000, 100000 };
+static const unsigned freqs[] = { 400000,100000 };
 
 /*
  * Enabling software CRCs on the data blocks can be a significant (30%)
@@ -1257,7 +1263,9 @@ int mmc_regulator_set_ocr(struct mmc_host *mmc,
 			result = 0;
 
 		if (result == 0 && !mmc->regulator_enabled) {
-			result = regulator_enable(supply);
+			if (!regulator_is_enabled(supply)){
+				result = regulator_enable(supply);
+			}
 			if (!result)
 				mmc->regulator_enabled = true;
 		}
@@ -1417,7 +1425,7 @@ int mmc_set_signal_voltage(struct mmc_host *host, int signal_voltage)
 	mmc_set_ios(host);
 
 	/* Wait for at least 1 ms according to spec */
-	mmc_delay(1);
+	mmc_delay(10);
 
 	/*
 	 * Failure to switch is indicated by the card holding
@@ -1561,7 +1569,7 @@ void mmc_power_cycle(struct mmc_host *host)
 {
 	mmc_power_off(host);
 	/* Wait at least 1 ms according to SD spec */
-	mmc_delay(1);
+	mmc_delay(300);
 	mmc_power_up(host);
 }
 
@@ -2356,6 +2364,7 @@ int _mmc_detect_card_removed(struct mmc_host *host)
 	if (ret) {
 		mmc_card_set_removed(host->card);
 		pr_debug("%s: card remove detected\n", mmc_hostname(host));
+		ST_LOG("<%s> %s: card remove detected\n", __func__,mmc_hostname(host));
 	}
 
 	return ret;
@@ -2459,6 +2468,8 @@ void mmc_rescan(struct work_struct *work)
 		mmc_release_host(host);
 		goto out;
 	}
+
+	ST_LOG("<%s> %s insertion detected",__func__,host->class_dev.kobj.name);
 
 	mmc_claim_host(host);
 	for (i = 0; i < ARRAY_SIZE(freqs); i++) {
@@ -2689,6 +2700,7 @@ int mmc_cache_ctrl(struct mmc_host *host, u8 enable)
 }
 EXPORT_SYMBOL(mmc_cache_ctrl);
 
+#ifdef CONFIG_BCM43454
 void mmc_ctrl_power(struct mmc_host *host, bool onoff)
 {
 	mmc_claim_host(host);
@@ -2701,6 +2713,7 @@ void mmc_ctrl_power(struct mmc_host *host, bool onoff)
 	mmc_release_host(host);
 }
 EXPORT_SYMBOL(mmc_ctrl_power);
+#endif /* CONFIG_BCM43454 */
 
 #ifdef CONFIG_PM
 
@@ -2874,6 +2887,81 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 	return 0;
 }
 #endif
+
+#define MIN_WAIT_MS	5
+static int mmc_wait_trans_state(struct mmc_card *card, unsigned int wait_ms)
+{
+	int waited = 0;
+	int status = 0;
+
+	mmc_send_status(card, &status);
+
+	while (R1_CURRENT_STATE(status) != R1_STATE_TRAN) {
+		if (waited > wait_ms)
+			return 0;
+		mdelay(MIN_WAIT_MS);
+		waited += MIN_WAIT_MS;
+		mmc_send_status(card, &status);
+	}
+	return waited;
+}
+
+/*
+ * Turn the bkops mode ON/OFF.
+ */
+int mmc_bkops_enable(struct mmc_host *host, u8 value)
+{
+	struct mmc_card *card = host->card;
+	unsigned long flags;
+	int err = 0;
+	u8 ext_csd[512];
+
+	if (!card)
+		return err;
+
+	mmc_claim_host(host);
+
+	/* read ext_csd to get EXT_CSD_BKOPS_EN field value */
+	err = mmc_send_ext_csd(card, ext_csd);
+	if (err) {
+		mmc_wait_trans_state(card, 100);
+		err = mmc_send_ext_csd(card, ext_csd);
+		if (err) {
+			pr_err("%s: error %d sending ext_csd\n",
+					mmc_hostname(card->host), err);
+			goto bkops_out;
+		}
+	}
+
+	/* set value to put EXT_CSD_BKOPS_EN field */
+	value |= ext_csd[EXT_CSD_BKOPS_EN] & 0x1;
+	err = mmc_switch(card, EXT_CSD_CMD_SET_NORMAL,
+			EXT_CSD_BKOPS_EN, value,
+			card->ext_csd.generic_cmd6_time);
+	if (err) {
+		pr_err("%s: bkops mode error %d\n", mmc_hostname(host), err);
+		goto bkops_out;
+	}
+
+	/* read ext_csd again to get EXT_CSD_BKOPS_EN field value */
+	mmc_wait_trans_state(card, 20);
+	err = mmc_send_ext_csd(card, ext_csd);
+
+	if (!err) {
+		spin_lock_irqsave(&card->bkops_lock, flags);
+		card->bkops_enable = ext_csd[EXT_CSD_BKOPS_EN];
+		spin_unlock_irqrestore(&card->bkops_lock, flags);
+	} else {
+		pr_err("%s: error %d confirming ext_csd value\n",
+				mmc_hostname(card->host), err);
+	}
+
+bkops_out:
+	mmc_release_host(host);
+
+	return err;
+}
+EXPORT_SYMBOL(mmc_bkops_enable);
 
 /**
  * mmc_init_context_info() - init synchronization context

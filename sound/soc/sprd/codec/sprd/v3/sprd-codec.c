@@ -118,8 +118,8 @@ enum {
 };
 
 #define GET_PGA_ID(x)   ((x)-SPRD_CODEC_PGA_START)
-#define SPRD_CODEC_PGA_MAX_NUM  (SPRD_CODEC_PGA_END - SPRD_CODEC_PGA_START)
-static const char *sprd_codec_pga_debug_str[SPRD_CODEC_PGA_MAX_NUM] = {
+#define SPRD_CODEC_PGA_MAX  (SPRD_CODEC_PGA_END - SPRD_CODEC_PGA_START)
+static const char *sprd_codec_pga_debug_str[SPRD_CODEC_PGA_MAX] = {
 	"SPKL",
 	"SPKR",
 	"HPL",
@@ -347,7 +347,7 @@ struct sprd_codec_priv {
 	int ad_sample_val;
 	int ad1_sample_val;
 	struct sprd_codec_mixer mixer[SPRD_CODEC_MIXER_MAX];
-	struct sprd_codec_pga_op pga[SPRD_CODEC_PGA_MAX_NUM];
+	struct sprd_codec_pga_op pga[SPRD_CODEC_PGA_MAX];
 	int mic_bias[SPRD_CODEC_MIC_BIAS_MAX];
 
 	int ap_irq;
@@ -677,7 +677,7 @@ static int sprd_codec_pga_ailr_set(struct snd_soc_codec *codec, int pgaval)
 	return snd_soc_update_bits(codec, SOC_REG(reg), 0x03, val);
 }
 
-static struct sprd_codec_pga sprd_codec_pga_cfg[SPRD_CODEC_PGA_MAX_NUM] = {
+static struct sprd_codec_pga sprd_codec_pga_cfg[SPRD_CODEC_PGA_MAX] = {
 	{sprd_codec_pga_spk_set, 0},
 	{sprd_codec_pga_spkr_set, 0},
 	{sprd_codec_pga_hpl_set, 0},
@@ -1098,8 +1098,11 @@ static void sprd_codec_ovp_delay_worker(struct work_struct *work)
 	struct snd_soc_codec *codec = sprd_codec->codec;
 
 	if (!(snd_soc_read(codec, IFR2_IFR1) & BIT(OVP_FLAG))) {
+		sprd_ovp_irq(codec, 0);
 	} else {
 		sprd_codec_pa_ldo_v_sel(codec, 0x7);
+		sprd_ovp_irq(codec, 1);
+		sprd_codec_ovp_start(sprd_codec, 500);
 	}
 }
 
@@ -3717,6 +3720,13 @@ static int sprd_codec_probe(struct platform_device *pdev)
 				     SPRD_CODEC_HP_PA_VER_MAX);
 				return -EINVAL;
 			}
+		}
+		if (!of_property_read_u32(node, "sprd,ap_irq", &val)) {
+			sprd_codec->ap_irq = val;
+			sp_asoc_pr_dbg("Set AP IRQ is %d!\n", val);
+		} else {
+			pr_err("ERR:Must give me the AP IRQ!\n");
+			return -EINVAL;
 		}
 		if (!of_property_read_u32(node, "sprd,dp_irq", &val)) {
 			sprd_codec->dp_irq = val;

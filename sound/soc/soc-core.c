@@ -44,6 +44,7 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/asoc.h>
+#include <sound/sprd_memcpy_ops.h>
 
 #define NAME_SIZE	32
 
@@ -222,7 +223,7 @@ static ssize_t codec_reg_read_file(struct file *file, char __user *user_buf,
 
 	ret = soc_codec_reg_show(codec, buf, count, *ppos);
 	if (ret >= 0) {
-		if (copy_to_user(user_buf, buf, ret)) {
+		if (unalign_copy_to_user(user_buf, buf, ret)) {
 			kfree(buf);
 			return -EFAULT;
 		}
@@ -243,7 +244,7 @@ static ssize_t codec_reg_write_file(struct file *file,
 	struct snd_soc_codec *codec = file->private_data;
 
 	buf_size = min(count, (sizeof(buf)-1));
-	if (copy_from_user(buf, user_buf, buf_size))
+	if (unalign_copy_from_user(buf, user_buf, buf_size))
 		return -EFAULT;
 	buf[buf_size] = 0;
 

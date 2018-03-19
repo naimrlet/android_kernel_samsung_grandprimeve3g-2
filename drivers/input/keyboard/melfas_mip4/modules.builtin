@@ -1,0 +1,5 @@
+kernel/drivers/input/keyboard/melfas_mip4/mip4.ko
+kernel/drivers/input/keyboard/melfas_mip4/mip4_mod.ko
+kernel/drivers/input/keyboard/melfas_mip4/mip4_debug.ko
+kernel/drivers/input/keyboard/melfas_mip4/mip4_fw_mhs204.ko
+kernel/drivers/input/keyboard/melfas_mip4/mip4_sec.ko

@@ -32,7 +32,7 @@ typedef struct LCM_force_cmd_code_tag{
 	LCM_Init_Code real_cmd_code;
 }LCM_Force_Cmd_Code;
 
-#ifdef CONFIG_MACH_GRANDPRIME3G_VE
+#if defined(CONFIG_MACH_GRANDPRIME3G_VE) || defined(CONFIG_MACH_GRANDPRIME_DTV)
 static int is_gpio_request2=0;
 #endif
 
@@ -149,7 +149,7 @@ static int32_t hx8389c_mipi_init(struct panel_spec *self)
 	return 0;
 }
 
-#ifdef CONFIG_MACH_GRANDPRIME3G_VE
+#if defined(CONFIG_MACH_GRANDPRIME3G_VE) || defined(CONFIG_MACH_GRANDPRIME_DTV)
 static uint32_t hx8389c_before_resume(struct panel_spec *self)
 {
 	if(is_gpio_request2==0){
@@ -258,7 +258,7 @@ static struct panel_operations lcd_hx8389c_mipi_operations = {
 	.panel_init = hx8389c_mipi_init,
 	.panel_readid = hx8389c_readid,
 	.panel_enter_sleep = hx8389c_enter_sleep,
-#ifdef CONFIG_MACH_GRANDPRIME3G_VE
+#if defined(CONFIG_MACH_GRANDPRIME3G_VE) || defined(CONFIG_MACH_GRANDPRIME_DTV)
 	.panel_after_suspend=hx8389c_after_suspend,
 	.panel_before_resume=hx8389c_before_resume,
 #endif

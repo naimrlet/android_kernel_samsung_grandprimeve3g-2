@@ -59,6 +59,7 @@
 #define I2C_CTL_NOACK_INT_EN	(1 << 7)	/* no ack int enable */
 #define I2C_CTL_NOACK_INT_STS		(1 << 8)	/* no ack int status */
 #define I2C_CTL_NOACK_INT_CLR	(1 << 9)	/* no ack int clear */
+#define I2C_CTL_PULLUP_MODE	(1 << 10)	/* I2C PULL UP */
 
 #if defined(CONFIG_I2C_SPRD_R6P0_DUTY)
 #define I2C_CTL_DUTY			(1 << 11)		 /* I2c DUTY*/
@@ -94,31 +95,25 @@ struct sprd_i2c {
 	void __iomem *membase;
 	struct clk *clk;
 	int irq;
+	struct sprd_platform_i2c *pdata;
 };
 
 struct sprd_platform_i2c {
 	unsigned int normal_freq;	/* normal bus frequency */
 	unsigned int fast_freq;	/* fast frequency for the bus */
 	unsigned int min_freq;	/* min frequency for the bus */
+	unsigned int pull_up_mode;	/* I2C pull up mode */
 };
 
 static struct sprd_platform_i2c sprd_platform_i2c_default = {
 	.normal_freq = 100 * 1000,
 	.fast_freq = 400 * 1000,
 	.min_freq = 10 * 1000,
+	.pull_up_mode = 0,
 };
 
 static struct sprd_i2c *sprd_i2c_ctl_id[SPRD_I2C_CTL_ID];
 static unsigned int sprd_version_num = 0x0600; /*I2c have version number after r6p0*/
-
-static inline struct sprd_platform_i2c *sprd_i2c_get_platformdata(struct device
-								  *dev)
-{
-	if (dev != NULL && dev->platform_data != NULL)
-		return (struct sprd_platform_i2c *)dev->platform_data;
-
-	return &sprd_platform_i2c_default;
-}
 
 static inline int
 sprd_i2c_poll_ctl_status(struct sprd_i2c *pi2c, unsigned long bit)
@@ -359,7 +354,7 @@ sprd_i2c_master_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 	int im = 0;
 	int ret = 0;
 	struct sprd_i2c *pi2c = i2c_adap->algo_data;
-	clk_prepare_enable(pi2c->clk);
+	clk_enable(pi2c->clk);
 
 	dev_dbg(&i2c_adap->dev, "%s() msg num=%d\n", __func__, num);
 
@@ -367,7 +362,7 @@ sprd_i2c_master_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 		dev_dbg(&i2c_adap->dev, "%s() msg im=%d\n", __func__, im);
 		ret = sprd_i2c_handle_msg(i2c_adap, &msgs[im], im == num - 1);
 	}
-	clk_disable_unprepare(pi2c->clk);
+	clk_disable(pi2c->clk);
 
 	return (ret >= 0)? im : -1;
 }
@@ -403,8 +398,10 @@ static void sprd_i2c_set_clk(struct sprd_i2c *pi2c, unsigned int freq)
 	#else
 	__raw_writel(i2c_div & 0xffff, pi2c->membase + I2C_CLKD0);
 	#endif
+
 	/*fixed 400k start time issue after r7p0*/
 	if ((sprd_version_num >>8) >= 0x07) {
+		__raw_writel(0X75, pi2c->membase + I2C_STA_STO_DVD);
 		if(freq == 400000)
 			__raw_writel(0X10, pi2c->membase + I2C_STA_STO_DVD);
 	}
@@ -420,20 +417,19 @@ static void sprd_i2c_set_clk(struct sprd_i2c *pi2c, unsigned int freq)
 void sprd_i2c_ctl_chg_clk(unsigned int id_nr, unsigned int freq)
 {
 	unsigned int tmp;
-	clk_prepare_enable(sprd_i2c_ctl_id[id_nr]->clk);
+	struct sprd_i2c *pi2c = sprd_i2c_ctl_id[id_nr] ;
 
-	tmp = __raw_readl(sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
-	__raw_writel(tmp & (~I2C_CTL_EN),
-		     sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
-	tmp = __raw_readl(sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
+	clk_enable(pi2c->clk);
+	tmp = __raw_readl(pi2c->membase + I2C_CTL);
+	__raw_writel(tmp & (~I2C_CTL_EN), pi2c->membase + I2C_CTL);
+	tmp = __raw_readl(pi2c->membase + I2C_CTL);
+	pi2c->pdata->normal_freq = freq;
+	sprd_i2c_set_clk(pi2c, pi2c->pdata->normal_freq);
 
-	sprd_i2c_set_clk(sprd_i2c_ctl_id[id_nr], freq);
-
-	tmp = __raw_readl(sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
-	__raw_writel(tmp | I2C_CTL_EN,
-		     sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
-	tmp = __raw_readl(sprd_i2c_ctl_id[id_nr]->membase + I2C_CTL);
-	clk_disable_unprepare(sprd_i2c_ctl_id[id_nr]->clk);
+	tmp = __raw_readl(pi2c->membase + I2C_CTL);
+	__raw_writel(tmp | I2C_CTL_EN, pi2c->membase + I2C_CTL);
+	tmp = __raw_readl(pi2c->membase + I2C_CTL);
+	clk_disable(pi2c->clk);
 	
 }
 
@@ -471,7 +467,6 @@ return 0;
 static void sprd_i2c_enable(struct sprd_i2c *pi2c)
 {
 	unsigned int tmp;
-	struct sprd_platform_i2c *pdata;
 
 	tmp = __raw_readl(pi2c->membase + I2C_CTL);
 	__raw_writel(tmp & ~I2C_CTL_EN, pi2c->membase + I2C_CTL);
@@ -480,19 +475,22 @@ static void sprd_i2c_enable(struct sprd_i2c *pi2c)
 	tmp = __raw_readl(pi2c->membase + I2C_CTL);
 	__raw_writel(tmp & ~I2C_CTL_CMDBUF_EN, pi2c->membase + I2C_CTL);
 
-	pdata = sprd_i2c_get_platformdata(pi2c->adap.dev.parent);
-	dev_dbg(&pi2c->adap.dev, "%s() freq=%d\n", __func__,
-		pdata->normal_freq);
-	sprd_i2c_set_clk(pi2c, pdata->normal_freq);
+	dev_err(&pi2c->adap.dev, "%s() freq=%d\n", __func__,
+		pi2c->pdata->normal_freq);
+	sprd_i2c_set_clk(pi2c, pi2c->pdata->normal_freq);
 
 	tmp = __raw_readl(pi2c->membase + I2C_CTL);
 	sprd_version_num = tmp >> 16;
 	#if defined(CONFIG_I2C_SPRD_R6P0_DUTY)
-	__raw_writel(tmp | I2C_CTL_EN | I2C_CTL_IE|I2C_CTL_DUTY, pi2c->membase + I2C_CTL);
+	tmp |= I2C_CTL_EN | I2C_CTL_IE | I2C_CTL_DUTY;
 	#else
-	__raw_writel(tmp | I2C_CTL_EN | I2C_CTL_IE, pi2c->membase + I2C_CTL);
+	tmp |= I2C_CTL_EN | I2C_CTL_IE;
 	#endif
 
+	if (pi2c->pdata->pull_up_mode)
+		tmp |= I2C_CTL_PULLUP_MODE;
+
+	__raw_writel(tmp, pi2c->membase + I2C_CTL);
 	__raw_writel(I2C_CMD_INT_ACK, pi2c->membase + I2C_CMD);
 
 }
@@ -518,13 +516,6 @@ static int sprd_i2c_probe(struct platform_device *pdev)
 		ret = -ENODEV;
 		goto free_adapter;
 	}
-#if 0
-	if (!request_mem_region(res->start, resource_size(res), "sc8810-i2c")) {
-		printk("I2C:request_mem_region failed!\n");
-		ret = -EBUSY;
-		goto free_adapter;
-	}
-#endif
 
 	i2c_set_adapdata(&pi2c->adap, pi2c);
 	snprintf(pi2c->adap.name, sizeof(pi2c->adap.name), "%s", "sprd-i2c");
@@ -538,7 +529,20 @@ static int sprd_i2c_probe(struct platform_device *pdev)
 			res->end - res->start);
 	if (!pi2c->membase)
 		panic("ioremap failed!\n");
+
+	pi2c->pdata = devm_kzalloc(&pdev->dev,
+			sizeof(struct sprd_platform_i2c), GFP_KERNEL);
+	if (!pi2c->pdata) {
+		ret = -ENOMEM;
+		goto free_adapter;
+	}
+	memcpy(pi2c->pdata, &sprd_platform_i2c_default,
+			sizeof(struct sprd_platform_i2c));
 	pi2c->adap.dev.of_node = pdev->dev.of_node;
+
+	of_property_read_u32(pdev->dev.of_node, "pull_up_mode",
+		&pi2c->pdata->pull_up_mode);
+
 	dev_info(&pdev->dev, "%s() id=%d, base=%p \n", __func__, pi2c->adap.nr,
 		 pi2c->membase);
 	ret = sprd_i2c_clk_init(pi2c);
@@ -546,16 +550,17 @@ static int sprd_i2c_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "get src clk failed\n");
 		goto release_region;
 	}
-	
+
 	clk_prepare_enable(pi2c->clk);
 	sprd_i2c_enable(pi2c);
 	
-	clk_disable_unprepare(pi2c->clk);
+	clk_disable(pi2c->clk);
 
 
 	ret = i2c_add_numbered_adapter(&pi2c->adap);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "add_adapter failed!\n");
+		clk_unprepare(pi2c->clk);
 		goto release_region;
 	}
 
@@ -583,72 +588,34 @@ static int sprd_i2c_remove(struct platform_device *pdev)
 	//struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 	i2c_del_adapter(&pi2c->adap);
-	kfree(pi2c);
-
 	//release_mem_region(res->start, resource_size(res));
-
-	platform_set_drvdata(pdev, NULL);
-
-#ifdef CONFIG_I2C_RESUME_EARLY
+	clk_unprepare(pi2c->clk);
+	kfree(pi2c);
+	#ifdef CONFIG_I2C_RESUME_EARLY
 	pdev_chip_i2c[pdev->id] = NULL;
-#endif
+	#endif
+	platform_set_drvdata(pdev, NULL);
 
 	return 0;
 }
 
 #if defined (CONFIG_PM) && defined(CONFIG_ARCH_SCX35)
-struct i2c_regs {
-	unsigned long ctl;/*0x0*/
-	unsigned long cmd;/*0x4*/
-	unsigned long div0;/*0x8*/
-	unsigned long div1;/*0xc*/
-	unsigned long rst;/*0x10*/
-	unsigned long cmd_buf;/*0x14*/
-	unsigned long cmd_buf_ctl;/*0x18*/
-
-	/*global i2c_regs*/
-};
-
-static struct i2c_regs l2c_saved_regs[SPRD_I2C_CTL_ID];
 static int i2c_controller_suspend(struct platform_device *pdev,
 				      pm_message_t state)
 {
 	struct sprd_i2c *pi2c = platform_get_drvdata(pdev);
-
-	if (pi2c && (pi2c->adap.nr < ARRAY_SIZE(l2c_saved_regs))) {
-		clk_prepare_enable(pi2c->clk);		
-		l2c_saved_regs[pi2c->adap.nr].ctl = __raw_readl(pi2c->membase + I2C_CTL);
-		l2c_saved_regs[pi2c->adap.nr].cmd = __raw_readl(pi2c->membase + I2C_CMD);
-		l2c_saved_regs[pi2c->adap.nr].div0 = __raw_readl(pi2c->membase + I2C_CLKD0);
-		l2c_saved_regs[pi2c->adap.nr].div1 = __raw_readl(pi2c->membase + I2C_CLKD1);
-		l2c_saved_regs[pi2c->adap.nr].rst = __raw_readl(pi2c->membase + I2C_RST);
-		l2c_saved_regs[pi2c->adap.nr].cmd_buf = __raw_readl(pi2c->membase + I2C_CMD_BUF);
-		l2c_saved_regs[pi2c->adap.nr].cmd_buf_ctl = __raw_readl(pi2c->membase + I2C_CMD_BUF_CTL);
-	}
-	if (pi2c && !IS_ERR(pi2c->clk))
-		clk_disable_unprepare(pi2c->clk);
+	
+	clk_unprepare(pi2c->clk);
 	return 0;
 }
 
 static int i2c_controller_resume(struct platform_device *pdev)
 {
-	unsigned int tmp;
 	struct sprd_i2c *pi2c = platform_get_drvdata(pdev);
 
-	if (pi2c && !IS_ERR(pi2c->clk))
-		clk_prepare_enable(pi2c->clk);
-	if (pi2c) {
-		tmp = __raw_readl( pi2c->membase + I2C_CTL);
-		__raw_writel(tmp & (~I2C_CTL_EN), pi2c->membase + I2C_CTL);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].div0, pi2c->membase + I2C_CLKD0);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].div1, pi2c->membase + I2C_CLKD1);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].ctl, pi2c->membase + I2C_CTL);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].cmd, pi2c->membase + I2C_CMD);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].rst, pi2c->membase + I2C_RST);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].cmd_buf, pi2c->membase + I2C_CMD_BUF);
-		__raw_writel(l2c_saved_regs[pi2c->adap.nr].cmd_buf_ctl, pi2c->membase + I2C_CMD_BUF_CTL);
-		clk_disable_unprepare(pi2c->clk);
-	}
+	clk_prepare_enable(pi2c->clk);	
+	sprd_i2c_enable(pi2c);	
+	clk_disable(pi2c->clk);
 	return 0;
 }
 

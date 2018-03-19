@@ -202,7 +202,6 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"BN", "BN", 4},
 	{"BG", "BG", 4},
 	{"KH", "KH", 2},
-	{"CA", "US", 0},
 	{"KY", "KY", 3},
 	{"CN", "CN", 38},
 	{"CO", "CO", 17},
@@ -308,7 +307,11 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"LY", "LI", 4},
 	{"BO", "NG", 0},
 	{"UM", "PR", 38},
-	{"CU", "US", 0},
+	/* Support FCC 15.407 (Part 15E) Changes, effective June 2 2014 */
+	/* US/988, Q2/993 country codes with higher power on UNII-1 5G band */
+	{"US", "US", 988},
+	{"CU", "US", 988},
+	{"CA", "Q2", 993},
 #endif /* default ccode/regrev */
 };
 
@@ -1487,7 +1490,7 @@ int sec_get_param_wfa_cert(dhd_pub_t *dhd, int mode, uint* read_val)
 
 	fp = filp_open(filepath, O_RDONLY, 0);
 	if (IS_ERR(fp) || (fp == NULL)) {
-		DHD_ERROR(("[WIFI_SEC] %s: File open failed, file path=%s\n",
+		DHD_ERROR(("[WIFI_SEC] %s: File [%s] doesn't exist \n",
 			__FUNCTION__, filepath));
 		return BCME_ERROR;
 	} else {

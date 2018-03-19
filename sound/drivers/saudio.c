@@ -79,6 +79,10 @@
 #define SAUDIO_CMD_TRIGGER              0x00000020
 #define SAUDIO_CMD_HANDSHAKE            0x00000040
 #define SAUDIO_CMD_RESET		0x00000080
+#define SAUDIO_CMD_SET_PLAYBACK_ROUTE		0x00000100
+#define SAUDIO_CMD_SET_CAPTURE_ROUTE		0x00000200
+#define SAUDIO_CMD_ENABLE_LOOP		0x00000400
+#define SAUDIO_CMD_TYPE_LOOP		0x00000800
 
 #define SAUDIO_CMD_OPEN_RET		0x00010000
 #define SAUDIO_CMD_CLOSE_RET		0x00020000
@@ -88,6 +92,10 @@
 #define SAUDIO_CMD_TRIGGER_RET		0x00200000
 #define SAUDIO_CMD_HANDSHAKE_RET	0x00400000
 #define SAUDIO_CMD_RESET_RET		0x00800000
+#define SAUDIO_CMD_SET_PLAYBACK_ROUTE_RET		0x01000000
+#define SAUDIO_CMD_SET_CAPTURE_ROUTE_RET		0x02000000
+#define SAUDIO_CMD_ENABLE_LOOP_RET		0x04000000
+#define SAUDIO_CMD_TYPE_LOOP_RET		0x08000000
 
 #define SAUDIO_DATA_PCM			0x00000040
 #define SAUDIO_DATA_SILENCE		0x00000080
@@ -205,12 +213,87 @@ struct snd_saudio {
 	struct task_struct * thread_id;
 	int32_t state;
 	struct mutex mutex;
+	uint32_t kcon_val_playback;
+	uint32_t kcon_val_capture;
+	uint32_t kcon_val_en;
+	uint32_t kcon_val_type;
 };
 
 static DEFINE_MUTEX(snd_sound);
 
 static int saudio_snd_card_free(const struct snd_saudio *saudio);
 
+static int snd_pcm_playback_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+
+static int snd_pcm_playback_control_route_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_playback_control_route_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_capture_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+
+static int snd_pcm_capture_control_route_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_capture_control_route_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_loop_enable_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+
+static int snd_pcm_loop_enable_control_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_loop_enable_control_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_loop_type_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo);
+
+static int snd_pcm_loop_type_control_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static int snd_pcm_loop_type_control_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol);
+
+static struct snd_kcontrol_new __playbackcontroldata = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "PCM PLAYBACK Route",
+	.count = 1,
+	.info = snd_pcm_playback_control_info,
+	.get = snd_pcm_playback_control_route_get,
+	.put = snd_pcm_playback_control_route_put
+};
+
+static struct snd_kcontrol_new __capturecontroldata = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "PCM CAPTURE Route",
+	.count = 1,
+	.info = snd_pcm_capture_control_info,
+	.get = snd_pcm_capture_control_route_get,
+	.put = snd_pcm_capture_control_route_put
+};
+
+static struct snd_kcontrol_new __loopenabledata = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "PCM LOOP Enable",
+	.count = 1,
+	.info = snd_pcm_loop_enable_control_info,
+	.get = snd_pcm_loop_enable_control_get,
+	.put = snd_pcm_loop_enable_control_put
+};
+
+static struct snd_kcontrol_new __looptypedata = {
+	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	.name = "PCM LOOP Type",
+	.count = 1,
+	.info = snd_pcm_loop_type_control_info,
+	.get = snd_pcm_loop_type_control_get,
+	.put = snd_pcm_loop_type_control_put
+};
 
 static int saudio_clear_cmd(uint32_t dst, uint32_t channel)
 {
@@ -226,6 +309,33 @@ static int saudio_clear_cmd(uint32_t dst, uint32_t channel)
 	return result;
 }
 
+
+static int saudio_send_common_cmd_ex(uint32_t dst, uint32_t channel,
+				  uint32_t cmd, uint32_t subcmd, uint32_t reserve1, uint32_t reserve2,
+				  int32_t timeout)
+{
+	int result = 0;
+	struct sblock blk = { 0 };
+	ADEBUG();
+	pr_debug(" dst is %d, channel %d, cmd %x, subcmd %x, reserve1 %d, reserve2 %d\n", dst, channel,
+		 cmd, subcmd, reserve1, reserve2);
+	saudio_clear_cmd( dst,  channel);
+	result = sblock_get(dst, channel, (struct sblock *)&blk, timeout);
+	printk(KERN_INFO "yaye saudio_send_common_cmd_ex cmd %x, subcmd %x, reserve1 %d, reserve2 %d!!!!\n",
+		cmd, subcmd, reserve1, reserve2);
+	if (result >= 0) {
+		struct cmd_common *common = (struct cmd_common *)blk.addr;
+		common->command = cmd;
+		common->sub_cmd = subcmd;
+		common->reserved1 = reserve1;
+		common->reserved2 = reserve2;
+		blk.length = sizeof(struct cmd_common);
+		pr_debug(" dst is %d, channel %d, cmd %x, subcmd %x, reserve1 %d, reserve2 %d send ok\n",
+			 dst, channel, cmd, subcmd, reserve1, reserve2);
+		result = sblock_send(dst, channel, (struct sblock *)&blk);
+	}
+	return result;
+}
 
 static int saudio_send_common_cmd(uint32_t dst, uint32_t channel,
 				  uint32_t cmd, uint32_t subcmd,
@@ -1029,7 +1139,7 @@ static int saudio_snd_notify_modem_clear(struct snd_saudio *saudio)
 	struct saudio_dev_ctrl *dev_ctrl = NULL;
 	int result = 0;
 	dev_ctrl = &saudio->dev_ctrl[0];
-	printk(KERN_INFO "saudio.c:saudio_snd_notify_mdem_clear in");
+	printk(KERN_INFO "saudio.c:saudio_snd_notify_mdem_clear in\n");
 	result =
 	    saudio_send_common_cmd(dev_ctrl->dst, dev_ctrl->monitor_channel,
 				   SAUDIO_CMD_RESET, 0, -1);
@@ -1045,7 +1155,7 @@ static int saudio_snd_notify_modem_clear(struct snd_saudio *saudio)
 		    printk(KERN_ERR "saudio_wait_monitor_cmd error %d\n", result);
 	    }
 	}
-	printk(KERN_INFO "saudio.c:saudio_snd_notify_mdem_clear out");
+	printk(KERN_INFO "saudio.c:saudio_snd_notify_mdem_clear out\n");
 	return result;
 }
 
@@ -1163,6 +1273,42 @@ static int saudio_snd_init_card(struct snd_saudio *saudio)
 	       SAUDIO_CARD_NAME_LEN_MAX);
 	memcpy(saudio->card->longname, dev_ctrl->name,
 	       SAUDIO_CARD_NAME_LEN_MAX);
+
+{
+	struct snd_kcontrol *kctl;
+
+	kctl = snd_ctl_new1(&__playbackcontroldata, saudio);
+	err = snd_ctl_add(saudio->card, kctl);
+	printk(KERN_INFO "yaye saudio.c:kcontrol create entry1!!!!saudio:%x, kctl:%x, card:%x, add_err:%d \n",
+	saudio,kctl,saudio->card,err);
+}
+
+{
+	struct snd_kcontrol *kctl;
+
+	kctl = snd_ctl_new1(&__capturecontroldata, saudio);
+	err = snd_ctl_add(saudio->card, kctl);
+	printk(KERN_INFO "yaye saudio.c:kcontrol create entry2!!!!saudio:%x, kctl:%x, card:%x, add_err:%d \n",
+	saudio,kctl,saudio->card,err);
+}
+
+{
+	struct snd_kcontrol *kctl;
+
+	kctl = snd_ctl_new1(&__loopenabledata, saudio);
+	err = snd_ctl_add(saudio->card, kctl);
+	printk(KERN_INFO "yaye saudio.c:kcontrol create entry3!!!!saudio:%x, kctl:%x, card:%x, add_err:%d \n",
+	saudio,kctl,saudio->card,err);
+}
+
+{
+	struct snd_kcontrol *kctl;
+
+	kctl = snd_ctl_new1(&__looptypedata, saudio);
+	err = snd_ctl_add(saudio->card, kctl);
+	printk(KERN_INFO "yaye saudio.c:kcontrol create entry3!!!!saudio:%x, kctl:%x, card:%x, add_err:%d \n",
+	saudio,kctl,saudio->card,err);
+}
 
 	err = snd_card_register(saudio->card);
 
@@ -1353,7 +1499,7 @@ static int snd_saudio_probe(struct platform_device *devptr)
 		}
 		return -1;
 	}
-	printk("saudio:workqueue create ok");
+	printk("saudio:workqueue create ok\n");
 	INIT_WORK(&saudio->card_free_work, saudio_work_card_free_handler);
 
 	platform_set_drvdata(devptr, saudio);
@@ -1429,6 +1575,231 @@ static void __exit alsa_card_saudio_exit(void)
 {
 	platform_driver_unregister(&snd_saudio_driver);
 	return;
+}
+
+static int snd_pcm_playback_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = kcontrol->count;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 1;
+	return 0;
+}
+
+static int snd_pcm_playback_control_route_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	printk(KERN_INFO "yaye snd_pcm_playback_control_route_get entry!!!kcontrol:%x!\n",kcontrol);
+	if(kcontrol){
+		int i=0;
+
+		if(kcontrol->private_data){
+			struct snd_saudio *saudio = kcontrol->private_data;
+
+			ucontrol->value.integer.value[0] = saudio->kcon_val_playback;
+			printk(KERN_INFO "yaye snd_pcm_playback_control_route_get!!!! get value %d\n", ucontrol->value.integer.value[0]);
+		}
+	}
+	return 0;
+}
+
+static int snd_pcm_playback_control_route_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	int changed = 0;
+	int result = 0;
+	int i=0;
+	struct snd_saudio *saudio = kcontrol->private_data;
+
+	if (ucontrol->value.integer.value[0] !=  saudio->kcon_val_playback){
+		printk(KERN_INFO "yaye snd_pcm_playback_control_route_put entry set value:%d !!!\n", ucontrol->value.integer.value[0]);
+		saudio->kcon_val_playback = ucontrol->value.integer.value[0];
+		changed = 1;
+
+
+		result =
+			saudio_send_common_cmd_ex(saudio->dst, saudio->channel,
+					   SAUDIO_CMD_SET_PLAYBACK_ROUTE, SAUDIO_CMD_SET_PLAYBACK_ROUTE, ucontrol->value.integer.value[0], 0,
+					   0);
+		if (result) {
+			ETRACE("saudio.c: snd_card_saudio_pcm_trigger: error! send_common_cmd result is %d!\n",result);
+			if(result != (-ERESTARTSYS))
+			saudio_snd_card_free(saudio);
+			return result;
+		}
+	}
+
+	return changed;
+}
+
+static int snd_pcm_capture_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = kcontrol->count;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 2;
+	return 0;
+}
+
+static int snd_pcm_capture_control_route_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	printk(KERN_INFO "yaye snd_pcm_capture_control_route_get entry!!!kcontrol:%x!\n",kcontrol);
+	if(kcontrol){
+		int i=0;
+
+		if(kcontrol->private_data){
+			struct snd_saudio *saudio = kcontrol->private_data;
+
+			ucontrol->value.integer.value[0] = saudio->kcon_val_capture;
+			printk(KERN_INFO "yaye snd_pcm_capture_control_route_get!!!! get value %d\n", ucontrol->value.integer.value[0]);
+		}
+	}
+	return 0;
+}
+
+static int snd_pcm_capture_control_route_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	int changed = 0;
+	int result = 0;
+	int i=0;
+	struct snd_saudio *saudio = kcontrol->private_data;
+
+	if (ucontrol->value.integer.value[0] !=  saudio->kcon_val_capture){
+		printk(KERN_INFO "yaye snd_pcm_capture_control_route_put entry set value:%d !!!\n", ucontrol->value.integer.value[0]);
+		saudio->kcon_val_capture = ucontrol->value.integer.value[0];
+		changed = 1;
+
+
+		result =
+			saudio_send_common_cmd_ex(saudio->dst, saudio->channel,
+					   SAUDIO_CMD_SET_CAPTURE_ROUTE, SAUDIO_CMD_SET_CAPTURE_ROUTE, ucontrol->value.integer.value[0], 0,
+					   0);
+		if (result) {
+			ETRACE("saudio.c: snd_pcm_capture_control_route_put:error! send_common_cmd result is %d!\n",result);
+			if(result != (-ERESTARTSYS))
+			saudio_snd_card_free(saudio);
+			return result;
+		}
+	}
+	return changed;
+}
+
+static int snd_pcm_loop_enable_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = kcontrol->count;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 0xffff;
+	return 0;
+}
+static int snd_pcm_loop_enable_control_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	printk(KERN_INFO "yaye snd_pcm_loop_enable_control_get entry!!!kcontrol:%x!\n",kcontrol);
+	if(kcontrol){
+		int i=0;
+
+		if(kcontrol->private_data){
+			struct snd_saudio *saudio = kcontrol->private_data;
+
+			ucontrol->value.integer.value[0] = saudio->kcon_val_en;
+			printk(KERN_INFO "yaye snd_pcm_loop_enable_control_get!!!! get value %d!\n", ucontrol->value.integer.value[0]);
+		}
+	}
+	return 0;
+}
+
+static int snd_pcm_loop_enable_control_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	int changed = 0;
+	int result = 0;
+	int i=0;
+	struct snd_saudio *saudio = kcontrol->private_data;
+
+
+	if (ucontrol->value.integer.value[0] !=  saudio->kcon_val_en){
+		printk(KERN_INFO "yaye snd_pcm_loop_enable_control_put entry set value[0]:%d !!!\n", ucontrol->value.integer.value[0]);
+		saudio->kcon_val_en = ucontrol->value.integer.value[0];
+		changed = 1;
+
+		int loop_enable = saudio->kcon_val_en;
+		printk(KERN_INFO "yaye snd_pcm_loop_enable_control_put loop_enable %d!!!!\n", loop_enable);
+		result =
+			saudio_send_common_cmd_ex(saudio->dst, saudio->channel,
+				SAUDIO_CMD_ENABLE_LOOP, SAUDIO_CMD_ENABLE_LOOP, loop_enable, 0,
+				0);
+		if (result) {
+			ETRACE("yaye snd_pcm_loop_enable_control_put: RESUME, send_common_cmd result is %d!\n",result);
+			if(result != (-ERESTARTSYS))
+			saudio_snd_card_free(saudio);
+			return result;
+		}
+	}
+
+	return changed;
+}
+
+static int snd_pcm_loop_type_control_info(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = kcontrol->count;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 0xffff;
+	return 0;
+}
+static int snd_pcm_loop_type_control_get(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	printk(KERN_INFO "yaye snd_pcm_loop_type_control_get entry!!!kcontrol:%x!\n",kcontrol);
+	if(kcontrol){
+		int i=0;
+
+		if(kcontrol->private_data){
+			struct snd_saudio *saudio = kcontrol->private_data;
+
+			ucontrol->value.integer.value[0] = saudio->kcon_val_type;
+			printk(KERN_INFO "yaye snd_pcm_loop_type_control_get!!!! get value %d!\n", ucontrol->value.integer.value[0]);
+		}
+	}
+	return 0;
+}
+
+static int snd_pcm_loop_type_control_put(struct snd_kcontrol *kcontrol,
+	struct snd_ctl_elem_value *ucontrol)
+{
+	int changed = 0;
+	int result = 0;
+	int i=0;
+	struct snd_saudio *saudio = kcontrol->private_data;
+
+
+	if (ucontrol->value.integer.value[0] !=  saudio->kcon_val_type){
+		printk(KERN_INFO "yaye snd_pcm_loop_type_control_put entry set value:%d!!!\n", ucontrol->value.integer.value[0]);
+		saudio->kcon_val_type = ucontrol->value.integer.value[0];
+		changed = 1;
+
+		int loop_type = saudio->kcon_val_type;
+		printk(KERN_INFO "yaye snd_pcm_loop_type_control_put loop_type %d!!!!\n", loop_type);
+		result =
+			saudio_send_common_cmd_ex(saudio->dst, saudio->channel,
+				SAUDIO_CMD_TYPE_LOOP, SAUDIO_CMD_TYPE_LOOP, loop_type, 0,
+				0);
+		if (result) {
+			ETRACE("yaye snd_pcm_loop_type_control_put: RESUME, send_common_cmd result is %d!\n",result);
+			if(result != (-ERESTARTSYS))
+			saudio_snd_card_free(saudio);
+			return result;
+		}
+	}
+
+	return changed;
 }
 
 module_init(alsa_card_saudio_init)

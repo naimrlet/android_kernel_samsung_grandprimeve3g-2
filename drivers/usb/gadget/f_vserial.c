@@ -91,49 +91,79 @@ static struct usb_interface_descriptor vser_interface_desc = {
 	.bInterfaceProtocol     = 0,
 };
 
-static struct usb_endpoint_descriptor vser_highspeed_in_desc = {
+/* super speed support */
+static struct usb_endpoint_descriptor vser_ss_in_desc = {
+	.bLength =		USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType =	USB_DT_ENDPOINT,
+	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize =	__constant_cpu_to_le16(1024),
+};
+
+static struct usb_endpoint_descriptor vser_ss_out_desc = {
+	.bLength =		USB_DT_ENDPOINT_SIZE,
+	.bDescriptorType =	USB_DT_ENDPOINT,
+	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
+	.wMaxPacketSize =	__constant_cpu_to_le16(1024),
+};
+
+static struct usb_ss_ep_comp_descriptor vser_ss_bulk_comp_desc = {
+	.bLength =              sizeof vser_ss_bulk_comp_desc,
+	.bDescriptorType =      USB_DT_SS_ENDPOINT_COMP,
+};
+
+static struct usb_descriptor_header *vser_ss_function[] = {
+	(struct usb_descriptor_header *) &vser_interface_desc,
+	(struct usb_descriptor_header *) &vser_ss_in_desc,
+	(struct usb_descriptor_header *) &vser_ss_bulk_comp_desc,
+	(struct usb_descriptor_header *) &vser_ss_out_desc,
+	(struct usb_descriptor_header *) &vser_ss_bulk_comp_desc,
+	NULL,
+};
+
+/* high speed support */
+static struct usb_endpoint_descriptor vser_hs_in_desc = {
 	.bLength                = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType        = USB_DT_ENDPOINT,
-	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
-static struct usb_endpoint_descriptor vser_highspeed_out_desc = {
+static struct usb_endpoint_descriptor vser_hs_out_desc = {
 	.bLength                = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType        = USB_DT_ENDPOINT,
-	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize         = __constant_cpu_to_le16(512),
 };
 
-static struct usb_endpoint_descriptor vser_fullspeed_in_desc = {
+static struct usb_descriptor_header *vser_hs_function[] = {
+	(struct usb_descriptor_header *) &vser_interface_desc,
+	(struct usb_descriptor_header *) &vser_hs_in_desc,
+	(struct usb_descriptor_header *) &vser_hs_out_desc,
+	NULL,
+};
+
+/* full speed support */
+static struct usb_endpoint_descriptor vser_fs_in_desc = {
 	.bLength                = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_IN,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
 };
 
-static struct usb_endpoint_descriptor vser_fullspeed_out_desc = {
+static struct usb_endpoint_descriptor vser_fs_out_desc = {
 	.bLength                = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType        = USB_DT_ENDPOINT,
 	.bEndpointAddress       = USB_DIR_OUT,
 	.bmAttributes           = USB_ENDPOINT_XFER_BULK,
 };
 
-static struct usb_descriptor_header *fs_vser_descs[] = {
+static struct usb_descriptor_header *vser_fs_function[] = {
 	(struct usb_descriptor_header *) &vser_interface_desc,
-	(struct usb_descriptor_header *) &vser_fullspeed_in_desc,
-	(struct usb_descriptor_header *) &vser_fullspeed_out_desc,
+	(struct usb_descriptor_header *) &vser_fs_in_desc,
+	(struct usb_descriptor_header *) &vser_fs_out_desc,
 	NULL,
 };
 
-static struct usb_descriptor_header *hs_vser_descs[] = {
-	(struct usb_descriptor_header *) &vser_interface_desc,
-	(struct usb_descriptor_header *) &vser_highspeed_in_desc,
-	(struct usb_descriptor_header *) &vser_highspeed_out_desc,
-	NULL,
-};
 
 
 /* temporary variable used between vser_open() and vser_gadget_bind() */
@@ -298,16 +328,18 @@ static int vser_create_bulk_endpoints(struct vser_dev *dev,
 	}
 
 #ifdef CONFIG_SPRD_IQ
-    if(in_iqmode()){
-        for (i = 0; i < TX_REQ_MAX; i++) {
-            struct usb_request *req = usb_ep_alloc_request(ep, GFP_KERNEL);
-            if (!req)
-                goto fail;
-            req->buf = NULL;
-            req->complete = vser_iq_complete_in;
-            vser_req_put(dev, &dev->tx_iq_idle, req);
-        }
-    }
+	if (in_iqmode()) {
+		for (i = 0; i < TX_REQ_MAX; i++) {
+			struct usb_request *req = NULL;
+
+			req = usb_ep_alloc_request(dev->ep_in, GFP_KERNEL);
+			if (!req)
+				goto fail;
+			req->buf = NULL;
+			req->complete = vser_iq_complete_in;
+			vser_req_put(dev, &dev->tx_iq_idle, req);
+		}
+	}
 #endif
 
 	return 0;
@@ -352,7 +384,8 @@ static ssize_t vser_read(struct file *fp, char __user *buf,
 requeue_req:
 	/* queue a request */
 	req = dev->rx_req;
-	req->length = count;
+	/* Make bulk-out requests be divisible by the maxpacket size */
+	req->length = ALIGN(count, dev->ep_out->maxpacket);
 	dev->rx_done = 0;
 	ret = usb_ep_queue(dev->ep_out, req, GFP_ATOMIC);
 	if (ret < 0) {
@@ -550,22 +583,28 @@ vser_function_bind(struct usb_configuration *c, struct usb_function *f)
 	vser_interface_desc.bInterfaceNumber = id;
 
 	/* allocate endpoints */
-	ret = vser_create_bulk_endpoints(dev, &vser_fullspeed_in_desc,
-			&vser_fullspeed_out_desc);
+	ret = vser_create_bulk_endpoints(dev, &vser_fs_in_desc,
+			&vser_fs_out_desc);
 	if (ret)
 		return ret;
 
-	/* support high speed hardware */
-	if (gadget_is_dualspeed(c->cdev->gadget)) {
-		vser_highspeed_in_desc.bEndpointAddress =
-			vser_fullspeed_in_desc.bEndpointAddress;
-		vser_highspeed_out_desc.bEndpointAddress =
-			vser_fullspeed_out_desc.bEndpointAddress;
-	}
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
+	vser_hs_in_desc.bEndpointAddress = vser_fs_in_desc.bEndpointAddress;
+	vser_hs_out_desc.bEndpointAddress = vser_fs_out_desc.bEndpointAddress;
 
-	DBG(cdev, "%s speed %s: IN/%s, OUT/%s\n",
+	vser_ss_in_desc.bEndpointAddress = vser_fs_in_desc.bEndpointAddress;
+	vser_ss_out_desc.bEndpointAddress = vser_fs_out_desc.bEndpointAddress;
+
+
+	DBG(cdev, "%s speed IN/%s OUT/%s\n",
+			f->name,
+			gadget_is_superspeed(c->cdev->gadget) ? "super" :
 			gadget_is_dualspeed(c->cdev->gadget) ? "dual" : "full",
-			f->name, dev->ep_in->name, dev->ep_out->name);
+			dev->ep_in->name, dev->ep_out->name);
+
 	return 0;
 }
 
@@ -602,7 +641,7 @@ static int vser_function_set_alt(struct usb_function *f,
 	int ret;
 
 	DBG(cdev, "vser_function_set_alt intf: %d alt: %d\n", intf, alt);
-	
+
 	ret = config_ep_by_speed(cdev->gadget, f, dev->ep_in);
 	if (ret)
 		return ret;
@@ -709,8 +748,9 @@ static int vser_bind_config(struct usb_configuration *c)
 	dev->cdev = c->cdev;
 	pr_info("vserial set desc\n");
 	dev->function.name = "vser";
-	dev->function.fs_descriptors = fs_vser_descs;
-	dev->function.hs_descriptors = hs_vser_descs;
+	dev->function.fs_descriptors = vser_fs_function;
+	dev->function.hs_descriptors = vser_hs_function;
+	dev->function.ss_descriptors = vser_ss_function;
 	dev->function.bind = vser_function_bind;
 	dev->function.unbind = vser_function_unbind;
 	dev->function.set_alt = vser_function_set_alt;

@@ -56,6 +56,9 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/arm-ipi.h>
 
+#ifdef CONFIG_SEC_DEBUG64
+#include <soc/sprd/sec_debug64.h>
+#endif
 /*
  * as from 2.5, kernels no longer have an init_tasks structure
  * so we need some other way of telling a new secondary core
@@ -69,6 +72,7 @@ enum ipi_msg_type {
 	IPI_CALL_FUNC_SINGLE,
 	IPI_CPU_STOP,
 	IPI_TIMER,
+	IPI_CPU_UP,
 };
 
 /*
@@ -495,6 +499,7 @@ static const char *ipi_types[NR_IPI] = {
 	S(IPI_CALL_FUNC_SINGLE, "Single function call interrupts"),
 	S(IPI_CPU_STOP, "CPU stop interrupts"),
 	S(IPI_TIMER, "Timer broadcast interrupts"),
+	S(IPI_CPU_UP, "hotplug cpu up by ipi"),
 };
 
 void show_ipi_list(struct seq_file *p, int prec)
@@ -527,7 +532,11 @@ static DEFINE_RAW_SPINLOCK(stop_lock);
 /*
  * ipi_cpu_stop - handle IPI from smp_send_stop()
  */
+#ifdef CONFIG_SEC_DEBUG64
+static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
+#else
 static void ipi_cpu_stop(unsigned int cpu)
+#endif
 {
 	if (system_state == SYSTEM_BOOTING ||
 	    system_state == SYSTEM_RUNNING) {
@@ -542,6 +551,12 @@ static void ipi_cpu_stop(unsigned int cpu)
 	local_fiq_disable();
 	local_irq_disable();
 
+
+	flush_cache_all();
+
+#ifdef CONFIG_SEC_DEBUG64
+	sec_debug_save_context(regs);
+#endif
 	while (1)
 		cpu_relax();
 }
@@ -586,7 +601,11 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 #ifdef CONFIG_SPRD_SYSDUMP
 		sysdump_ipi(regs);
 #endif
+#ifdef CONFIG_SEC_DEBUG64
+		ipi_cpu_stop(cpu,regs);
+#else
 		ipi_cpu_stop(cpu);
+#endif
 		irq_exit();
 		break;
 
@@ -595,6 +614,8 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 		irq_enter();
 		tick_receive_broadcast();
 		irq_exit();
+		break;
+	case IPI_CPU_UP:
 		break;
 #endif
 
@@ -606,6 +627,12 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
         sprd_debug_irq_log(ipinr, handle_IPI, 2);
 #endif
 	set_irq_regs(old_regs);
+}
+
+void smp_send_cpuup(int cpu)
+{
+       smp_cross_call(cpumask_of(cpu), IPI_CPU_UP);
+
 }
 
 void smp_send_reschedule(int cpu)

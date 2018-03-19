@@ -67,6 +67,7 @@
 
 #define BM_DEBUG_ALL_CHANNEL	0xFF
 #define BM_CHANNEL_ENABLE_FLAGE	0x03FF0000
+#define BM_CHN_NAME_CMD_OFFSET	0x7
 
 #define BM_DBG(f,x...)	printk(KERN_DEBUG "BM_DEBGU " f, ##x)
 #define BM_INFO(f,x...)	printk(KERN_INFO "BM_INFO " f, ##x)
@@ -74,24 +75,32 @@
 #define BM_ERR(f,x...)	printk(KERN_ERR "BM_ERR " f, ##x)
 
 #define PER_COUTN_LIST_SIZE 128
-/*the buf can store 8 secondes data*/
+/*the buf can store 8 secondes data must be even number*/
 #define PER_COUNT_RECORD_SIZE 800
-#define PER_COUNT_BUF_SIZE (64 * 4 * PER_COUNT_RECORD_SIZE)
+
+struct bm_per_info {
+	u32 count;
+	u32 t_start;
+	u32 t_stop;
+	u32 tmp1;
+	u32 tmp2;
+	u32 per_data[10][6];
+};
+
+#define PER_COUNT_BUF_SIZE (sizeof(struct bm_per_info) * PER_COUNT_RECORD_SIZE)
 
 #define LOG_FILE_PATH "/mnt/obb/axi_per_log"
 //#define LOG_FILE_PATH "/storage/sdcard0/axi_per_log"
 /*the log file size about 1.5Mbytes per min*/
 #define LOG_FILE_SECONDS (60  * 30)
-#define LOG_FILE_MAX_RECORDS (LOG_FILE_SECONDS * 100)
+#define LOG_FILE_MAX_RECORDS (PER_COUNT_BUF_SIZE * 1000)
 #define BM_CONTINUE_DEBUG_SIZE	20
 
 static struct file *log_file;
 static struct semaphore bm_seam;
-static int buf_read_index;
 static int buf_write_index;
 static bool bm_irq_in_process;
-/*the star log include a lot of unuseful info, we need skip it.*/
-static int buf_skip_cnt;
+static int timer_interval;
 long long t_stamp;
 static void *per_buf = NULL;
 
@@ -157,6 +166,16 @@ enum sci_bm_cmd_index {
 	BM_DBG_INT_SET,
 	BM_DISABLE,
 	BM_ENABLE,
+	BM_PROF_SET,
+	BM_PROF_CLR,
+	BM_CHN_CNT,
+	BM_RD_CNT,
+	BM_WR_CNT,
+	BM_RD_BW,
+	BM_WR_BW,
+	BM_RD_LATENCY,
+	BM_WR_LATENCY,
+	BM_KERNEL_TIME,
 	BM_CMD_MAX,
 };
 
@@ -175,15 +194,6 @@ enum sci_bm_mode {
 	PER_MODE,
 	RST_BUF_MODE,
 	*/
-};
-
-struct bm_per_info {
-	u32 count;
-	u32 t_start;
-	u32 t_stop;
-	u32 tmp1;
-	u32 tmp2;
-	u32 per_data[10][6];
 };
 
 struct sci_bm_cfg {
@@ -308,13 +318,13 @@ static struct bm_id_name bm_name_list[36] = {
 	{"ZIP"},
 	{"AP"},
 	{"MM"},
-	{"CP0 ARM0"},
-	{"CP0 ARM1"},
+	{"CP0"},
+	{"CP0"},
 	{"CP0 DSP"},
-	{"CP0 ARM0/1"},
+	{"CP0"},
 	{"CP1 LTEACC/HARQ"},
 	{"CP1 DSP"},
-	{"CP1 CA5"},
+	{"CP1"},
 	{"CP2"},
 
 	{"AP DAP"},

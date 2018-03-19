@@ -244,12 +244,12 @@ int SM5701_operation_mode_function_control(void)
         {
                 if (led_ready_state == LED_FLASH)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_FLASH_ON);
                 }
                 else if (led_ready_state == LED_MOVIE)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
 						if (pdata->charger_data->dev_id == 4)
 							SM5701_set_operationmode(
 								SM5701_OPERATIONMODE_FLASH_ON);
@@ -259,12 +259,12 @@ int SM5701_operation_mode_function_control(void)
                 }
                 else if (led_ready_state == LED_DISABLE)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_CHARGER_ON);
                 }
                 else
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_CHARGER_ON);
                 }
 
@@ -274,51 +274,51 @@ int SM5701_operation_mode_function_control(void)
         {
                 if (led_ready_state == LED_FLASH)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_FLASH_ON);
                 }
                 else if (led_ready_state == LED_MOVIE)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_FLASH_ON);
                 }
                 else if (led_ready_state == LED_DISABLE)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_CHARGER_ON);
-                }
+                }  
                 else
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_CHARGER_ON);
-                }
+                }     
         }
         else if (pdata->charger_data->cable_type == POWER_SUPPLY_TYPE_OTG)
         {
                 if (led_ready_state == LED_FLASH)
                 {
-                        SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
-                        SM5701_set_operationmode(SM5701_OPERATIONMODE_FLASH_ON);
+                        SM5701_set_bstout(SM5701_BSTOUT_4P5);
+                        SM5701_set_operationmode(SM5701_OPERATIONMODE_OTG_ON_FLASH_ON);
                 }
                 else if (led_ready_state == LED_MOVIE)
                 {
                         SM5701_set_bstout(SM5701_BSTOUT_5P0);
-                        SM5701_set_operationmode(SM5701_OPERATIONMODE_FLASH_ON);
+                        SM5701_set_operationmode(SM5701_OPERATIONMODE_OTG_ON_FLASH_ON);
                 }
                 else if (led_ready_state == LED_DISABLE)
                 {
                         SM5701_set_bstout(SM5701_BSTOUT_5P0);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_OTG_ON);
-                }
+                }  
                 else
                 {
                         SM5701_set_bstout(SM5701_BSTOUT_5P0);
                         SM5701_set_operationmode(SM5701_OPERATIONMODE_OTG_ON);
-                }
+                }    
         }
         else
         {
-                SM5701_set_bstout(SM5701_BSTOUT_VOLTAGE);
+                SM5701_set_bstout(SM5701_BSTOUT_4P5);
                 SM5701_set_operationmode(SM5701_OPERATIONMODE_CHARGER_ON);
 
         }
@@ -482,12 +482,8 @@ static struct i2c_driver SM5701_i2c_driver = {
 
 static int __init SM5701_i2c_init(void)
 {
-	int ret;
 	pr_info("%s:%s\n", MFD_DEV_NAME, __func__);
-	ret = i2c_add_driver(&SM5701_i2c_driver);
-	if (ret != 0)
-		pr_info("Failed to register SM5504 I2C driver: %d\n", ret);
-	return ret;
+	return i2c_add_driver(&SM5701_i2c_driver);
 }
 
 subsys_initcall(SM5701_i2c_init);

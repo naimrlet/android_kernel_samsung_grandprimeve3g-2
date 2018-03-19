@@ -207,6 +207,7 @@
 			regulator-selects = <1800000 2900000 3000000 3100000>;
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <3100000>;
+			status = "disabled";
 		};
 
 		vddsim1: vddsim1 {
@@ -218,6 +219,7 @@
 			regulator-selects = <1800000 2900000 3000000 3100000>;
 			regulator-min-microvolt = <1800000>;
 			regulator-max-microvolt = <3100000>;
+			status = "disabled";
 		};
 
 		vddsim2: vddsim2 {

@@ -669,6 +669,14 @@ config INPUT_SPRD_HEADSET_SHARK
 
        To compile this driver as a module, choose M here: the
        module will be called headset.
+ 
+config INPUT_SPRD_HALL
+     tristate "SPRD platform builtin hall detect driver"
+     help
+       Say Y here if you are using SPRD platform.
+
+       To compile this driver as a module, choose M here: the
+       module will be called hall-detect.
 
 config  HEADSET_KEY_VOLUME_SUPPORTED
 	bool "HEADSET_KEY_VOLUME_SUPPORTED"
@@ -688,8 +696,24 @@ config  HEADSET_STS_POLLING_DISABLED
 	help
 	  Say Y to disable HEADSET_STS_POLLING.
 
+config  HEADSET_AUXADC_CAL_SUPPORTED
+	bool "HEADSET_AUXADC_CAL_SUPPORTED"
+	depends on INPUT_SPRD_HEADSET_SHARK
+	help
+	  Say Y to enable HEADSET_AUXADC_CAL_SUPPORTED.
+
 config INPUT_LIS3DH_I2C
 	tristate "ST lid3dh 3-Axid accelerometer device with I2C bus"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you have a lis3dh device on the board and use I2C
+	  communication, else say N.
+
+	  To compile this driver as a module, choose M here.
+
+config INPUT_LIS3DH_I2C_INTERRUPT
+	tristate "ST lid3dh 3-Axid accelerometer device with I2C bus  for interrupt mode"
 	depends on I2C
 	default n
 	help
@@ -704,6 +728,26 @@ config INPUT_LIS3DH_ZT_I2C
 	default n
 	help
 	  Say Y here if you have a lis3dh_zt device on the board and use I2C
+	  communication, else say N.
+
+	  To compile this driver as a module, choose M here.
+
+config INPUT_MEM3524X_I2C
+	tristate "MEM mem3524x 3-Axid mag device with I2C bus"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you have a mem3524x device on the board and use I2C
+	  communication, else say N.
+
+	  To compile this driver as a module, choose M here.
+
+config INPUT_LSM6DS0_I2C
+	tristate "ST lsm6ds0 3-Axid accelerometer device with I2C bus"
+	depends on I2C
+	default n
+	help
+	  Say Y here if you have a lsm6ds0 device on the board and use I2C
 	  communication, else say N.
 
 	  To compile this driver as a module, choose M here.
@@ -736,4 +780,13 @@ config INPUT_EPL259X_I2C
 	  communication, else say N.
 
 	  To compile this driver as a module, choose M here.
+config INPUT_STK3311_I2C
+        tristate "STK3311 proximity and light sensor device with I2C bus"
+        depends on I2C
+        default n
+        help
+          Say Y here if you have a STK3311 device on the board and use I2C
+          communication, else say N.
+
+          To compile this driver as a module, choose M here.
 endif

@@ -66,6 +66,7 @@ source "sound/soc/sprd/Kconfig"
 
 # Supported codecs
 source "sound/soc/codecs/Kconfig"
+source "sound/soc/codecs/audience/Kconfig"
 
 # generic frame-work
 source "sound/soc/generic/Kconfig"

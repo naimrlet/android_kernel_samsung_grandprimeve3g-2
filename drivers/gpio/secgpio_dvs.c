@@ -167,59 +167,7 @@ static ssize_t checked_secgpio_file_read(
 	char temp_buf[20];
 	struct gpio_dvs *gdvs = dev_get_drvdata(dev);
 
-	for (i = 10; i < gdvs->count; i++) {
-
-	switch(i)
-        {
-#if defined (CONFIG_ARCH_SCX30G)
-			case 22  :
-				i=i+5;
-				break;
-			case 33  :
-				i=i+11;
-				break;
-			case 61 :
-				i=i+4;
-				break;
-			case 104 :
-				i=i+1;
-				break;
-			case 106 :
-				i=i+30;
-				break;
-			case 176 :
-				i=i+2;
-				break;
-			case 194 :
-				i=i+5;
-				break;
-			case 202 :
-				i=i+5;
-				break;
-			case 220 :
-				i=i+5;
-				break;
-#else
-                case 22  :
-                         i=i+5;
-                         break;
-                case 61  :
-                         i=i+4;
-                         break;
-                case 194 :
-                         i=i+5;
-                         break;
-                case 202 :
-                         i=i+5;
-                         break;
-                case 220 :
-                         i=i+5;
-                         break;
-#endif
-                default  :
-                         break;
-        }
-
+	for (i = 1; i < gdvs->count; i++) {
 		memset(temp_buf, 0, sizeof(char)*20);
 		snprintf(temp_buf, 20, "%x ", gdvs->result->init[i]);
 		strlcat(buf, temp_buf, PAGE_SIZE);
@@ -235,59 +183,7 @@ static ssize_t checked_sleep_secgpio_file_read(
 	char temp_buf[20];
 	struct gpio_dvs *gdvs = dev_get_drvdata(dev);
 
-	for (i = 10; i < gdvs->count; i++) {
-	
-		  switch(i)
-        {
-#if defined (CONFIG_ARCH_SCX30G)
-			  case 22  :
-				  i=i+5;
-				  break;
-			  case 33  :
-				  i=i+11;
-				  break;
-			  case 61 :
-				  i=i+4;
-				  break;
-			  case 104 :
-				  i=i+1;
-				  break;
-			  case 106 :
-				  i=i+30;
-				  break;
-			  case 176 :
-				  i=i+2;
-				  break;
-			  case 194 :
-				  i=i+5;
-				  break;
-			  case 202 :
-				  i=i+5;
-				  break;
-			  case 220 :
-				  i=i+5;
-				  break;
-#else
-                case 22  :
-                         i=i+5;
-                         break;
-                case 61  :
-                         i=i+4;
-                         break;
-                case 194 :
-                         i=i+5;
-                         break;
-                case 202 :
-                         i=i+5;
-                         break;
-                case 220 :
-                         i=i+5;
-                         break;
-#endif
-                default  :
-                         break;
-        }
-
+	for (i = 1; i < gdvs->count; i++) {
 		memset(temp_buf, 0, sizeof(char)*20);
 		snprintf(temp_buf, 20, "%x ", gdvs->result->sleep[i]);
 		strlcat(buf, temp_buf, PAGE_SIZE);
@@ -303,31 +199,10 @@ static ssize_t checked_secgpio_init_read_details(
 	char temp_buf[20];
 	struct gpio_dvs *gdvs = dev_get_drvdata(dev);
 
-	for (i = 10; i < gdvs->count; i++) {
-		  switch(i)
-        {
-                case 22  :
-                         i=i+5;
-                         break;
-                case 61  :
-                         i=i+4;
-                         break;
-                case 194 :
-                         i=i+5;
-                         break;
-                case 202 :
-                         i=i+5;
-                         break;
-                case 220 :
-                         i=i+5;
-                         break;
-                default  :
-                         break;
-        }
-
+	for (i = 1; i < gdvs->count; i++) {
 		memset(temp_buf, 0, sizeof(char)*20);
 		snprintf(temp_buf, 20, "GI[%d] - %x\n ",
-			i, gdvs->result->init[i]);
+			gdvs->dvs_gpio[i].gpio, gdvs->result->init[i]);
 		strlcat(buf, temp_buf, PAGE_SIZE);
 	}
 
@@ -340,31 +215,10 @@ static ssize_t checked_secgpio_sleep_read_details(
 	char temp_buf[20];
 	struct gpio_dvs *gdvs = dev_get_drvdata(dev);
 
-	for (i = 10; i < gdvs->count; i++) {
-		  switch(i)
-        {
-                case 22  :
-                         i=i+5;
-                         break;
-                case 61  :
-                         i=i+4;
-                         break;
-                case 194 :
-                         i=i+5;
-                         break;
-                case 202 :
-                         i=i+5;
-                         break;
-                case 220 :
-                         i=i+5;
-                         break;
-                default  :
-                         break;
-        }
-
+	for (i = 1; i < gdvs->count; i++) {
 		memset(temp_buf, 0, sizeof(char)*20);
 		snprintf(temp_buf, 20, "GS[%d] - %x\n ",
-			i, gdvs->result->sleep[i]);
+			gdvs->dvs_gpio[i].gpio, gdvs->result->sleep[i]);
 		strlcat(buf, temp_buf, PAGE_SIZE);
 	}
 
@@ -527,7 +381,7 @@ static int __init secgpio_dvs_init(void)
                 pr_err("Failed to create class(secgpio_check_all)");
 		goto fail_out;
         }
-#endif 
+#endif
 	ret = platform_driver_register(&secgpio_dvs);
 	pr_info("[secgpio_dvs] secgpio_dvs_init has been initialized!!!\n");
 #if 0

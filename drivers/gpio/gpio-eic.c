@@ -71,6 +71,14 @@
 #define REG_EIC_7CTRL		(0x005c)
 #define REG_EIC_DUMMYCTRL	(0x0000)
 
+#define REG_EIC_ASYNC_IE	(0x0000)	/* only for eic async */
+#define REG_EIC_ASYNC_RIS	(0x0004)
+#define REG_EIC_ASYNC_MIS	(0x0008)
+#define REG_EIC_ASYNC_IC	(0x000C)
+#define REG_EIC_ASYNC_IEV	(0x0010)
+#define REG_EIC_ASYNC_INTBOTH	(0x0014)
+#define REG_EIC_ASYNC_INTPOL	(0x0018)
+
 /* bits definitions for register REG_EIC_DUMMYCTRL */
 #define BIT_FORCE_CLK_DBNC	BIT(15)
 #define BIT_EIC_DBNC_EN		BIT(14)
@@ -78,18 +86,22 @@
 #define MASK_EIC_DBNC_CNT	(0xFFF)
 #define BITS_EIC_DBNC_CNT(_x_)	((_x) & 0xFFF)
 
-struct sci_gpio_chip {
+static struct sci_gpio_chip {
 	struct gpio_chip chip;
 
 	unsigned long base_addr;
 	uint32_t group_offset;
 	struct irq_domain *irq_domain;
 	int is_adi_gpio;
+	int is_async_gpio;
+	spinlock_t  gpio_lock;
 
 	uint32_t(*read_reg) (unsigned long addr);
 	void (*write_reg) (uint32_t value, unsigned long addr);
-	void (*set_bits) (uint32_t bits, unsigned long addr);
-	void (*clr_bits) (uint32_t bits, unsigned long addr);
+	void (*set_bits) (struct gpio_chip *chip, uint32_t bits,
+			  unsigned long addr);
+	void (*clr_bits) (struct gpio_chip *chip, uint32_t bits,
+			  unsigned long addr);
 };
 
 #define	to_sci_gpio(c)		container_of(c, struct sci_gpio_chip, chip)
@@ -105,14 +117,28 @@ static void d_write_reg(uint32_t value, unsigned long addr)
 	__raw_writel(value, (volatile void *)addr);
 }
 
-static void d_set_bits(uint32_t bits, unsigned long addr)
+static void d_set_bits(struct gpio_chip *chip, uint32_t bits,
+		       unsigned long addr)
 {
-	__raw_writel(__raw_readl((const volatile void *)addr) | bits, (volatile void *)addr);
+	unsigned long flags;
+	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
+
+	spin_lock_irqsave(&sci_gpio->gpio_lock, flags);
+	__raw_writel(__raw_readl((const volatile void *)addr) | bits,
+		     (volatile void *)addr);
+	spin_unlock_irqrestore(&sci_gpio->gpio_lock, flags);
 }
 
-static void d_clr_bits(uint32_t bits, unsigned long addr)
+static void d_clr_bits(struct gpio_chip *chip, uint32_t bits,
+		       unsigned long addr)
 {
-	__raw_writel(__raw_readl((const volatile void *)addr) & ~bits, (volatile void *)addr);
+	unsigned long flags;
+	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
+
+	spin_lock_irqsave(&sci_gpio->gpio_lock, flags);
+	__raw_writel(__raw_readl((const volatile void *)addr) & ~bits,
+		     (volatile void *)addr);
+	spin_unlock_irqrestore(&sci_gpio->gpio_lock, flags);
 }
 
 /* A-Die regs ops */
@@ -126,12 +152,14 @@ static void a_write_reg(uint32_t value, unsigned long addr)
 	sci_adi_raw_write(addr, value);
 }
 
-static void a_set_bits(uint32_t bits, unsigned long addr)
+static void a_set_bits(struct gpio_chip *chip, uint32_t bits,
+		       unsigned long addr)
 {
 	sci_adi_set(addr, bits);
 }
 
-static void a_clr_bits(uint32_t bits, unsigned long addr)
+static void a_clr_bits(struct gpio_chip *chip, uint32_t bits,
+		       unsigned long addr)
 {
 	sci_adi_clr(addr, bits);
 }
@@ -141,7 +169,8 @@ static int sci_gpio_read(struct gpio_chip *chip, uint32_t offset, uint32_t reg)
 	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
 	int group = offset / GPIO_GROUP_NR;
 	int bitof = offset & (GPIO_GROUP_NR - 1);
-	unsigned long addr = sci_gpio->base_addr + sci_gpio->group_offset * group + reg;
+	unsigned long addr = sci_gpio->base_addr +
+		sci_gpio->group_offset * group + reg;
 	int value = sci_gpio->read_reg(addr) & GPIO_GROUP_MASK;
 
 	return (value >> bitof) & 0x1;
@@ -153,12 +182,13 @@ static void sci_gpio_write(struct gpio_chip *chip, uint32_t offset,
 	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
 	int group = offset / GPIO_GROUP_NR;
 	int bitof = offset & (GPIO_GROUP_NR - 1);
-	unsigned long addr = sci_gpio->base_addr + sci_gpio->group_offset * group + reg;
+	unsigned long addr = sci_gpio->base_addr +
+		sci_gpio->group_offset * group + reg;
 
 	if (value) {
-		sci_gpio->set_bits(1 << bitof, addr);
+		sci_gpio->set_bits(chip, 1 << bitof, addr);
 	} else {
-		sci_gpio->clr_bits(1 << bitof, addr);
+		sci_gpio->clr_bits(chip, 1 << bitof, addr);
 	}
 }
 
@@ -279,6 +309,7 @@ static struct sci_gpio_chip d_sci_gpio = {
 	.set_bits = d_set_bits,
 	.clr_bits = d_clr_bits,
 	.is_adi_gpio = 0,
+	.is_async_gpio = 0,
 };
 
 static struct sci_gpio_chip a_sci_gpio = {
@@ -298,6 +329,7 @@ static struct sci_gpio_chip a_sci_gpio = {
 	.set_bits = a_set_bits,
 	.clr_bits = a_clr_bits,
 	.is_adi_gpio = 1,
+	.is_async_gpio = 0,
 };
 
 /*
@@ -321,6 +353,7 @@ static struct sci_gpio_chip d_sci_eic = {
 	.set_bits = d_set_bits,
 	.clr_bits = d_clr_bits,
 	.is_adi_gpio = 0,
+	.is_async_gpio = 0,
 };
 
 static struct sci_gpio_chip a_sci_eic = {
@@ -340,6 +373,23 @@ static struct sci_gpio_chip a_sci_eic = {
 	.set_bits = a_set_bits,
 	.clr_bits = a_clr_bits,
 	.is_adi_gpio = 1,
+	.is_async_gpio = 0,
+};
+
+static struct sci_gpio_chip d_sci_eic_async = {
+	.chip.label = "sprd-d-eic-async",
+	.chip.direction_input = sci_eic_direction_input,
+	.chip.direction_output = NULL,
+	.chip.set = NULL,
+	.chip.to_irq = sci_gpio_to_irq,
+
+	.group_offset = 0,
+	.read_reg = d_read_reg,
+	.write_reg = d_write_reg,
+	.set_bits = d_set_bits,
+	.clr_bits = d_clr_bits,
+	.is_adi_gpio = 0,
+	.is_async_gpio = 1,
 };
 
 /* GPIO/EIC irq interfaces */
@@ -351,12 +401,28 @@ static void sci_gpio_irq_ack(struct irq_data *data)
 	sci_gpio_write(chip, offset, REG_GPIO_IC, 1);
 }
 
+static void sci_eic_async_irq_ack(struct irq_data *data)
+{
+	struct gpio_chip *chip = (struct gpio_chip *)data->chip_data;
+	int offset = sci_irq_to_gpio(chip, data->irq);
+	pr_debug("%s %d+%d\n", __FUNCTION__, chip->base, offset);
+	sci_gpio_write(chip, offset, REG_EIC_ASYNC_IC, 1);
+}
+
 static void sci_gpio_irq_mask(struct irq_data *data)
 {
 	struct gpio_chip *chip = (struct gpio_chip *)data->chip_data;
 	int offset = sci_irq_to_gpio(chip, data->irq);
 	pr_debug("%s %d+%d\n", __FUNCTION__, chip->base, offset);
 	sci_gpio_write(chip, offset, REG_GPIO_IE, 0);
+}
+
+static void sci_eic_async_irq_mask(struct irq_data *data)
+{
+	struct gpio_chip *chip = (struct gpio_chip *)data->chip_data;
+	int offset = sci_irq_to_gpio(chip, data->irq);
+	pr_debug("%s %d+%d\n", __FUNCTION__, chip->base, offset);
+	sci_gpio_write(chip, offset, REG_EIC_ASYNC_IE, 0);
 }
 
 static void sci_gpio_irq_unmask(struct irq_data *data)
@@ -376,6 +442,14 @@ static void sci_eic_irq_unmask(struct irq_data *data)
 
 	/* TODO: the interval of two EIC trigger needs be longer than 2ms */
 	sci_gpio_write(chip, offset, REG_EIC_TRIG, 1);
+}
+
+static void sci_eic_async_irq_unmask(struct irq_data *data)
+{
+	struct gpio_chip *chip = (struct gpio_chip *)data->chip_data;
+	int offset = sci_irq_to_gpio(chip, data->irq);
+	pr_debug("%s %d+%d\n", __FUNCTION__, chip->base, offset);
+	sci_gpio_write(chip, offset, REG_EIC_ASYNC_IE, 1);
 }
 
 static int sci_gpio_irq_set_type(struct irq_data *data, unsigned int flow_type)
@@ -441,6 +515,48 @@ static int sci_eic_irq_set_type(struct irq_data *data, unsigned int flow_type)
 	return 0;
 }
 
+static int sci_eic_async_irq_set_type(struct irq_data *data, unsigned int flow_type)
+{
+	struct gpio_chip *chip = (struct gpio_chip *)data->chip_data;
+	int offset = sci_irq_to_gpio(chip, data->irq);
+	pr_debug("%s %d+%d %d\n", __FUNCTION__, chip->base, offset, flow_type);
+	switch (flow_type) {
+	case IRQ_TYPE_LEVEL_HIGH:
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_IEV, 1);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTBOTH, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTPOL, 1);
+		__irq_set_handler_locked(data->irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_LEVEL_LOW:
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_IEV, 1);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTBOTH, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTPOL, 0);
+		__irq_set_handler_locked(data->irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_EDGE_RISING:
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_IEV, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTBOTH, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTPOL, 1);
+		__irq_set_handler_locked(data->irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_EDGE_FALLING:
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_IEV, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTBOTH, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTPOL, 0);
+		__irq_set_handler_locked(data->irq, handle_level_irq);
+		break;
+	case IRQ_TYPE_EDGE_BOTH:
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_IEV, 0);
+		sci_gpio_write(chip, offset, REG_EIC_ASYNC_INTBOTH, 1);
+		__irq_set_handler_locked(data->irq, handle_level_irq);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static int sci_gpio_irq_set_wake(struct irq_data *data, unsigned int on)
 {
 	return on ? 0 : -EPERM;
@@ -488,6 +604,15 @@ static struct irq_chip a_eic_irq_chip = {
 	.irq_set_type = sci_eic_irq_set_type,
 };
 
+static struct irq_chip d_eic_async_irq_chip = {
+	.name = "irq-d-eic_async",
+	.irq_disable = sci_eic_async_irq_mask,
+	.irq_ack = sci_eic_async_irq_ack,
+	.irq_mask = sci_eic_async_irq_mask,
+	.irq_unmask = sci_eic_async_irq_unmask,
+	.irq_set_type = sci_eic_async_irq_set_type,
+};
+
 static void gpio_eic_handler(int irq, struct gpio_chip *chip)
 {
 	struct sci_gpio_chip *sci_gpio = to_sci_gpio(chip);
@@ -496,9 +621,15 @@ static void gpio_eic_handler(int irq, struct gpio_chip *chip)
 
 	pr_debug("%s %d+%d %d\n", __FUNCTION__, chip->base, chip->ngpio, irq);
 	for (group = 0; group * GPIO_GROUP_NR < chip->ngpio; group++) {
-		addr =
-		    sci_gpio->base_addr + sci_gpio->group_offset * group +
-		    REG_GPIO_MIS;
+		if(sci_gpio->is_async_gpio){
+			addr =
+			    sci_gpio->base_addr + sci_gpio->group_offset * group +
+			    REG_EIC_ASYNC_MIS;
+		}else{
+			addr =
+			    sci_gpio->base_addr + sci_gpio->group_offset * group +
+			    REG_GPIO_MIS;
+		}
 		value = sci_gpio->read_reg(addr) & GPIO_GROUP_MASK;
 
 		while (value) {
@@ -520,6 +651,7 @@ static irqreturn_t gpio_muxed_handler(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+
 /* gpio/eic cascaded irq handler */
 static void gpio_muxed_flow_handler(unsigned int irq, struct irq_desc *desc)
 {
@@ -536,9 +668,16 @@ static struct irqaction __d_gpio_irq = {
 
 static struct irqaction __d_eic_irq = {
 	.name = "eic",
-	.flags = IRQF_DISABLED | IRQF_NO_SUSPEND,
+	.flags = IRQF_DISABLED | IRQF_NO_SUSPEND | IRQF_SHARED,
 	.handler = gpio_muxed_handler,
 	.dev_id = &d_sci_eic.chip,
+};
+
+static struct irqaction __d_eic_async_irq = {
+	.name = "eic",
+	.flags = IRQF_DISABLED | IRQF_NO_SUSPEND | IRQF_SHARED,
+	.handler = gpio_muxed_handler,
+	.dev_id = &d_sci_eic_async.chip,
 };
 
 #if (NR_GPIO_IRQS < ARCH_NR_GPIOS)
@@ -618,11 +757,18 @@ static struct sprd_gpio_match_data a_gpio_match = {
 	.irqaction = NULL,
 };
 
+static struct sprd_gpio_match_data d_eic_async_match = {
+	.sci_gpio_chip = &d_sci_eic_async,
+	.irq_chip = &d_eic_async_irq_chip,
+	.irqaction = &__d_eic_async_irq,
+};
+
 static struct of_device_id eic_gpio_match_table[] = {
 	{.compatible = "sprd,d-eic-gpio",.data = &d_eic_match},
 	{.compatible = "sprd,d-gpio-gpio",.data = &d_gpio_match},
 	{.compatible = "sprd,a-eic-gpio",.data = &a_eic_match},
 	{.compatible = "sprd,a-gpio-gpio",.data = &a_gpio_match},
+	{.compatible = "sprd,d-eic-async",.data = &d_eic_async_match},
 	{},
 };
 
@@ -656,6 +802,8 @@ static int eic_gpio_probe(struct platform_device *pdev)
 	sci_glb_set(REG_AON_APB_APB_RTC_EB, BIT_EIC_RTC_EB);
 	sci_adi_set(ANA_REG_GLB_ARM_MODULE_EN, BIT_ANA_EIC_EN);
 	sci_adi_set(ANA_REG_GLB_RTC_CLK_EN, BIT_RTC_EIC_EN);
+#elif defined(CONFIG_ADIE_SC2731)
+	/*nothing to do,cause uboot already initialize EIC&GPIO&RTC*/
 #elif defined(CONFIG_ARCH_SCX35)
 		sci_glb_set(REG_AON_APB_APB_EB0, BIT_GPIO_EB | BIT_EIC_EB);
 		sci_glb_set(REG_AON_APB_APB_RTC_EB, BIT_EIC_RTC_EB);
@@ -672,6 +820,7 @@ static int eic_gpio_probe(struct platform_device *pdev)
 	ic = match_data->irq_chip;
 	ia = match_data->irqaction;
 
+	spin_lock_init(&sgc->gpio_lock);
 	if(match_data==&a_eic_match)
 		sgc->base_addr = ANA_EIC_BASE;
 	else

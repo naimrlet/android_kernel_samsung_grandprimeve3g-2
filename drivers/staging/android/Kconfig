@@ -150,6 +150,20 @@ config RUNTIME_COMPCACHE
         help
           This option enables rtcc v3 for android
 
+config POMEMR_RECLAIM
+	bool "page order mem reclaim"
+	depends on ANDROID
+	default n
+	help
+	  This option enables page order memory reclaim
+
+config POMEMR_RECLAIM_FILE
+	bool "page order mem reclaim for file pages"
+	depends on ANDROID && POMEMR_RECLAIM
+	default n
+	help
+	  This option enables page order memory reclaim for file pages
+
 config KSWAPD_NOSWAP
         bool "Disable swap in kswapd"
         depends on RUNTIME_COMPCACHE

@@ -32,13 +32,14 @@
 #include <linux/of_irq.h>
 #include <linux/of_gpio.h>
 #endif
-#include <mach/hardware.h>
+#include <soc/sprd/hardware.h>
 #include <linux/sprd_simdet.h>
-#include <mach/sci.h>
-#include <mach/sci_glb_regs.h>
+#include <soc/sprd//sci.h>
+#include <soc/sprd//sci_glb_regs.h>
 #include <linux/workqueue.h>
-#include <mach/gpio.h>
+#include <soc/sprd//gpio.h>
 #include <linux/wakelock.h>
+#include <linux/sipc.h>
 
 #define ENTER \
 do{ if(debug_level >= 1) printk(KERN_INFO "[SPRD_SIMDET_DBG] func: %s  line: %04d\n", __func__, __LINE__); }while(0)
@@ -69,6 +70,11 @@ static struct sprd_simdet simdet = {
                 .name = "sprd_simdet",
         },
 };
+
+#ifdef CONFIG_SPRD_SIMDET_IOCTL
+extern void sprd_simdet_set_state(uint8_t dst, uint8_t channel, uint32_t bufnum, 
+				int state);
+#endif
 
 static int sim_detect_irq_set_irq_type(unsigned int irq, unsigned int type)
 {
@@ -196,6 +202,14 @@ static void sim_detect_work_func(struct work_struct *work)
                 PRINT_INFO("irq_detect must be enabled anyway!!!\n");
                 goto out;
         }
+
+#ifdef 	CONFIG_SPRD_SIMDET_IOCTL
+#define GTEXSLTE_DST_NUM	SIPC_ID_LTE
+#define SPRD_SPIPE_SMSG_CH	SMSG_CH_PIPE
+#define SPRD_SECRIL_IPC_NODENUM	9
+	sprd_simdet_set_state(GTEXSLTE_DST_NUM, SPRD_SPIPE_SMSG_CH, SPRD_SECRIL_IPC_NODENUM, 
+				sprd_sd->status);
+#endif
 
 out:
 

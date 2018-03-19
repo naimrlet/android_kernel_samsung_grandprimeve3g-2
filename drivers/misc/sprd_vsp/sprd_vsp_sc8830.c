@@ -43,6 +43,7 @@
 #include <soc/sprd/sci_glb_regs.h>
 
 #include <linux/sprd_iommu.h>
+#include <video/vsp_pw_domain.h>
 
 #define VSP_MINOR MISC_DYNAMIC_MINOR
 #define VSP_AQUIRE_TIMEOUT_MS 500
@@ -83,6 +84,7 @@ struct vsp_fh {
 
 struct vsp_dev {
     unsigned int freq_div;
+    unsigned int scene_mode;
 
     struct semaphore vsp_mutex;
 
@@ -90,7 +92,12 @@ struct vsp_dev {
     struct clk *vsp_parent_clk;
     struct clk *mm_clk;
     struct clk *mm_clk_axi;
-
+//#ifdef CONFIG_ARCH_WHALE
+    struct clk *clk_vsp_eb;
+    struct clk *clk_ahb_vsp;
+    struct clk *clk_vsp_mmu_eb;
+    struct clk *clk_vsp_axi_eb;
+//#endif
     unsigned int irq;
     unsigned int version;
 
@@ -109,38 +116,38 @@ struct clock_name_map_t {
 };
 
 #ifdef CONFIG_OF
-static struct clock_name_map_t clock_name_map[4];
+static struct clock_name_map_t clock_name_map[SPRD_VSP_CLK_LEVEL_NUM];
 #else
 static struct clock_name_map_t clock_name_map[] = {
 #if defined(CONFIG_ARCH_SCX35LT8)
-    {307200000,"clk_307m2"},
-    {256000000,"clk_256m"},
+    {96000000,"clk_96m"},
     {128000000,"clk_128m"},
-    {96000000,"clk_96m"}
+    {256000000,"clk_256m"},
+    {307200000,"clk_307m2"}
 #elif defined(CONFIG_ARCH_SCX35L)
-    {312000000,"clk_312m"},
-    {256000000,"clk_256m"},
+     {76800000,"clk_76m8"},
     {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
+    {256000000,"clk_256m"},
+    {312000000,"clk_312m"}
 #elif defined(CONFIG_ARCH_SCX15)
-    {192000000,"clk_192m"},
+    {76800000,"clk_76m8"}
+    {128000000,"clk_128m"},
     {153600000,"clk_153m6"},
-    {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
+    {192000000,"clk_192m"}
 #elif defined(CONFIG_ARCH_SCX20)
-    {192000000,"clk_192m"},
+    {76800000,"clk_76m8"},
     {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
+    {192000000,"clk_192m"}
 #else
-    {256000000,"clk_256m"},
-    {192000000,"clk_192m"},
+    {76800000,"clk_76m8"},
     {128000000,"clk_128m"},
-    {76800000,"clk_76m8"}
+    {192000000,"clk_192m"},
+    {256000000,"clk_256m"}
 #endif
 };
 #endif
 
-static int max_freq_level = ARRAY_SIZE(clock_name_map);
+static int max_freq_level = SPRD_VSP_CLK_LEVEL_NUM;
 
 static char *vsp_get_clk_src_name(unsigned int freq_level)
 {
@@ -219,15 +226,27 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             pr_debug("###vsp_hw_dev.vsp_clk: clk_enable() ok.\n");
         }
 #ifdef CONFIG_OF
+#ifdef CONFIG_ARCH_WHALE
+        sci_glb_set(SPRD_VSPAHB_BASE+0x08, BIT(0));
+#else
         sci_glb_set(SPRD_MMAHB_BASE+0x08, BIT(5));
+#endif
 #endif
         vsp_fp->is_clock_enabled= 1;
         break;
     case VSP_DISABLE:
         pr_debug("vsp ioctl VSP_DISABLE\n");
-        clk_disable_unprepare(vsp_hw_dev.vsp_clk);
+        if(1 == vsp_fp->is_clock_enabled)
+        {
+            clk_disable_unprepare(vsp_hw_dev.vsp_clk);
+        }
+
 #ifdef CONFIG_OF
+#ifdef CONFIG_ARCH_WHALE
+        sci_glb_clr(SPRD_VSPAHB_BASE+0x08, BIT(0));
+#else
         sci_glb_clr(SPRD_MMAHB_BASE+0x08, BIT(5));
+#endif
 #endif
         vsp_fp->is_clock_enabled = 0;
         wake_unlock(&vsp_wakelock);
@@ -254,7 +273,7 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 printk(KERN_ERR "vsp change pri fail a\n");
         }
 #endif
-        vsp_fp->is_vsp_aquired = 1;
+
         vsp_hw_dev.vsp_fp = vsp_fp;
 
         if (vsp_hw_dev.light_sleep_en) {
@@ -267,9 +286,14 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 pr_debug("###vsp_hw_dev.mm_clk: clk_prepare_enable() ok.\n");
             }
 #if defined(CONFIG_SPRD_IOMMU)
+#ifdef CONFIG_ARCH_WHALE
+            sprd_iommu_module_enable(IOMMU_VSP);
+#else
             sprd_iommu_module_enable(IOMMU_MM);
 #endif
+#endif
         }
+        vsp_fp->is_vsp_aquired = 1;
         pr_debug("vsp ioctl VSP_ACQUAIRE end\n");
         break;
     case VSP_RELEASE:
@@ -277,9 +301,18 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
         if (vsp_hw_dev.light_sleep_en) {
 #if defined(CONFIG_SPRD_IOMMU)
+#ifdef CONFIG_ARCH_WHALE
+            sprd_iommu_module_disable(IOMMU_VSP);
+#else
             sprd_iommu_module_disable(IOMMU_MM);
 #endif
-            clk_disable_unprepare(vsp_hw_dev.mm_clk);
+#endif
+            if(1 == vsp_fp->is_vsp_aquired)
+            {
+                if(NULL != vsp_hw_dev.mm_clk)
+                    clk_disable_unprepare(vsp_hw_dev.mm_clk);
+
+            }
             pr_debug("VSP mmi_clk close\n");
         }
         vsp_fp->is_vsp_aquired = 0;
@@ -321,8 +354,13 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #endif
     case VSP_RESET:
         pr_debug("vsp ioctl VSP_RESET\n");
+#ifdef CONFIG_ARCH_WHALE
+        sci_glb_set(SPRD_VSPAHB_BASE+0x04, BIT(0));
+        sci_glb_clr(SPRD_VSPAHB_BASE+0x04, BIT(0));
+#else
         sci_glb_set(SPRD_MMAHB_BASE+0x04, BIT(4));
         sci_glb_clr(SPRD_MMAHB_BASE+0x04, BIT(4));
+#endif
         break;
     case VSP_HW_INFO:
     {
@@ -340,6 +378,16 @@ static long vsp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         put_user(vsp_hw_dev.version, (int __user *)arg);
     }
     break;
+
+    case VSP_SET_SCENE:
+        get_user(vsp_hw_dev.scene_mode, (int __user *)arg);
+        pr_debug(KERN_INFO "VSP_SET_SCENE_MODE %d\n", vsp_hw_dev.scene_mode);
+        break;
+
+    case VSP_GET_SCENE:
+        put_user(vsp_hw_dev.scene_mode, (int __user *)arg);
+        pr_debug(KERN_INFO "VSP_GET_SCENE_MODE %d\n", ret);
+        break;
 
     default:
         return -EINVAL;
@@ -361,7 +409,11 @@ static irqreturn_t vsp_isr(int irq, void *data)
 
     //check which module occur interrupt and clear coresponding bit
     int_status =  __raw_readl((void *)(VSP_GLB_REG_BASE+VSP_INT_STS_OFF));
-    if((int_status >> 1) & 0x1) // VLC SLICE DONE
+    if((int_status >> 0) & 0x1) //BSM_BUF_OVF DONE
+    {
+        __raw_writel((1<<0), (void *)(VSP_GLB_REG_BASE+VSP_INT_CLR_OFF));
+        ret = (1 << 0);
+    } else if((int_status >> 1) & 0x1) // VLC SLICE DONE
     {
         __raw_writel((1<<1), (void *)(VSP_GLB_REG_BASE+VSP_INT_CLR_OFF));
         ret = (1<<1);
@@ -377,7 +429,7 @@ static irqreturn_t vsp_isr(int irq, void *data)
     {
         __raw_writel((1<<5), (void *)(VSP_GLB_REG_BASE+VSP_INT_CLR_OFF));
         ret = (1<<5);
-    }else
+    } else
     {
         return IRQ_NONE;
     }
@@ -406,10 +458,10 @@ static const struct of_device_id  of_match_table_vsp[] = {
 static int vsp_parse_dt(struct device *dev)
 {
     struct device_node *np = dev->of_node;
+    struct device_node *vsp_clk_np = NULL;
+    char *vsp_clk_node_name = NULL;
     struct resource res;
-    u32 clock_parent_info[2];
-    u32 i;
-    int ret;
+    int i, ret, clk_count = 0;
 
     printk(KERN_INFO "vsp_parse_dt called !\n");
 
@@ -439,33 +491,39 @@ static int vsp_parse_dt(struct device *dev)
         return -EINVAL;
     }
 
+    if (vsp_hw_dev.version == PIKE){
+        max_freq_level = SPRD_VSP_CLK_LEVEL_NUM_PIKE;
+    }
+
     vsp_hw_dev.irq = irq_of_parse_and_map(np, 0);
     vsp_hw_dev.dev_np = np;
 
     printk(KERN_INFO "vsp: irq = 0x%x, version = 0x%0x\n", vsp_hw_dev.irq, vsp_hw_dev.version);
 
-    ret = of_property_read_u32_array(np, "clock-parent-info", clock_parent_info, 2);
-    if(0 != ret) {
-        printk(KERN_ERR "vsp: read clock-parent-info fail (%d)\n", ret);
-        return -EINVAL;
-    }
-    printk(KERN_INFO "vsp: clock-parent-info [%d, %d]\n", clock_parent_info[0], clock_parent_info[1]);
+    vsp_clk_node_name = of_clk_get_parent_name(np, 1); //This position is based on related dts file
+    printk(KERN_INFO "vsp_node_name = %s\n", vsp_clk_node_name);
 
-    max_freq_level = clock_parent_info[1];
-    if (max_freq_level > 4) {
-        printk(KERN_ERR "vsp: max_freq_level is invalid\n");
+    vsp_clk_np = of_find_node_by_name(NULL, vsp_clk_node_name);
+    if (!vsp_clk_np) {
+        printk(KERN_ERR "failed to get clk_vsp device node\n");
         return -EINVAL;
     }
 
-    for (i = 0; i < max_freq_level; i++) {
+    clk_count = of_clk_get_parent_count(vsp_clk_np);
+    if(clk_count != max_freq_level) {
+        printk(KERN_ERR "failed to get vsp clock count\n");
+        return -EINVAL;
+    }
+
+    for(i = 0; i < clk_count; i++) {
         struct clk *clk_parent;
         char *name_parent;
         unsigned long frequency;
 
-        name_parent = of_clk_get_parent_name(np,  i+clock_parent_info[0]);
+        name_parent = of_clk_get_parent_name(vsp_clk_np,  i);
         clk_parent = clk_get(NULL, name_parent);
         frequency = clk_get_rate(clk_parent);
-        printk(KERN_INFO "vsp: clock_name_map[%d] = (%d, %s)\n", frequency, name_parent);
+        printk(KERN_INFO "vsp clk order in dts file: clk[%d] = (%d, %s)\n", i, frequency, name_parent);
 
         clock_name_map[i].name = name_parent;
         clock_name_map[i].freq = frequency;
@@ -493,7 +551,7 @@ static int vsp_nocache_mmap(struct file *filp, struct vm_area_struct *vma)
 	    return -EAGAIN;
 
     if (remap_pfn_range(vma,vma->vm_start, vma->vm_pgoff,
-                        vma->vm_end - vma->vm_start, vma->vm_page_prot))
+                        (vma->vm_end - vma->vm_start) , vma->vm_page_prot))
         return -EAGAIN;
     printk(KERN_INFO "@vsp mmap %x,%lx,%x\n", (unsigned int)PAGE_SHIFT,
            (unsigned long)vma->vm_start,
@@ -509,11 +567,19 @@ static int vsp_set_mm_clk(void)
     struct clk *clk_vsp;
     struct clk *clk_parent;
     char *name_parent;
+//#ifdef CONFIG_ARCH_WHALE
+    struct clk *clk_vsp_eb;
+    struct clk *clk_ahb_vsp;
+    struct clk *clk_vsp_mmu_eb;
+    struct clk *clk_vsp_axi_eb;
+//#endif
     int instance_cnt = atomic_read(&vsp_instance_cnt);
 
     printk(KERN_INFO "vsp_set_mm_clk: vsp_instance_cnt %d\n", instance_cnt);
 
 #if defined(CONFIG_ARCH_SCX35)
+
+#ifndef CONFIG_ARCH_WHALE
 
 #ifdef CONFIG_OF
     clk_mm_axi = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_mm_axi");
@@ -529,6 +595,17 @@ static int vsp_set_mm_clk(void)
     }
 #endif
 
+    if (vsp_hw_dev.mm_clk_axi) {
+        printk(KERN_INFO "VSP mmi_clk_axi open");
+        ret = clk_prepare(vsp_hw_dev.mm_clk_axi);
+        if (ret) {
+            printk(KERN_ERR "###:vsp_hw_dev.mm_clk_axi: clk_prepare() failed!\n");
+            goto errout0;
+        } else {
+            pr_debug("###vsp_hw_dev.mm_clk_axi: clk_prepare() ok.\n");
+        }
+    }
+
 #ifdef CONFIG_OF
     clk_mm_i = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_mm_i");
 #else
@@ -539,31 +616,95 @@ static int vsp_set_mm_clk(void)
                "clk_mm_i");
         printk(KERN_ERR "###: clk_mm_i =  %p\n", clk_mm_i);
         ret = -EINVAL;
-        goto errout;
+        goto errout0;
     } else {
         vsp_hw_dev.mm_clk= clk_mm_i;
     }
 #endif
 
-    if (vsp_hw_dev.mm_clk_axi) {
-        printk(KERN_INFO "VSP mmi_clk_axi open");
-        ret = clk_prepare(vsp_hw_dev.mm_clk_axi);
-        if (ret) {
-            printk(KERN_ERR "###:vsp_hw_dev.mm_clk_axi: clk_prepare() failed!\n");
-            goto errout;
-        } else {
-            pr_debug("###vsp_hw_dev.mm_clk_axi: clk_prepare() ok.\n");
-        }
-    }
-
     printk(KERN_INFO "VSP mmi_clk open\n");
     ret = clk_prepare_enable(vsp_hw_dev.mm_clk);
     if (ret) {
         printk(KERN_ERR "###:vsp_hw_dev.mm_clk: clk_prepare_enable() failed!\n");
-        goto errout;
+        goto errout1;
     } else {
         pr_debug("###vsp_hw_dev.mm_clk: clk_prepare_enable() ok.\n");
     }
+#else
+#ifdef CONFIG_OF
+    clk_vsp_eb = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_vsp_eb");
+#else
+    clk_vsp_eb = clk_get(NULL, "clk_vsp_eb");
+#endif
+    if (IS_ERR(clk_vsp_eb) || (!clk_vsp_eb)) {
+        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
+               "clk_vsp_eb");
+        printk(KERN_ERR "###: clk_vsp_eb =  %p\n", clk_vsp_eb);
+        ret = -EINVAL;
+        goto errout1;
+    } else {
+        vsp_hw_dev.clk_vsp_eb= clk_vsp_eb;
+    }
+    printk(KERN_INFO "VSP clk_vsp_eb open\n");
+
+    ret = clk_prepare_enable(vsp_hw_dev.clk_vsp_eb);
+    if (ret) {
+        printk(KERN_ERR "###:vsp_hw_dev.clk_vsp_eb: clk_prepare_enable() failed!\n");
+        goto errout1;
+    } else {
+        pr_debug("###vsp_hw_dev.clk_vsp_eb: clk_prepare_enable() ok.\n");
+    }
+
+
+#ifdef CONFIG_OF
+    clk_vsp_axi_eb = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_vsp_axi_eb");
+#else
+    clk_vsp_axi_eb = clk_get(NULL, "clk_vsp_axi_eb");
+#endif
+    if (IS_ERR(clk_vsp_axi_eb) || (!clk_vsp_axi_eb)) {
+        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
+               "clk_vsp_axi_eb");
+        printk(KERN_ERR "###: clk_vsp_axi_eb =  %p\n", clk_vsp_axi_eb);
+        ret = -EINVAL;
+        goto errout0;
+    } else {
+        vsp_hw_dev.clk_vsp_axi_eb= clk_vsp_axi_eb;
+    }
+    printk(KERN_INFO "VSP clk_vsp_axi_eb open\n");
+
+    ret = clk_prepare_enable(vsp_hw_dev.clk_vsp_axi_eb);
+    if (ret) {
+        printk(KERN_ERR "###:vsp_hw_dev.clk_vsp_axi_eb: clk_prepare_enable() failed!\n");
+        goto errout0;
+    } else {
+        pr_debug("###vsp_hw_dev.clk_vsp_axi_eb: clk_prepare_enable() ok.\n");
+    }
+
+#ifdef CONFIG_OF
+    clk_ahb_vsp = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_ahb_vsp");
+#else
+    clk_ahb_vsp = clk_get(NULL, "clk_ahb_vsp");
+#endif
+    if (IS_ERR(clk_ahb_vsp) || (!clk_ahb_vsp)) {
+        printk(KERN_ERR "###: Failed : Can't get clock [%s}!\n",
+               "clk_ahb_vsp");
+        printk(KERN_ERR "###: clk_ahb_vsp =  %p\n", clk_ahb_vsp);
+        ret = -EINVAL;
+        goto errout0;
+    } else {
+        vsp_hw_dev.clk_ahb_vsp= clk_ahb_vsp;
+    }
+printk(KERN_INFO "VSP clk_ahb_vsp ENABLE\n");
+
+    ret = clk_prepare_enable(vsp_hw_dev.clk_ahb_vsp);
+    if (ret) {
+        printk(KERN_ERR "###:vsp_hw_dev.clk_ahb_vsp: clk_prepare_enable() failed!\n");
+        goto errout0;
+    } else {
+        pr_debug("###vsp_hw_dev.clk_ahb_vsp: clk_prepare_enable() ok.\n");
+    }
+
+#endif
 
 #ifdef CONFIG_OF
     clk_vsp = of_clk_get_by_name(vsp_hw_dev.dev_np, "clk_vsp");
@@ -575,7 +716,7 @@ static int vsp_set_mm_clk(void)
                "clk_vsp");
         printk(KERN_ERR "###: vsp_clk =  %p\n", clk_vsp);
         ret = -EINVAL;
-        goto errout;
+        goto errout1;
     } else {
         vsp_hw_dev.vsp_clk = clk_vsp;
     }
@@ -586,7 +727,7 @@ static int vsp_set_mm_clk(void)
         printk(KERN_ERR "clock[%s]: failed to get parent in probe[%s] \
 by clk_get()!\n", "clk_vsp", name_parent);
         ret = -EINVAL;
-        goto errout;
+        goto errout2;
     } else {
         vsp_hw_dev.vsp_parent_clk = clk_parent;
     }
@@ -596,7 +737,7 @@ by clk_get()!\n", "clk_vsp", name_parent);
         printk(KERN_ERR "clock[%s]: clk_set_parent() failed in probe!",
                "clk_vsp");
         ret = -EINVAL;
-        goto errout;
+        goto errout3;
     }
 
     printk("vsp parent clock name %s\n", name_parent);
@@ -604,29 +745,52 @@ by clk_get()!\n", "clk_vsp", name_parent);
            (int)clk_get_rate(vsp_hw_dev.vsp_clk));
 
     if (vsp_hw_dev.light_sleep_en) {
-        clk_disable_unprepare(vsp_hw_dev.mm_clk);
-        pr_debug("VSP mmi_clk close\n");
+        if(NULL != vsp_hw_dev.mm_clk)
+            clk_disable_unprepare(vsp_hw_dev.mm_clk);
+
+		pr_debug("VSP mmi_clk close\n");
     }
 
     return 0;
-errout:
-#if defined(CONFIG_ARCH_SCX35)
-    if (vsp_hw_dev.mm_clk_axi) {
-        clk_put(vsp_hw_dev.mm_clk_axi);
+
+errout3:
+    if (vsp_hw_dev.vsp_parent_clk) {
+        clk_put(vsp_hw_dev.vsp_parent_clk);
     }
 
+errout2:
+    if (vsp_hw_dev.vsp_clk) {
+        clk_put(vsp_hw_dev.vsp_clk);
+    }
+
+errout1:
+#if defined(CONFIG_ARCH_SCX35)
     if (vsp_hw_dev.mm_clk) {
         clk_put(vsp_hw_dev.mm_clk);
     }
 #endif
 
-    if (vsp_hw_dev.vsp_clk) {
-        clk_put(vsp_hw_dev.vsp_clk);
+errout0:
+#if defined(CONFIG_ARCH_SCX35)
+    if (vsp_hw_dev.mm_clk_axi) {
+        clk_put(vsp_hw_dev.mm_clk_axi);
+    }
+#endif
+
+#ifdef CONFIG_ARCH_WHALE
+    if (vsp_hw_dev.clk_vsp_axi_eb) {
+        clk_put(vsp_hw_dev.clk_vsp_axi_eb);
     }
 
-    if (vsp_hw_dev.vsp_parent_clk) {
-        clk_put(vsp_hw_dev.vsp_parent_clk);
+
+
+   if (vsp_hw_dev.clk_ahb_vsp) {
+        clk_put(vsp_hw_dev.clk_ahb_vsp);
     }
+    if (vsp_hw_dev.clk_vsp_eb) {
+        clk_put(vsp_hw_dev.clk_vsp_eb);
+    }
+#endif
     return ret;
 }
 
@@ -648,6 +812,8 @@ static int vsp_open(struct inode *inode, struct file *filp)
     init_waitqueue_head(&vsp_fp->wait_queue_work);
     vsp_fp->vsp_int_status = 0;
     vsp_fp->condition_work = 0;
+
+    vsp_pw_on(VSP_PW_DOMAIN_VSP);
 
     ret = vsp_set_mm_clk();
 
@@ -678,6 +844,8 @@ static int vsp_release (struct inode *inode, struct file *filp)
         vsp_fp->is_clock_enabled = 0;
     }
 
+    vsp_pw_off(VSP_PW_DOMAIN_VSP);
+
     if (vsp_fp->is_vsp_aquired) {
         printk(KERN_ERR "error occured and up vsp_mutex \n");
         up(&vsp_hw_dev.vsp_mutex);
@@ -688,7 +856,10 @@ static int vsp_release (struct inode *inode, struct file *filp)
     filp->private_data=NULL;
 
     if (!vsp_hw_dev.light_sleep_en) {
-        clk_disable_unprepare(vsp_hw_dev.mm_clk);
+        if(vsp_hw_dev.mm_clk)
+        {
+            clk_disable_unprepare(vsp_hw_dev.mm_clk);
+        }
         printk(KERN_INFO "VSP mmi_clk close!\n");
     }
 
@@ -726,10 +897,13 @@ static int vsp_suspend(struct platform_device *pdev, pm_message_t state)
 
     for (cnt = 0; cnt < instance_cnt; cnt++) {
         if (!vsp_hw_dev.light_sleep_en) {
-            clk_disable_unprepare(vsp_hw_dev.mm_clk);
-            pr_debug("VSP mm_clk close\n");
+            if(NULL != vsp_hw_dev.mm_clk)
+                clk_disable_unprepare(vsp_hw_dev.mm_clk);
+
+			pr_debug("VSP mm_clk close\n");
         } else {
-            clk_unprepare(vsp_hw_dev.mm_clk_axi);
+			if(NULL != vsp_hw_dev.mm_clk_axi)
+                clk_unprepare(vsp_hw_dev.mm_clk_axi);
             pr_debug("VSP mm_clk_axi close\n");
         }
 
@@ -761,36 +935,46 @@ static int vsp_probe(struct platform_device *pdev)
 
 #ifdef CONFIG_OF
     if (pdev->dev.of_node) {
-        ret = vsp_parse_dt(&pdev->dev);
+        if(vsp_parse_dt(&pdev->dev)) {
+            printk(KERN_ERR "vsp_parse_dt failed\n");
+            return -EINVAL;
+        }
     }
 #else
     ret = vsp_parse_dt(&pdev->dev);
 #endif
 
-    wake_lock_init(&vsp_wakelock, WAKE_LOCK_SUSPEND,
-                   "pm_message_wakelock_vsp");
+    wake_lock_init(&vsp_wakelock, WAKE_LOCK_SUSPEND, "pm_message_wakelock_vsp");
 
     sema_init(&vsp_hw_dev.vsp_mutex, 1);
 
-    vsp_hw_dev.freq_div = DEFAULT_FREQ_DIV;
+    vsp_hw_dev.freq_div = max_freq_level;
 
     vsp_hw_dev.vsp_clk = NULL;
     vsp_hw_dev.vsp_parent_clk = NULL;
     vsp_hw_dev.mm_clk= NULL;
     vsp_hw_dev.mm_clk_axi = NULL;
+    vsp_hw_dev.clk_vsp_eb = NULL;
+    vsp_hw_dev.clk_ahb_vsp = NULL;
+    vsp_hw_dev.clk_vsp_mmu_eb = NULL;
+    vsp_hw_dev.clk_vsp_axi_eb = NULL;
     vsp_hw_dev.vsp_fp = NULL;
     vsp_hw_dev.light_sleep_en = false;
 
     ret = misc_register(&vsp_dev);
     if (ret) {
-        printk(KERN_ERR "cannot register miscdev on minor=%d (%d)\n",
-               VSP_MINOR, ret);
+        printk(KERN_ERR "cannot register miscdev on minor=%d (%d)\n", VSP_MINOR, ret);
         goto errout;
     }
 
 #ifdef USE_INTERRUPT
     /* register isr */
-    ret = request_irq(vsp_hw_dev.irq, vsp_isr, IRQF_DISABLED|IRQF_SHARED, "VSP", &vsp_hw_dev);
+	if (WHALE == vsp_hw_dev.version){
+        ret = request_irq(vsp_hw_dev.irq, vsp_isr, IRQF_DISABLED, "VSP", &vsp_hw_dev);
+	}
+	else{
+		ret = request_irq(vsp_hw_dev.irq, vsp_isr, IRQF_DISABLED|IRQF_SHARED, "VSP", &vsp_hw_dev);
+	}
     if (ret) {
         printk(KERN_ERR "vsp: failed to request irq!\n");
         ret = -EINVAL;
@@ -823,6 +1007,19 @@ static int vsp_remove(struct platform_device *pdev)
     if (vsp_hw_dev.vsp_parent_clk) {
         clk_put(vsp_hw_dev.vsp_parent_clk);
     }
+
+    if (vsp_hw_dev.clk_vsp_axi_eb) {
+        clk_put(vsp_hw_dev.clk_vsp_axi_eb);
+    }
+
+   if (vsp_hw_dev.clk_ahb_vsp) {
+        clk_put(vsp_hw_dev.clk_ahb_vsp);
+    }
+
+    if (vsp_hw_dev.clk_vsp_eb) {
+        clk_put(vsp_hw_dev.clk_vsp_eb);
+    }
+
 
     printk(KERN_INFO "vsp_remove Success !\n");
     return 0;

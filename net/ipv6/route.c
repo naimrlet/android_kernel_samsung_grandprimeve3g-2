@@ -1958,10 +1958,8 @@ struct rt6_info *rt6_add_dflt_router(const struct in6_addr *gwaddr,
 
 
 int rt6_addrconf_purge(struct rt6_info *rt, void *arg) {
-    /* add accept_ra 1 to do not remove the router */
 	if (rt->rt6i_flags & (RTF_DEFAULT | RTF_ADDRCONF) &&
-         (!rt->rt6i_idev || (rt->rt6i_idev->cnf.accept_ra != 2 
-           && rt->rt6i_idev->cnf.accept_ra != 1)))
+	    (!rt->rt6i_idev || rt->rt6i_idev->cnf.accept_ra != 2))
 		return -1;
 	return 0;
 }

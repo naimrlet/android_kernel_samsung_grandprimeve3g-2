@@ -35,7 +35,7 @@ static int sec_bat_adc_ap_read(int channel)
 		data = sci_adc_get_value(ADC_CHANNEL_VF, false);
 	else
 		data = sci_adc_get_value(ADC_CHANNEL_TEMP, false);
-	pr_info("read channel [%d]\n", data);
+	pr_debug("read channel [%d]\n", data);
 	/*
 	int data = -1;
 	int ret = 0;

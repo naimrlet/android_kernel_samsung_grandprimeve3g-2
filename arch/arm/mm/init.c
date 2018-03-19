@@ -37,7 +37,7 @@
 #include "mm.h"
 
 #ifdef CONFIG_SPRD_IQ
-    #define SPRD_IQ_SIZE SZ_128M
+    #include <soc/sprd/board.h>
 #endif
 static unsigned long phys_initrd_start __initdata = 0;
 static unsigned long phys_initrd_size __initdata = 0;
@@ -338,7 +338,7 @@ phys_addr_t __init arm_memblock_steal(phys_addr_t size, phys_addr_t align)
 }
 
 #ifdef CONFIG_SPRD_IQ
-static phys_addr_t s_iq_addr = 0xffffffff;
+static phys_addr_t s_iq_addr = ~0x0;
 int in_iqmode(void);
 
 int __init __sprd_iq_memblock(void)
@@ -444,6 +444,8 @@ void __init arm_memblock_init(struct meminfo *mi, struct machine_desc *mdesc)
 	/* reserve any platform specific memblock areas */
 	if (mdesc->reserve)
 		mdesc->reserve();
+
+	early_init_fdt_scan_reserved_mem();
 
 	/*
 	 * reserve memory for DMA contigouos allocations,

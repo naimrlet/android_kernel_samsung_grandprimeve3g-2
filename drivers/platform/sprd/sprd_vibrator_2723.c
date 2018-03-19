@@ -82,7 +82,7 @@ static void vibrator_enable(struct timed_output_dev *dev, int value)
 	if (value == 0)
 		vibe_state = 0;
 	else {
-//		value = (value > 15000) ? 15000 : value;
+		/*value = (value > 15000) ? 15000 : value;*/
 		vibe_state = 1;
 		hrtimer_start(&vibe_timer,
 			      ktime_set(value / 1000, (value % 1000) * 1000000),

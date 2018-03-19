@@ -107,21 +107,10 @@ static int SM5414_get_charging_status(struct i2c_client *client)
 				POWER_SUPPLY_PROP_CAPACITY, value);
 		if ((value.intval > 94) &&
 			(charger->cable_type != POWER_SUPPLY_TYPE_BATTERY)) {
-#if defined(CONFIG_MACH_YOUNG23GDTV)
-			psy_do_property("sec-fuelgauge", get,
-				POWER_SUPPLY_PROP_VOLTAGE_NOW, value);
-			if (value.intval >= 4150) {
 				status = POWER_SUPPLY_STATUS_FULL;
 				charger->is_fullcharged = true;
 				dev_info(&client->dev,
 					"%s : Power Supply Full\n", __func__);
-			}
-#else
-			status = POWER_SUPPLY_STATUS_FULL;
-			charger->is_fullcharged = true;
-			dev_info(&client->dev,
-				"%s : Power Supply Full\n", __func__);
-#endif
 		}
 	} else if (chg_en & CHARGE_EN) {
 		nCHG = gpio_get_value(charger->pdata->chg_gpio_en);
@@ -148,7 +137,7 @@ int sec_get_charging_health(struct i2c_client *client)
 	dev_info(&client->dev,
 		"%s : SM5414_INT1 : 0x%02x\n", __func__, int1);
 
-#if defined(CONFIG_MACH_YOUNG23GDTV) || defined(CONFIG_MACH_J13G)
+#if defined(CONFIG_MACH_PIKEAYOUNG2DTV) || defined(CONFIG_MACH_PIKEAJ1)
 	/* VF check by adc detection */
 	if (!sec_vf_adc_check())
 		return POWER_SUPPLY_HEALTH_UNSPEC_FAILURE;
@@ -515,16 +504,13 @@ bool sec_hal_chg_get_property(struct i2c_client *client,
 {
 	struct sec_charger_info *charger = i2c_get_clientdata(client);
 	u8 data;
-	u8 int2;
-
 	switch (psp) {
 	case POWER_SUPPLY_PROP_ONLINE:
 		break;
 	case POWER_SUPPLY_PROP_STATUS:
-		if (charger->is_fullcharged) {
-			SM5414_i2c_read(client, SM5414_INT2, &int2);
+		if (charger->is_fullcharged)
 			val->intval = POWER_SUPPLY_STATUS_FULL;
-		} else
+		else
 			val->intval = SM5414_get_charging_status(client);
 		break;
 	case POWER_SUPPLY_PROP_HEALTH:

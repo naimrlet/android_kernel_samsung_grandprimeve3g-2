@@ -153,25 +153,29 @@ static void del_timers(dwc_otg_hcd_t * hcd)
 
 /**
  * Processes all the URBs in a single list of QHs. Completes them with
- * -ETIMEDOUT and frees the QTD.
+ * -ESHUTDOWN and frees the QTD.
  */
 static void kill_urbs_in_qh_list(dwc_otg_hcd_t * hcd, dwc_list_link_t * qh_list)
 {
-	dwc_list_link_t *qh_item;
+	dwc_list_link_t *qh_item, *qh_tmp;
 	dwc_otg_qh_t *qh;
 	dwc_otg_qtd_t *qtd, *qtd_tmp;
 
-	DWC_LIST_FOREACH(qh_item, qh_list) {
+
+	DWC_LIST_FOREACH_SAFE(qh_item, qh_tmp, qh_list) {
 		qh = DWC_LIST_ENTRY(qh_item, dwc_otg_qh_t, qh_list_entry);
 		DWC_CIRCLEQ_FOREACH_SAFE(qtd, qtd_tmp,
 					 &qh->qtd_list, qtd_list_entry) {
 			qtd = DWC_CIRCLEQ_FIRST(&qh->qtd_list);
 			if (qtd->urb != NULL) {
 				hcd->fops->complete(hcd, qtd->urb->priv,
-						    qtd->urb, -DWC_E_TIMEOUT);
+						    qtd->urb, -DWC_E_SHUTDOWN);
 				dwc_otg_hcd_qtd_remove_and_free(hcd, qtd, qh);
 			}
+			if ((qtd_tmp == NULL) || !IS_ALIGNED((unsigned long)qtd_tmp,sizeof(unsigned long)))
+				break;
 
+			BUG_ON(qtd_tmp == (void *)0x6b6b6b6b);
 		}
 	}
 }
@@ -450,6 +454,8 @@ int dwc_otg_hcd_urb_enqueue(dwc_otg_hcd_t * hcd,
 {
 	dwc_irqflags_t flags;
 	int retval = 0;
+	uint8_t needs_scheduling = 0;
+	dwc_otg_transaction_type_e tr_type;
 	dwc_otg_qtd_t *qtd;
 	gintmsk_data_t intr_mask = {.d32 = 0 };
 
@@ -465,23 +471,23 @@ int dwc_otg_hcd_urb_enqueue(dwc_otg_hcd_t * hcd,
 		return -DWC_E_NO_MEMORY;
 	}
 
+	intr_mask.d32 = DWC_READ_REG32(&hcd->core_if->core_global_regs->gintmsk);
+	if (!intr_mask.b.sofintr)
+		needs_scheduling = 1;
+	if ((((dwc_otg_qh_t *)ep_handle)->ep_type == UE_BULK)
+		&& !(qtd->urb->flags & URB_GIVEBACK_ASAP))
+		/* Do not schedule SG transactions until qtd has URB_GIVEBACK_ASAP set */
+		needs_scheduling = 0;
 	retval =
 	    dwc_otg_hcd_qtd_add(qtd, hcd, (dwc_otg_qh_t **) ep_handle, atomic_alloc);
 	if (retval < 0) {
 		DWC_ERROR("DWC OTG HCD URB Enqueue failed adding QTD. "
 			  "Error status %d\n", retval);
 		dwc_otg_hcd_qtd_free(qtd);
-	} else {
-		qtd->qh = *ep_handle;
+		return retval;
 	}
-	intr_mask.d32 = DWC_READ_REG32(&hcd->core_if->core_global_regs->gintmsk);
-	if (!intr_mask.b.sofintr && retval == 0) {
-		dwc_otg_transaction_type_e tr_type;
-		if ((qtd->qh->ep_type == UE_BULK)
-		    && !(qtd->urb->flags & URB_GIVEBACK_ASAP)) {
-			/* Do not schedule SG transactions until qtd has URB_GIVEBACK_ASAP set */
-			return 0;
-		}
+
+	if (needs_scheduling) {
 		DWC_SPINLOCK_IRQSAVE(hcd->lock, &flags);
 		tr_type = dwc_otg_hcd_select_transactions(hcd);
 		if (tr_type != DWC_OTG_TRANSACTION_NONE) {
@@ -489,7 +495,6 @@ int dwc_otg_hcd_urb_enqueue(dwc_otg_hcd_t * hcd,
 		}
 		DWC_SPINUNLOCK_IRQRESTORE(hcd->lock, flags);
 	}
-
 	return retval;
 }
 
@@ -758,7 +763,7 @@ static void dwc_otg_hcd_free(dwc_otg_hcd_t * dwc_otg_hcd)
 
 	if (dwc_otg_hcd->core_if->dma_enable) {
 		if (dwc_otg_hcd->status_buf_dma) {
-			DWC_DMA_FREE(get_hcd_device() ,DWC_OTG_HCD_STATUS_BUF_SIZE,
+			DWC_DMA_FREE(dwc_otg_hcd->otg_dev->dev, DWC_OTG_HCD_STATUS_BUF_SIZE,
 				     dwc_otg_hcd->status_buf,
 				     dwc_otg_hcd->status_buf_dma);
 		}
@@ -860,7 +865,7 @@ int dwc_otg_hcd_init(dwc_otg_hcd_t * hcd, dwc_otg_core_if_t * core_if)
 	 */
 	if (hcd->core_if->dma_enable) {
 		hcd->status_buf =
-		    DWC_DMA_ALLOC(get_hcd_device(),DWC_OTG_HCD_STATUS_BUF_SIZE,
+		    DWC_DMA_ALLOC(hcd->otg_dev->dev, DWC_OTG_HCD_STATUS_BUF_SIZE,
 				  &hcd->status_buf_dma);
 	} else {
 		hcd->status_buf = DWC_ALLOC(DWC_OTG_HCD_STATUS_BUF_SIZE);
@@ -944,16 +949,23 @@ static void assign_and_init_hc(dwc_otg_hcd_t * hcd, dwc_otg_qh_t * qh)
 	dwc_otg_hcd_urb_t *urb;
 	void* ptr = NULL;
 
-	DWC_DEBUGPL(DBG_HCDV, "%s(%p,%p)\n", __func__, hcd, qh);
+	qtd = DWC_CIRCLEQ_FIRST(&qh->qtd_list);
+
+	urb = qtd->urb;
+
+	DWC_DEBUGPL(DBG_HCDV, "%s(%p,%p) - urb %x, actual_length %d\n",
+		__func__, hcd, qh, (unsigned int)urb, urb->actual_length);
+
+	if (((urb->actual_length < 0) || (urb->actual_length > urb->length))
+		&& !dwc_otg_hcd_is_pipe_in(&urb->pipe_info))
+		urb->actual_length = urb->length;
+
 
 	hc = DWC_CIRCLEQ_FIRST(&hcd->free_hc_list);
 
 	/* Remove the host channel from the free list. */
 	DWC_CIRCLEQ_REMOVE_INIT(&hcd->free_hc_list, hc, hc_list_entry);
 
-	qtd = DWC_CIRCLEQ_FIRST(&qh->qtd_list);
-
-	urb = qtd->urb;
 	qh->channel = hc;
 
 	qtd->in_process = 1;
@@ -1126,7 +1138,7 @@ static void assign_and_init_hc(dwc_otg_hcd_t * hcd, dwc_otg_qh_t * qh)
 			buf_size = 4096;
 		}
 		if (!qh->dw_align_buf) {
-			qh->dw_align_buf = DWC_DMA_ALLOC_ATOMIC(get_hcd_device(),buf_size,
+			qh->dw_align_buf = DWC_DMA_ALLOC_ATOMIC(hcd->otg_dev->dev, buf_size,
 							 &qh->dw_align_buf_dma);
 			if (!qh->dw_align_buf) {
 				DWC_ERROR
@@ -3000,8 +3012,13 @@ dwc_otg_hcd_urb_t *dwc_otg_hcd_urb_alloc(dwc_otg_hcd_t * hcd,
 	else
 		dwc_otg_urb = DWC_ALLOC(size);
 
-	dwc_otg_urb->packet_count = iso_desc_count;
-
+	if (dwc_otg_urb)
+		dwc_otg_urb->packet_count = iso_desc_count;
+	else {
+		DWC_ERROR("**** DWC OTG HCD URB alloc - "
+			"%salloc of %db failed\n",
+			atomic_alloc?"atomic ":"", size);
+	}
 	return dwc_otg_urb;
 }
 

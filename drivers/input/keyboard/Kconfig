@@ -674,10 +674,18 @@ config KEYBOARD_SPRD_EIC
           To compile this driver as a module, choose M here: the
           module will be called sprd_eic_keys.
 
-config SUPPORT_TWOKEY_RESET
-	tristate "Keypad Support for Two Key Reset."
-	depends on INPUT
+config KEYBOARD_TC300K
+	tristate "Coreriver TC300K touchkey"
+	depends on I2C
 	help
-	  Keypad Support for Two Key Reset. Volume Down + power Key, Which is connected to PMIC.
+	 Say Y if you want use Coreriver TC300K chip as touchkey.
+
+config KEYBOARD_TC350K
+	tristate "Coreriver TC350K touchkey"
+	depends on I2C
+	help
+	 Say Y if you want use Coreriver TC350K chip as touchkey.	  
+	 
+source "drivers/input/keyboard/melfas_mip4/Kconfig"
 
 endif

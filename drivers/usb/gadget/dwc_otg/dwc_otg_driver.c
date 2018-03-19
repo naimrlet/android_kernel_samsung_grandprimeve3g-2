@@ -59,16 +59,14 @@
 #include <linux/version.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
-
-# include <linux/irq.h>
+#include <linux/dma-mapping.h>
+#include <linux/irq.h>
 
 #include <asm/io.h>
 #include <soc/sprd/usb.h>
-#ifdef CONFIG_OF
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 #include <linux/of_gpio.h>
-#endif
 
 #include "dwc_os.h"
 #include "dwc_otg_dbg.h"
@@ -80,14 +78,6 @@
 
 #define DWC_DRIVER_VERSION	"2.81a 04-FEB-2009"
 #define DWC_DRIVER_DESC		"HS OTG USB Controller driver"
-
-/*
- USB_GUSBCFG for set  USC28C SPRD USB  PHY Width:8/16 bits
-*/
-#if defined(CONFIG_ARCH_SCX20)
-unsigned int USB_GUSBCFG_REG;
-#define	GUSBCFG_OFFSET	0x0c
-#endif
 
 static const char dwc_driver_name[] = "dwc_otg";
 
@@ -176,7 +166,7 @@ static struct dwc_otg_driver_module_params dwc_otg_module_params = {
 	.host_ls_low_power_phy_clk = -1,
 	.enable_dynamic_fifo = -1,
 	.data_fifo_size = -1,
-	.dev_rx_fifo_size = 0x114,
+	.dev_rx_fifo_size = 0x214,
 	.dev_nperio_tx_fifo_size = 0x10,
 	.dev_perio_tx_fifo_size = {
 				   /* dev_perio_tx_fifo_size_1 */
@@ -229,7 +219,7 @@ static struct dwc_otg_driver_module_params dwc_otg_module_params = {
 				 0x80,
 				 0x80,
 				 0x80,
-				 0x200
+				 0x100
 				 /* 15 */
 				 },
 
@@ -650,9 +640,7 @@ static int dwc_otg_driver_remove(
 		iounmap(otg_dev->os_dep.base);
 	}
 	dwc_free(otg_dev);
-#ifdef CONFIG_OF
 	dwc_free(_dev->dev.platform_data );
-#endif
 	/*
 	 * Clear the drvdata pointer.
 	 */
@@ -674,6 +662,9 @@ static int dwc_otg_resume(struct platform_device *dev)
 #define dwc_otg_suspend	NULL
 #define dwc_otg_resume	NULL
 #endif
+
+static u64 dma_mask = DMA_BIT_MASK(32);
+
 /**
  * This function is called when an lm_device is bound to a
  * dwc_otg_driver. It creates the driver components required to
@@ -692,9 +683,6 @@ static int dwc_otg_driver_probe(
 	int retval = 0;
 	dwc_otg_device_t *dwc_otg_device;
 	int irq;
-#ifndef CONFIG_OF
-	struct sprd_usb_platform_data *pdata= _dev->dev.platform_data;
-#else
 	int ret;
 	struct device_node *np = _dev->dev.of_node;
 	struct resource res;
@@ -705,10 +693,9 @@ static int dwc_otg_driver_probe(
 	ret = of_address_to_resource(np, 0, &res);
 	if(ret < 0){
 		dev_err(&_dev->dev, "no reg of property specified\n");
-		return NULL;
+		return 0;
 	}
-#endif
-	usb_phy_init(_dev);
+
 
 	dev_dbg(&_dev->dev, "dwc_otg_driver_probe(%p)\n", _dev);
 
@@ -720,22 +707,19 @@ static int dwc_otg_driver_probe(
 		goto fail;
 	}
 
+	if (!_dev->dev.dma_mask)
+		_dev->dev.dma_mask = &_dev->dev.coherent_dma_mask;
+	_dev->dev.coherent_dma_mask = dma_mask;
+
 	memset(dwc_otg_device, 0, sizeof(*dwc_otg_device));
 	dwc_otg_device->os_dep.reg_offset = 0xFFFFFFFF;
 
 	/*
 	 * Map the DWC_otg Core memory into virtual address space.
 	 */
-#ifdef CONFIG_OF
-	dwc_otg_device->os_dep.base = (unsigned long)ioremap_nocache(res.start,
+	dwc_otg_device->os_dep.base = (unsigned long *)ioremap_nocache(res.start,
 			resource_size(&res));
-#if defined(CONFIG_ARCH_SCX20)
-	USB_GUSBCFG_REG = dwc_otg_device->os_dep.base + GUSBCFG_OFFSET;
-#endif
-#else
-	dwc_otg_device->os_dep.base = (void *)platform_get_resource(_dev,
-						IORESOURCE_MEM, 0)->start;
-#endif
+
 	if (!dwc_otg_device->os_dep.base) {
 		dev_err(&_dev->dev, "ioremap() failed\n");
 		retval = -ENOMEM;
@@ -750,7 +734,6 @@ static int dwc_otg_driver_probe(
 	 * Initialize driver data to point to the global DWC_otg
 	 * Device structure.
 	 */
-#ifdef CONFIG_OF
 	if(np){
 		struct sprd_usb_platform_data *pdata;
 		pdata = __DWC_ALLOC(NULL,sizeof(struct sprd_usb_platform_data));
@@ -758,67 +741,36 @@ static int dwc_otg_driver_probe(
 			dev_err(&_dev->dev, "fail to malloc memory for platform_data\n");
 			return -ENOMEM;
 		}
-		if (of_property_read_u32(np, "ngpios", &pdata->gpio_num))
-		{
-			pr_info("read gpio number error\n");
-			__DWC_FREE(NULL , pdata);
-			return -ENODEV;
+
+		pdata->gpio_chgdet = of_get_named_gpio(np, "vbus-gpios", 0);
+		if (!gpio_is_valid(pdata->gpio_chgdet)) {
+			pdata->gpio_chgdet = GPIO_INVALID;
+			pr_info("invalid usb vbus gpio: %d\n",
+			pdata->gpio_chgdet);
 		}
-		if (1 == pdata->gpio_num)
-		{
-			pdata->gpio_chgdet = of_get_gpio(np,  0);
-			if(pdata->gpio_chgdet<0){
-				printk(" get charge detect  error ,gpio is %d\n",pdata->gpio_chgdet);
-				pdata->gpio_chgdet = 0xffffffff;
-			}
 
-			pdata->gpio_otgdet = 0xffffffff;
-			pdata->gpio_boost = 0xffffffff;
-		 }else if(2 == pdata->gpio_num){
-			pdata->gpio_chgdet = of_get_gpio(np,  0);
-			if(pdata->gpio_chgdet<0){
-				printk(" get charge detect  error ,gpio is %d\n",pdata->gpio_chgdet);
-				pdata->gpio_chgdet = 0xffffffff;
-			}
+		pdata->gpio_otgdet = of_get_named_gpio(np, "id-gpios", 0);
+		if (!gpio_is_valid(pdata->gpio_otgdet)) {
+			pdata->gpio_otgdet = GPIO_INVALID;
+			pr_info("invalid usb id gpio: %d\n",
+			pdata->gpio_otgdet);
+		}
 
-			pdata->gpio_otgdet = of_get_gpio(np,  1);
-			if(pdata->gpio_otgdet<0){
-				printk(" get otg cable detect  error ,gpio is %d\n",pdata->gpio_otgdet);
-				pdata->gpio_otgdet = 0xffffffff;
-			}
-
-			pdata->gpio_boost = 0xffffffff;
-		}else if(3 == pdata->gpio_num){
-			pdata->gpio_chgdet = of_get_gpio(np,  0);
-			if(pdata->gpio_chgdet<0){
-			printk(" get charge detect  error ,gpio is %d\n",pdata->gpio_chgdet);
-			pdata->gpio_chgdet = 0xffffffff;
-			}
-			pdata->gpio_otgdet = of_get_gpio(np,  1);
-			if(pdata->gpio_otgdet<0){
-			printk(" get otg cable detect  error ,gpio is %d\n",pdata->gpio_otgdet);
-			pdata->gpio_otgdet = 0xffffffff;
-			}
-
-			pdata->gpio_boost = of_get_gpio(np,  2);
-			if(pdata->gpio_boost<0){
-				printk("get boost  error ,gpio is  %d\n",pdata->gpio_boost);
-				pdata->gpio_boost = 0xffffffff;
-			}
-		}else{
-			printk("gpio number more than three,gpio number  %d\n",pdata->gpio_num);
+		pdata->gpio_boost = of_get_named_gpio(np, "boost-gpios", 0);
+			if (!gpio_is_valid(pdata->gpio_boost)) {
+			pdata->gpio_boost = GPIO_INVALID;
+			pr_info("invalid usb boost gpio: %d\n",
+			pdata->gpio_boost);
 		}
 
 		_dev->dev.platform_data = (void *)pdata;
-		memcpy(&dwc_otg_device->platform_data,pdata,sizeof(pdata));
+		memcpy(&dwc_otg_device->platform_data,pdata,sizeof(dwc_otg_device->platform_data));
 	}
-#else
-	memcpy(&dwc_otg_device->platform_data,pdata,sizeof(pdata));
-#endif
 	platform_set_drvdata(_dev, dwc_otg_device);
+	dwc_otg_device->dev = &_dev->dev;
 
 	dev_dbg(&_dev->dev, "dwc_otg_device=0x%p\n", dwc_otg_device);
-
+	usb_phy_init(_dev);
 	udc_enable();
 	dwc_otg_device->core_if = dwc_otg_cil_init(dwc_otg_device->os_dep.base);
 	if (!dwc_otg_device->core_if) {
@@ -951,19 +903,15 @@ fail:
  * to this driver. The remove function is called when a device is
  * unregistered with the bus driver.
  */
-#ifdef CONFIG_OF
 static const struct of_device_id usb_ids [] = {
 		{ .compatible = "sprd,usb" },
 		{}
 };
-#endif
 static struct platform_driver dwc_otg_driver = {
 	.driver		= {
 		.name =         "dwc_otg",
 		.owner = 	THIS_MODULE,
-#ifdef CONFIG_OF
 		.of_match_table = of_match_ptr(usb_ids),
-#endif
 	},
 
 	.probe =        dwc_otg_driver_probe,

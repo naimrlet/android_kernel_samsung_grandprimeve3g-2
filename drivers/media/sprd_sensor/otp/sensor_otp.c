@@ -18,6 +18,6 @@
 
 int sensor_reloadinfo_thread(void *data)
 {
-	int ret = 0;
-	return ret;
+    int ret = 0;
+    return ret;
 }

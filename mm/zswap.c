@@ -41,16 +41,28 @@
 #include <linux/swapops.h>
 #include <linux/writeback.h>
 #include <linux/pagemap.h>
+#include <linux/jiffies.h>
+
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+#include <linux/jhash.h>
+#endif
 
 /*********************************
 * statistics
 **********************************/
 /* Total bytes used by the compressed storage */
-u64 zswap_pool_total_size;
+static u64 zswap_pool_total_size;
 /* Number of memory pages used by the compressed pool */
-u64 zswap_pool_pages;
+static u64 zswap_pool_pages;
 /* The number of compressed pages currently stored in zswap */
-atomic_t zswap_stored_pages = ATOMIC_INIT(0);
+static atomic_t zswap_stored_pages = ATOMIC_INIT(0);
+
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+/* The number of swapped out pages which are identified as duplicate 
+   to the existing zswap pages. Compression and storing of these 
+   pages is avoided */
+static atomic_t zswap_duplicate_pages = ATOMIC_INIT(0);
+#endif
 
 /*
  * The statistics below are not protected from concurrent access for
@@ -90,7 +102,7 @@ static char *zswap_compressor = ZSWAP_COMPRESSOR_DEFAULT;
 module_param_named(compressor, zswap_compressor, charp, 0444);
 
 /* The maximum percentage of memory that the compressed pool can occupy */
-static unsigned int zswap_max_pool_percent = 20;
+static unsigned int zswap_max_pool_percent = 30;
 module_param_named(max_pool_percent,
 			zswap_max_pool_percent, uint, 0644);
 
@@ -98,6 +110,13 @@ module_param_named(max_pool_percent,
 #define ZSWAP_ZPOOL_DEFAULT "zsmalloc"
 static char *zswap_zpool_type = ZSWAP_ZPOOL_DEFAULT;
 module_param_named(zpool, zswap_zpool_type, charp, 0444);
+
+/* zswap compaction related parameters */
+static unsigned int zswap_compaction_interval = 10;
+module_param_named(compaction_interval, zswap_compaction_interval, uint, 0644);
+
+static unsigned int zswap_compaction_pages = 2048;
+module_param_named(compaction_pages, zswap_compaction_pages, uint, 0644);
 
 /* zpool is shared by all of zswap backend  */
 static struct zpool *zswap_pool;
@@ -154,16 +173,37 @@ static int __init zswap_comp_init(void)
 	return 0;
 }
 
-static void zswap_comp_exit(void)
+static void __init zswap_comp_exit(void)
 {
 	/* free percpu transforms */
-	if (zswap_comp_pcpu_tfms)
-		free_percpu(zswap_comp_pcpu_tfms);
+	free_percpu(zswap_comp_pcpu_tfms);
 }
 
 /*********************************
 * data structures
 **********************************/
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+/*
+ * struct zswap_handle
+ * This structure contains the metadata for tracking single zpool
+ * allocation.
+ *
+ * rbnode - links the handle into red-black tree
+ * checksum - 32-bit checksum value of the page swapped to zswap
+ * ref_count - number of pages sharing this handle
+ * length - the length in bytes of the compressed page data.
+ *          Needed during decompression.
+ * handle - zpool allocation handle that stores the compressed page data
+ */
+struct zswap_handle {
+	struct rb_node rbnode;
+	u32 checksum;
+	u16 ref_count;
+	unsigned int length;
+	unsigned long handle;
+};
+#endif
+
 /*
  * struct zswap_entry
  *
@@ -178,9 +218,13 @@ static void zswap_comp_exit(void)
  *            be held while changing the refcount.  Since the lock must
  *            be held, there is no reason to also make refcount atomic.
  * offset - the swap offset for the entry.  Index into the red-black tree.
+ * #ifndef CONFIG_ZSWAP_SAME_PAGE_SHARING && CONFIG_MACH_J3XLTE_SWA
  * handle - zpool allocation handle that stores the compressed page data
  * length - the length in bytes of the compressed page data.  Needed during
  *          decompression
+ * #else
+ * zhandle - pointer to struct zswap_handle
+ * #endif
  * zero_flag - the flag indicating the page for the zswap_entry is a zero page.
  *            zswap does not store the page during compression.
  *            It memsets the page with 0 during decompression.
@@ -189,8 +233,12 @@ struct zswap_entry {
 	struct rb_node rbnode;
 	pgoff_t offset;
 	int refcount;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	struct zswap_handle *zhandle;
+#else	
 	unsigned int length;
 	unsigned long handle;
+#endif
 	unsigned char zero_flag;
 };
 
@@ -205,6 +253,10 @@ struct zswap_header {
  */
 struct zswap_tree {
 	struct rb_root rbroot;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	struct rb_root zhandleroot;
+	void* buffer;
+#endif
 	spinlock_t lock;
 };
 
@@ -215,7 +267,7 @@ static struct zswap_tree *zswap_trees[MAX_SWAPFILES];
 **********************************/
 static struct kmem_cache *zswap_entry_cache;
 
-static int zswap_entry_cache_create(void)
+static int __init zswap_entry_cache_create(void)
 {
 	zswap_entry_cache = KMEM_CACHE(zswap_entry, 0);
 	return zswap_entry_cache == NULL;
@@ -234,6 +286,9 @@ static struct zswap_entry *zswap_entry_cache_alloc(gfp_t gfp)
 		return NULL;
 	entry->refcount = 1;
 	entry->zero_flag = 0;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	entry->zhandle = NULL;
+#endif
 	RB_CLEAR_NODE(&entry->rbnode);
 	return entry;
 }
@@ -242,6 +297,40 @@ static void zswap_entry_cache_free(struct zswap_entry *entry)
 {
 	kmem_cache_free(zswap_entry_cache, entry);
 }
+
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+/*********************************
+* zswap handle functions
+**********************************/
+static struct kmem_cache *zswap_handle_cache;
+
+static int zswap_handle_cache_create(void)
+{
+        zswap_handle_cache = KMEM_CACHE(zswap_handle, 0);
+        return zswap_handle_cache == NULL;
+}
+
+static void __init zswap_handle_cache_destroy(void)
+{
+        kmem_cache_destroy(zswap_handle_cache);
+}
+
+static struct zswap_handle* zswap_handle_cache_alloc(gfp_t gfp)
+{
+        struct zswap_handle *zhandle;
+        zhandle = kmem_cache_alloc(zswap_handle_cache, gfp);
+        if (!zhandle)
+                return NULL;
+        zhandle->ref_count = 1;
+        RB_CLEAR_NODE(&zhandle->rbnode);
+        return zhandle;
+}
+
+static void zswap_handle_cache_free(struct zswap_handle *zhandle)
+{
+        kmem_cache_free(zswap_handle_cache, zhandle);
+}
+#endif
 
 /*********************************
 * rbtree functions
@@ -298,6 +387,106 @@ static void zswap_rb_erase(struct rb_root *root, struct zswap_entry *entry)
 	}
 }
 
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+static struct zswap_handle *zswap_handle_rb_search(struct rb_root *root, u32 checksum)
+{
+	struct rb_node *node = root->rb_node;
+	struct zswap_handle *zhandle;
+
+	while (node) {
+		zhandle = rb_entry(node, struct zswap_handle, rbnode);
+		if (zhandle->checksum > checksum)
+			node = node->rb_left;
+		else if (zhandle->checksum < checksum)
+			node = node->rb_right;
+		else
+			return zhandle;
+	}
+	return NULL;
+}
+
+/*
+ * In the case that zhandle with the same checksum is found, a pointer to
+ * the existing zhandle is stored in duphandle and the function returns -EEXIST
+ */
+static int zswap_handle_rb_insert(struct rb_root *root, struct zswap_handle *zhandle,
+				struct zswap_handle **duphandle)
+{
+	struct rb_node **link = &root->rb_node, *parent = NULL;
+	struct zswap_handle *myhandle;
+
+	while (*link) {
+		parent = *link;
+		myhandle = rb_entry(parent, struct zswap_handle, rbnode);
+		if (myhandle->checksum > zhandle->checksum)
+			link = &parent->rb_left;
+		else if (myhandle->checksum < zhandle->checksum)
+			link = &parent->rb_right;
+		else {
+			*duphandle = myhandle;
+			return -EEXIST;
+		}
+	}
+	rb_link_node(&zhandle->rbnode, parent, link);
+	rb_insert_color(&zhandle->rbnode, root);
+	return 0;
+}
+
+static void zswap_handle_erase(struct rb_root *root, struct zswap_handle *zhandle)
+{
+	if (!RB_EMPTY_NODE(&zhandle->rbnode)) {
+		rb_erase(&zhandle->rbnode, root);
+		RB_CLEAR_NODE(&zhandle->rbnode);
+	}
+}
+
+static void zswap_free_handle(struct zswap_handle *zhandle)
+{
+	zpool_free(zswap_pool, zhandle->handle);
+	zswap_handle_cache_free(zhandle);
+}
+
+#ifdef CONFIG_KSM_ASSEMBLY_MEMCMP
+extern int memcmpksm(const void *,const void *,__kernel_size_t);
+#endif
+
+/* This function searches for the same page in the zhandle RB-Tree based on the
+ * checksum value of the new page. If the same page is found the zhandle of that
+ * page is returned.
+ */
+static struct zswap_handle* zswap_same_page_search(struct zswap_tree *tree, u8 *uncmem, u32 checksum)
+{
+	int ret = 0;
+	unsigned int dlen=PAGE_SIZE;
+	u8 *src=NULL, *dst=NULL;
+	struct zswap_handle *myhandle=NULL;
+	
+	myhandle = zswap_handle_rb_search(&tree->zhandleroot, checksum);
+	if(myhandle){
+		/* Compare memory contents */
+		dst = (u8*)tree->buffer;
+		src = (u8*)zpool_map_handle(zswap_pool, myhandle->handle, ZPOOL_MM_RO_NOWAIT);
+		if(!src)
+			return NULL;
+
+		src += sizeof(struct zswap_header);
+		ret = zswap_comp_op(ZSWAP_COMPOP_DECOMPRESS, src, myhandle->length, dst, &dlen);
+		zpool_unmap_handle(zswap_pool, myhandle->handle);
+		BUG_ON(ret);
+
+#ifdef CONFIG_KSM_ASSEMBLY_MEMCMP
+		ret = memcmpksm(dst, uncmem, PAGE_SIZE);
+#else
+		ret = memcmp(dst, uncmem, PAGE_SIZE);
+#endif
+		if(ret) {
+			myhandle = NULL;
+		}
+	}
+	return myhandle;
+}
+#endif
+
 /*
  * Carries out the common pattern of freeing and entry's zpool allocation,
  * freeing the entry itself, and decrementing the number of stored pages.
@@ -308,12 +497,22 @@ static void zswap_free_entry(struct zswap_entry *entry)
 		atomic_dec(&zswap_zero_pages);
 		goto zeropage_out;
 	}
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	entry->zhandle->ref_count--;
+	if(!entry->zhandle->ref_count) {
+		zswap_free_handle(entry->zhandle);
+	}
+	else {
+		atomic_dec(&zswap_duplicate_pages);
+	}
+#else
 	zpool_free(zswap_pool, entry->handle);
+#endif
 zeropage_out:
 	zswap_entry_cache_free(entry);
 	atomic_dec(&zswap_stored_pages);
 	zswap_pool_total_size = zpool_get_total_size(zswap_pool);
-	zswap_pool_pages = zswap_pool_total_size >> PAGE_SHIFT;
+	zswap_pool_pages = zpool_get_total_size(zswap_pool) >> PAGE_SHIFT;
 }
 
 /* caller must hold the tree lock */
@@ -332,6 +531,10 @@ static void zswap_entry_put(struct zswap_tree *tree,
 
 	BUG_ON(refcount < 0);
 	if (refcount == 0) {
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+		if(entry->zhandle && entry->zhandle->ref_count == 1) 
+			zswap_handle_erase(&tree->zhandleroot, entry->zhandle);
+#endif
 		zswap_rb_erase(&tree->rbroot, entry);
 		zswap_free_entry(entry);
 	}
@@ -405,7 +608,7 @@ static struct notifier_block zswap_cpu_notifier_block = {
 	.notifier_call = zswap_cpu_notifier
 };
 
-static int zswap_cpu_init(void)
+static int __init zswap_cpu_init(void)
 {
 	unsigned long cpu;
 
@@ -594,6 +797,15 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 	case ZSWAP_SWAPCACHE_NEW: /* page is locked */
 		/* decompress */
 		dlen = PAGE_SIZE;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+		src = (u8 *)zpool_map_handle(zswap_pool, entry->zhandle->handle,
+				ZPOOL_MM_RO) + sizeof(struct zswap_header);
+		dst = kmap_atomic(page);
+		ret = zswap_comp_op(ZSWAP_COMPOP_DECOMPRESS, src,
+				entry->zhandle->length, dst, &dlen);
+		kunmap_atomic(dst);
+		zpool_unmap_handle(zswap_pool, entry->zhandle->handle);
+#else
 		src = (u8 *)zpool_map_handle(zswap_pool, entry->handle,
 				ZPOOL_MM_RO) + sizeof(struct zswap_header);
 		dst = kmap_atomic(page);
@@ -601,6 +813,8 @@ static int zswap_writeback_entry(struct zpool *pool, unsigned long handle)
 				entry->length, dst, &dlen);
 		kunmap_atomic(dst);
 		zpool_unmap_handle(zswap_pool, entry->handle);
+#endif
+
 		BUG_ON(ret);
 		BUG_ON(dlen != PAGE_SIZE);
 
@@ -679,6 +893,10 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 	char *buf;
 	u8 *src, *dst;
 	struct zswap_header *zhdr;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	struct zswap_handle *zhandle=NULL, *duphandle=NULL;
+	u32 checksum = 0;
+#endif
 
 	if (!tree) {
 		ret = -ENODEV;
@@ -694,11 +912,13 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 	/* reclaim space if needed */
 	if (zswap_is_full()) {
 		zswap_pool_limit_hit++;
-		if (zpool_shrink(zswap_pool, 1, NULL)) {
+/*		if (zpool_shrink(zswap_pool, 1, NULL)) {
 			zswap_reject_reclaim_fail++;
 			ret = -ENOMEM;
 			goto reject;
-		}
+		}*/
+		ret = -ENOMEM;
+		goto reject;
 	}
 
 	/* allocate entry */
@@ -716,10 +936,33 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 		entry->zero_flag = 1;
 		kunmap_atomic(src);
 
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+		entry->offset = offset;
+		goto insert_entry;
+#else
 		handle = 0;
 		dlen = PAGE_SIZE;
 		goto zeropage_out;
+#endif
 	}
+	
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)	
+	checksum = jhash2((const u32 *)src, PAGE_SIZE / 4, 17);
+	spin_lock(&tree->lock); 
+	zhandle = zswap_same_page_search(tree, src, checksum);
+	if(zhandle) {
+		entry->offset = offset;
+		entry->zhandle = zhandle;
+		entry->zhandle->ref_count++;
+		spin_unlock(&tree->lock);
+		kunmap_atomic(src);
+		atomic_inc(&zswap_duplicate_pages);
+		goto insert_entry;
+	}
+	spin_unlock(&tree->lock);		
+#endif
+
+	/* compress */
 	dst = get_cpu_var(zswap_dstmem);
 
 	ret = zswap_comp_op(ZSWAP_COMPOP_COMPRESS, src, PAGE_SIZE, dst, &dlen);
@@ -751,9 +994,28 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 zeropage_out:
 	/* populate entry */
 	entry->offset = offset;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	zhandle = zswap_handle_cache_alloc(GFP_KERNEL);
+	if(!zhandle) {
+		ret = -ENOMEM;
+		goto freeentry;
+	}
+	entry->zhandle = zhandle;
+	entry->zhandle->handle = handle;
+	entry->zhandle->length = dlen;
+	entry->zhandle->checksum = checksum;
+#else
 	entry->handle = handle;
 	entry->length = dlen;
+#endif
 
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	spin_lock(&tree->lock);
+	ret = zswap_handle_rb_insert(&tree->zhandleroot, entry->zhandle, &duphandle);
+	spin_unlock(&tree->lock);
+	
+insert_entry:
+#endif
 	/* map */
 	spin_lock(&tree->lock);
 	do {
@@ -776,9 +1038,25 @@ zeropage_out:
 
 freepage:
 	put_cpu_var(zswap_dstmem);
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+freeentry:
+#endif
 	zswap_entry_cache_free(entry);
 reject:
 	return ret;
+}
+
+static void hexdump(char *title, u8 *data, int len)
+{
+	int i;
+
+	printk("%s: length = %d\n", title, len);
+	for (i = 0; i < len; i++) {
+		printk("%02x ", data[i]);
+		if ((i & 0xf) == 0xf)
+			printk("\n");
+	}
+	printk("\n");
 }
 
 /*
@@ -813,6 +1091,15 @@ static int zswap_frontswap_load(unsigned type, pgoff_t offset,
 
 	/* decompress */
 	dlen = PAGE_SIZE;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	src = (u8 *)zpool_map_handle(zswap_pool, entry->zhandle->handle,
+			ZPOOL_MM_RO) + sizeof(struct zswap_header);
+	dst = kmap_atomic(page);
+	ret = zswap_comp_op(ZSWAP_COMPOP_DECOMPRESS, src, entry->zhandle->length,
+		dst, &dlen);
+	kunmap_atomic(dst);
+	zpool_unmap_handle(zswap_pool, entry->zhandle->handle);
+#else
 	src = (u8 *)zpool_map_handle(zswap_pool, entry->handle,
 			ZPOOL_MM_RO) + sizeof(struct zswap_header);
 	dst = kmap_atomic(page);
@@ -820,7 +1107,19 @@ static int zswap_frontswap_load(unsigned type, pgoff_t offset,
 		dst, &dlen);
 	kunmap_atomic(dst);
 	zpool_unmap_handle(zswap_pool, entry->handle);
-	BUG_ON(ret);
+#endif
+
+	if (ret) {
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+		hexdump("src buffer", src, entry->zhandle->length);
+#else
+		hexdump("src buffer", src, entry->length);
+#endif
+		if (dlen)
+			hexdump("dest buffer", dst, dlen);
+		printk("zswap_comp_op returned %d\n", ret);
+		BUG_ON(ret);
+	}
 
 zeropage_out:
 	spin_lock(&tree->lock);
@@ -830,11 +1129,39 @@ zeropage_out:
 	return 0;
 }
 
+int sysctl_zswap_compact;
+
+int sysctl_zswap_compaction_handler(struct ctl_table *table, int write,
+			void __user *buffer, size_t *length, loff_t *ppos)
+{
+	if (write) {
+		sysctl_zswap_compact++;
+		zpool_compact(zswap_pool);
+		pr_info("zswap_compact: (%d times so far)\n",
+			sysctl_zswap_compact);
+	} else
+		proc_dointvec(table, write, buffer, length, ppos);
+
+	return 0;
+}
+
+static void zswap_compact_zpool(struct work_struct *work)
+{
+	sysctl_zswap_compact++;
+	zpool_compact(zswap_pool);
+	pr_info("zswap_compact: (%d times so far)\n",
+		sysctl_zswap_compact);
+}
+static DECLARE_WORK(zswap_compaction_work, zswap_compact_zpool);
+
 /* frees an entry in zswap */
 static void zswap_frontswap_invalidate_page(unsigned type, pgoff_t offset)
 {
 	struct zswap_tree *tree = zswap_trees[type];
 	struct zswap_entry *entry;
+#ifdef CONFIG_ZSWAP_COMPACTION
+	static unsigned long resume = 0;
+#endif
 
 	/* find */
 	spin_lock(&tree->lock);
@@ -852,6 +1179,15 @@ static void zswap_frontswap_invalidate_page(unsigned type, pgoff_t offset)
 	zswap_entry_put(tree, entry);
 
 	spin_unlock(&tree->lock);
+
+#ifdef CONFIG_ZSWAP_COMPACTION
+	if (time_is_before_jiffies(resume) &&
+		!work_pending(&zswap_compaction_work) &&
+		zpool_compactable(zswap_pool, zswap_compaction_pages)) {
+		resume = jiffies + zswap_compaction_interval * HZ;
+		schedule_work(&zswap_compaction_work);
+	}
+#endif
 }
 
 /* frees all zswap entries for the given swap type */
@@ -868,7 +1204,13 @@ static void zswap_frontswap_invalidate_area(unsigned type)
 	rbtree_postorder_for_each_entry_safe(entry, n, &tree->rbroot, rbnode)
 		zswap_free_entry(entry);
 	tree->rbroot = RB_ROOT;
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	tree->zhandleroot = RB_ROOT;
+#endif
 	spin_unlock(&tree->lock);
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	kfree(tree->buffer);
+#endif
 	kfree(tree);
 	zswap_trees[type] = NULL;
 }
@@ -886,7 +1228,16 @@ static void zswap_frontswap_init(unsigned type)
 		pr_err("alloc failed, zswap disabled for swap type %d\n", type);
 		return;
 	}
-
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	tree->buffer = (void *)__get_free_page(GFP_KERNEL | __GFP_ZERO);
+	if (!tree->buffer) {
+		pr_err("zswap: Error allocating compressor buffer\n");
+		kfree(tree);
+		tree=NULL;
+		return;
+	}
+	tree->zhandleroot = RB_ROOT;
+#endif
 	tree->rbroot = RB_ROOT;
 	spin_lock_init(&tree->lock);
 	zswap_trees[type] = tree;
@@ -937,6 +1288,10 @@ static int __init zswap_debugfs_init(void)
 			zswap_debugfs_root, &zswap_pool_pages);
 	debugfs_create_atomic_t("stored_pages", S_IRUGO,
 			zswap_debugfs_root, &zswap_stored_pages);
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	debugfs_create_atomic_t("duplicate_pages", S_IRUGO,
+			zswap_debugfs_root, &zswap_duplicate_pages);
+#endif
 	debugfs_create_atomic_t("zero_pages", S_IRUGO,
 			zswap_debugfs_root, &zswap_zero_pages);
 
@@ -968,11 +1323,12 @@ static int __init init_zswap(void)
 
 	pr_info("loading zswap\n");
 
-	zswap_pool = zpool_create_pool(zswap_zpool_type, gfp, &zswap_zpool_ops);
+	zswap_pool = zpool_create_pool(zswap_zpool_type, "zswap", gfp,
+					&zswap_zpool_ops);
 	if (!zswap_pool && strcmp(zswap_zpool_type, ZSWAP_ZPOOL_DEFAULT)) {
 		pr_info("%s zpool not available\n", zswap_zpool_type);
 		zswap_zpool_type = ZSWAP_ZPOOL_DEFAULT;
-		zswap_pool = zpool_create_pool(zswap_zpool_type, gfp,
+		zswap_pool = zpool_create_pool(zswap_zpool_type, "zswap", gfp,
 					&zswap_zpool_ops);
 	}
 	if (!zswap_pool) {
@@ -986,6 +1342,14 @@ static int __init init_zswap(void)
 		pr_err("entry cache creation failed\n");
 		goto cachefail;
 	}
+
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	if (zswap_handle_cache_create()) {
+			pr_err("handle cache creation failed\n");
+			goto handlecachefail;
+	}
+#endif
+
 	if (zswap_comp_init()) {
 		pr_err("compressor initialization failed\n");
 		goto compfail;
@@ -1002,6 +1366,10 @@ static int __init init_zswap(void)
 pcpufail:
 	zswap_comp_exit();
 compfail:
+#if defined(CONFIG_ZSWAP_SAME_PAGE_SHARING) && defined(CONFIG_MACH_J3XLTE_SWA)
+	zswap_handle_cache_destroy();
+handlecachefail:
+#endif
 	zswap_entry_cache_destroy();
 cachefail:
 	zpool_destroy_pool(zswap_pool);

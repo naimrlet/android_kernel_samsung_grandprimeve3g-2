@@ -114,6 +114,22 @@ unsigned long dirty_balance_reserve __read_mostly;
 int percpu_pagelist_fraction;
 gfp_t gfp_allowed_mask __read_mostly = GFP_BOOT_MASK;
 
+#ifdef CONFIG_SEC_OOM_KILLER
+static unsigned int boot_mode = 0;
+
+static int __init setup_bootmode(char *str)
+{
+	printk("%s: boot_mode is %u\n", __func__, boot_mode);
+	if (get_option(&str, &boot_mode)) {
+		printk("%s: boot_mode is %u\n", __func__, boot_mode);
+		return 0;
+	}
+
+	return -EINVAL;
+}
+early_param("bootmode", setup_bootmode);
+#endif
+
 #ifdef CONFIG_PM_SLEEP
 /*
  * The following functions are used by the suspend/hibernate code to temporarily
@@ -299,6 +315,27 @@ static inline int bad_range(struct zone *zone, struct page *page)
 	return 0;
 }
 #endif
+
+#ifdef CONFIG_MEM_PAGE_ORDER_TRACE
+
+unsigned int page_order_trace[MAX_ORDER] = {0};
+int sysctl_mem_porder_trace;
+
+int sysctl_mem_porder_trace_handler(struct ctl_table *table, int write,
+			void __user *buffer, size_t *length, loff_t *ppos)
+{
+	int i;
+	proc_dointvec(table, write, buffer, length, ppos);
+	if (write) {
+		pr_info("sysctl_mem_porder_trace changed %d\n", sysctl_mem_porder_trace);
+		if (sysctl_mem_porder_trace == 1) {
+			for(i = MIN_ORDER_RECLAIM; i < (MAX_ORDER_RECLAIM); i++)
+				page_order_trace[i] = 0;
+		}
+	}
+	return 0;
+}
+#endif /* CONFIG_MEM_PAGE_ORDER_TRACE */
 
 static void bad_page(struct page *page)
 {
@@ -926,7 +963,6 @@ struct page *__rmqueue_smallest(struct zone *zone, unsigned int order,
 		rmv_page_order(page);
 		area->nr_free--;
 		expand(zone, page, order, current_order, area, migratetype);
-		set_freepage_migratetype(page, migratetype);
 		return page;
 	}
 
@@ -1109,13 +1145,6 @@ __rmqueue_fallback(struct zone *zone, int order, int start_migratetype)
 			       is_migrate_cma(migratetype)
 			     ? migratetype : start_migratetype);
 
-			/* The freepage_migratetype may differ from pageblock's
-			 * migratetype depending on the decisions in
-			 * try_to_steal_freepages. This is OK as long as it does
-			 * not differ for MIGRATE_CMA type.
-			 */
-			set_freepage_migratetype(page, migratetype);
-
 			trace_mm_page_alloc_extfrag(page, order, current_order,
 				start_migratetype, migratetype);
 
@@ -1196,7 +1225,7 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 			unsigned long count, struct list_head *list,
 			int migratetype, int cold, int cma)
 {
-	int i;
+	int mt = migratetype, i;
 
 	spin_lock(&zone->lock);
 	for (i = 0; i < count; ++i) {
@@ -1221,8 +1250,14 @@ static int rmqueue_bulk(struct zone *zone, unsigned int order,
 			list_add(&page->lru, list);
 		else
 			list_add_tail(&page->lru, list);
+		if (IS_ENABLED(CONFIG_CMA)) {
+			mt = get_pageblock_migratetype(page);
+			if (!is_migrate_cma(mt) && !is_migrate_isolate(mt))
+				mt = migratetype;
+		}
+		set_freepage_migratetype(page, mt);
 		list = &page->lru;
-		if (is_migrate_cma(get_freepage_migratetype(page)))
+		if (is_migrate_cma(mt))
 			__mod_zone_page_state(zone, NR_FREE_CMA_PAGES,
 					      -(1 << order));
 	}
@@ -1594,7 +1629,7 @@ again:
 		if (!page)
 			goto failed;
 		__mod_zone_freepage_state(zone, -(1 << order),
-					  get_freepage_migratetype(page));
+					  get_pageblock_migratetype(page));
 	}
 
 	__count_zone_vm_events(PGALLOC, zone, 1 << order);
@@ -2329,7 +2364,7 @@ __perform_reclaim(gfp_t gfp_mask, unsigned int order, struct zonelist *zonelist,
 	lockdep_set_current_reclaim_state(gfp_mask);
 	reclaim_state.reclaimed_slab = 0;
 	current->reclaim_state = &reclaim_state;
-
+    
 	progress = try_to_free_pages(zonelist, order, gfp_mask, nodemask);
 
 	current->reclaim_state = NULL;
@@ -2631,7 +2666,7 @@ rebalance:
 	 * running out of options and have to consider going OOM
 	 */
 #ifdef CONFIG_SEC_OOM_KILLER
-#define SHOULD_CONSIDER_OOM !did_some_progress || time_after(jiffies, oom_invoke_timeout)
+#define SHOULD_CONSIDER_OOM (!did_some_progress || time_after(jiffies, oom_invoke_timeout)) && (boot_mode != 2)
 #else
 #define SHOULD_CONSIDER_OOM !did_some_progress
 #endif
@@ -2765,6 +2800,11 @@ retry_cpuset:
 				&preferred_zone);
 	if (!preferred_zone)
 		goto out;
+    
+#ifdef CONFIG_MEM_PAGE_ORDER_TRACE
+	if ((order < MAX_ORDER_RECLAIM) && (order >= MIN_ORDER_RECLAIM) && (sysctl_mem_porder_trace == 1))
+			page_order_trace[order] += 1;
+#endif /* CONFIG_MEM_PAGE_ORDER_TRACE */
 
 #ifdef CONFIG_CMA
 	if (allocflags_to_migratetype(gfp_mask) == MIGRATE_MOVABLE)
